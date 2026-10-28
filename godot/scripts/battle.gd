@@ -100,7 +100,12 @@ func _ready() -> void:
 	bushes = data.bushes
 	props = data.props
 	terra = Terrain.new()
-	terra.generate(map_key, zones, obst, data.craters, data.roads)
+	var ao_pts: Array = []
+	for b in bushes:
+		ao_pts.append(Vector3(b.pos.x, b.pos.y, float(b.r) * 1.1))
+	for pr in props:
+		ao_pts.append(Vector3(pr.pos.x, pr.pos.y, 9.0 if pr.kind == "fence" else 14.0))
+	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts)
 	terra.build(self, map_key, hq)
 	var built := MapGen.build(self, data, map_key, zones, terra, hq)
 	bush_mat = built.bush_mat
@@ -141,14 +146,55 @@ func _ready() -> void:
 	_sync(0.0)
 
 
+const SKY_SHADER := """
+shader_type sky;
+uniform vec3 top_color : source_color;
+uniform vec3 horizon_color : source_color;
+uniform vec3 ground_color : source_color;
+uniform sampler2D clouds : filter_linear_mipmap, repeat_enable;
+uniform float cover = 0.5;
+
+void sky() {
+	vec3 d = EYEDIR;
+	float h = d.y;
+	vec3 col = mix(horizon_color, top_color, smoothstep(0.0, 0.55, h));
+	if (h < 0.0) {
+		col = mix(horizon_color, ground_color, smoothstep(0.0, -0.25, h));
+	}
+	float sd = max(dot(d, LIGHT0_DIRECTION), 0.0);
+	col += LIGHT0_COLOR * (pow(sd, 900.0) * 6.0 + pow(sd, 12.0) * 0.18) * (1.0 - cover * 0.7);
+	if (h > 0.005) {
+		vec2 uv = d.xz / (h + 0.06) * 0.22 + vec2(TIME * 0.003, TIME * 0.001);
+		float c = texture(clouds, uv).r * 0.7 + texture(clouds, uv * 2.7 + 0.3).r * 0.3;
+		float k = smoothstep(1.0 - cover - 0.05, 1.0 - cover + 0.35, c) * smoothstep(0.0, 0.18, h);
+		// освещённая верхушка и тёмное брюхо облака
+		vec3 lit = mix(vec3(0.95, 0.95, 0.93), horizon_color, 0.25) + LIGHT0_COLOR * pow(sd, 6.0) * 0.3;
+		vec3 dark = mix(vec3(0.55, 0.57, 0.6), horizon_color * 0.8, 0.3);
+		vec3 cc = mix(lit, dark, smoothstep(0.55, 1.0, c) * cover);
+		col = mix(col, cc, k * 0.92);
+	}
+	COLOR = col;
+}
+"""
+
+
 func _make_env() -> void:
 	var M: Dictionary = D.MAPS[map_key]
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(M.sky_top)
-	sky_mat.sky_horizon_color = Color(M.sky_hor)
-	sky_mat.ground_horizon_color = Color(M.sky_hor)
-	sky_mat.ground_bottom_color = Color(M.g1).darkened(0.3)
-	sky_mat.sky_curve = 0.12
+	var sky_sh := Shader.new()
+	sky_sh.code = SKY_SHADER
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = sky_sh
+	sky_mat.set_shader_parameter("top_color", Color(M.sky_top))
+	sky_mat.set_shader_parameter("horizon_color", Color(M.sky_hor))
+	sky_mat.set_shader_parameter("ground_color", Color(M.g1).darkened(0.3))
+	var cn := FastNoiseLite.new()
+	cn.seed = randi()
+	cn.frequency = 0.012
+	cn.fractal_octaves = 5
+	var cimg := cn.get_seamless_image(512, 512)
+	cimg.generate_mipmaps()
+	sky_mat.set_shader_parameter("clouds", ImageTexture.create_from_image(cimg))
+	sky_mat.set_shader_parameter("cover", {"prokhorovka": 0.5, "alamein": 0.22, "stalingrad": 0.88}[map_key])
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()

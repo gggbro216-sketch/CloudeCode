@@ -12,6 +12,7 @@ const CELL := SIZE / N
 var h := PackedFloat32Array()
 var mask: Image  # R — дорога, G — гарь воронок, B — пахота/грязь
 var mask_tex: ImageTexture
+var ao_tex: ImageTexture  # затенение у подножия построек, остовов, кустов
 
 
 func height(x: float, z: float) -> float:
@@ -46,7 +47,7 @@ func _window(r: Rect2) -> Array:
 	return [x0, x1, z0, z1]
 
 
-func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array) -> void:
+func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array, ao_points := []) -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	var relief: float = M.relief
 	var ws := D.WS
@@ -119,6 +120,7 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 				elif d < 1.35:
 					h[i] += rad * 0.06 * sin((d - 1.0) / 0.35 * PI)
 	_paint_mask(map_key, craters, roads)
+	_paint_ao(obst, ao_points)
 
 
 func _brush(r: int, c: Color) -> Image:
@@ -176,12 +178,86 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	mask_tex = ImageTexture.create_from_image(mask)
 
 
+## Карта затенения: тёмные ореолы у оснований построек и под кустами (вместо SSAO,
+## которого нет в мобильном рендере).
+func _paint_ao(obst: Array, points: Array) -> void:
+	var S := 512
+	var k := S / SIZE
+	var img := Image.create(S, S, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1, 1, 1, 1))
+	var brushes := {}
+	var stamp := func(x: float, z: float, r: float, strength: float) -> void:
+		var br := maxi(2, int(r * k))
+		var key := "%d_%d" % [br, int(strength * 10)]
+		if not brushes.has(key):
+			brushes[key] = _brush(br, Color(0, 0, 0, strength))
+		img.blend_rect(brushes[key], Rect2i(0, 0, br * 2 + 1, br * 2 + 1), Vector2i(int((x - ORIGIN) * k) - br, int((z - ORIGIN) * k) - br))
+	for o in obst:
+		var r: Rect2 = o.r
+		var strength := 0.45 if o.solid else 0.25
+		var step := 9.0
+		var x := r.position.x
+		while x <= r.end.x:
+			stamp.call(x, r.position.y, 12.0, strength)
+			stamp.call(x, r.end.y, 12.0, strength)
+			x += step
+		var z := r.position.y
+		while z <= r.end.y:
+			stamp.call(r.position.x, z, 12.0, strength)
+			stamp.call(r.end.x, z, 12.0, strength)
+			z += step
+	for p in points:
+		stamp.call(p.x, p.y, p.z, 0.35)
+	img.generate_mipmaps()
+	ao_tex = ImageTexture.create_from_image(img)
+
+
+## Детальная текстура грунта (альбедо и рельеф) для мелкого масштаба под гусеницами.
+static func _detail(surf: String) -> Array:
+	var S := 256
+	var n := FastNoiseLite.new()
+	n.seed = 77
+	n.frequency = 0.06
+	n.fractal_octaves = 4
+	var fine := FastNoiseLite.new()
+	fine.seed = 9
+	fine.frequency = 0.35
+	var a := n.get_seamless_image(S, S)
+	var b := fine.get_seamless_image(S, S)
+	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
+	var h := Image.create(S, S, false, Image.FORMAT_RGB8)
+	for y in S:
+		for x in S:
+			var va := a.get_pixel(x, y).r
+			var vb := b.get_pixel(x, y).r
+			var v := 0.0
+			match surf:
+				"sand":
+					# рябь барханов
+					v = 0.5 + 0.35 * sin((x + va * 40.0) * 0.32) + (vb - 0.5) * 0.3
+				"snow":
+					v = 0.5 + (va - 0.5) * 0.6 + (vb - 0.5) * 0.15
+				_:
+					# трава: короткие штрихи стеблей поверх комковатой земли
+					v = 0.4 + (va - 0.5) * 0.5 + pow(vb, 3.0) * 0.8
+			v = clampf(v, 0.0, 1.0)
+			img.set_pixel(x, y, Color(v, v, v))
+			h.set_pixel(x, y, Color(v, v, v))
+	img.generate_mipmaps()
+	h.bump_map_to_normal_map(3.0 if surf == "grass" else 2.0)
+	h.generate_mipmaps()
+	return [ImageTexture.create_from_image(img), ImageTexture.create_from_image(h)]
+
+
 const SHADER := """
 shader_type spatial;
-render_mode diffuse_lambert, specular_disabled;
+render_mode diffuse_lambert, specular_schlick_ggx;
 
 uniform sampler2D mask_tex : filter_linear_mipmap;
+uniform sampler2D ao_tex : filter_linear_mipmap;
 uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
+uniform sampler2D detail_tex : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D detail_nrm : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 c_g1 : source_color;
 uniform vec3 c_g2 : source_color;
 uniform vec3 c_rock : source_color;
@@ -190,6 +266,7 @@ uniform vec3 c_dirt : source_color;
 uniform vec3 c_scorch : source_color;
 uniform float origin;
 uniform float size;
+uniform float snow = 0.0;
 varying vec3 wpos;
 varying vec3 wnrm;
 
@@ -199,19 +276,29 @@ void vertex() {
 }
 
 void fragment() {
-	vec4 m = texture(mask_tex, (wpos.xz - vec2(origin)) / size);
+	vec2 muv = (wpos.xz - vec2(origin)) / size;
+	vec4 m = texture(mask_tex, muv);
+	float ao = texture(ao_tex, muv).r;
 	float n_big = texture(noise_tex, wpos.xz * 0.0011).r;
 	float n_mid = texture(noise_tex, wpos.xz * 0.009).r;
-	float n_fine = texture(noise_tex, wpos.xz * 0.07).r;
+	float d1 = texture(detail_tex, wpos.xz * 0.11).r;
+	float d2 = texture(detail_tex, wpos.xz * 0.023).r;
 	vec3 c = mix(c_g1, c_g2, smoothstep(0.3, 0.75, n_big * 0.6 + n_mid * 0.4));
-	c *= 0.86 + 0.28 * n_fine;
+	c *= 0.72 + 0.5 * d1 * (0.6 + 0.4 * d2);
 	float slope = 1.0 - wnrm.y;
-	c = mix(c, c_rock * (0.8 + 0.4 * n_mid), smoothstep(0.18, 0.38, slope + (n_mid - 0.5) * 0.12));
-	c = mix(c, c_dirt * (0.8 + 0.4 * n_fine), m.b * 0.85);
-	c = mix(c, c_road * (0.78 + 0.44 * n_fine), smoothstep(0.15, 0.7, m.r));
-	c = mix(c, c_scorch * (0.75 + 0.5 * n_fine), smoothstep(0.1, 0.8, m.g) * 0.9);
+	float rock = smoothstep(0.18, 0.38, slope + (n_mid - 0.5) * 0.12);
+	c = mix(c, c_rock * (0.75 + 0.5 * d2), rock);
+	c = mix(c, c_dirt * (0.7 + 0.5 * d1), m.b * 0.85);
+	// дорога: колеи вдоль и утоптанная середина
+	float road = smoothstep(0.15, 0.7, m.r);
+	c = mix(c, c_road * (0.72 + 0.5 * d1), road);
+	c = mix(c, c_scorch * (0.7 + 0.6 * d1), smoothstep(0.1, 0.8, m.g) * 0.9);
+	c *= mix(0.55, 1.0, ao);
 	ALBEDO = c;
-	ROUGHNESS = 1.0;
+	NORMAL_MAP = texture(detail_nrm, wpos.xz * 0.11).rgb;
+	NORMAL_MAP_DEPTH = mix(1.0, 0.4, road) * (1.0 - rock * 0.5);
+	ROUGHNESS = mix(1.0, 0.55, snow * (1.0 - road));
+	SPECULAR = snow * 0.4;
 }
 """
 
@@ -260,6 +347,11 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	mat.shader = sh
 	mat.set_shader_parameter("mask_tex", mask_tex)
 	mat.set_shader_parameter("noise_tex", ImageTexture.create_from_image(nimg))
+	mat.set_shader_parameter("ao_tex", ao_tex)
+	var det := _detail(M.surf)
+	mat.set_shader_parameter("detail_tex", det[0])
+	mat.set_shader_parameter("detail_nrm", det[1])
+	mat.set_shader_parameter("snow", 1.0 if M.surf == "snow" else 0.0)
 	for k in ["g1", "g2", "rock", "road", "dirt", "scorch"]:
 		mat.set_shader_parameter("c_" + k, Color(M[k]))
 	mat.set_shader_parameter("origin", ORIGIN)

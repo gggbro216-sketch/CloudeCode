@@ -1,6 +1,8 @@
 extends Node3D
 ## Эффекты частиц: вспышки выстрелов, искры, пыль, дым и взрывы.
 
+const TexLib = preload("res://scripts/textures.gd")
+
 var soft: GradientTexture2D
 var mats := {}
 var quads := {}
@@ -62,7 +64,7 @@ func _quad(size: float, add: bool) -> QuadMesh:
 			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		m.vertex_color_use_as_albedo = true
 		m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-		m.albedo_texture = soft
+		m.albedo_texture = soft if add else TexLib.puff_texture()
 		m.disable_receive_shadows = true
 		mats[add] = m
 	var q := QuadMesh.new()
@@ -94,6 +96,11 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 	p.scale_amount_curve = grow_curve if grow else shrink_curve
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.local_coords = false
+	if not add:
+		p.angle_min = -180.0
+		p.angle_max = 180.0
+		p.angular_velocity_min = -25.0
+		p.angular_velocity_max = 25.0
 	if parent:
 		parent.add_child(p)
 		p.position = at

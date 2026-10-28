@@ -5,6 +5,7 @@ extends RefCounted
 
 const D = preload("res://scripts/data.gd")
 const Geo = preload("res://scripts/geo.gd")
+const TexLib = preload("res://scripts/textures.gd")
 
 
 class Obst:
@@ -388,23 +389,6 @@ static func mat(c: Color, unshaded := false, rough := 0.95) -> StandardMaterial3
 	return m
 
 
-static func _window_texture(snowy: bool) -> ImageTexture:
-	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
-	img.fill(Color("8a8378") if not snowy else Color("8c8f92"))
-	img.fill_rect(Rect2i(0, 56, 64, 8), Color("6f6a62"))
-	for p in [Vector2i(9, 12), Vector2i(37, 12), Vector2i(9, 34), Vector2i(37, 34)]:
-		img.fill_rect(Rect2i(p.x, p.y, 17, 16), Color("1d1c1a"))
-		img.fill_rect(Rect2i(p.x - 1, p.y + 16, 19, 2), Color("a9a49b"))
-	# следы копоти и выбоины
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	for i in 40:
-		var c := Color(0.15, 0.14, 0.12) if rng.randf() < 0.6 else Color(0.62, 0.58, 0.52)
-		img.fill_rect(Rect2i(rng.randi() % 62, rng.randi() % 62, 2 + rng.randi() % 3, 2 + rng.randi() % 3), c)
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
-
 const BUSH_SHADER := """
 shader_type spatial;
 render_mode diffuse_lambert, specular_disabled;
@@ -441,19 +425,20 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	body.collision_layer = 2
 	body.collision_mask = 0
 	parent.add_child(body)
+	var sn := 1.0 if winter else 0.0
+	var Tx := func(kind: String, sc: float, tint := Color.WHITE) -> ShaderMaterial:
+		return TexLib.world_mat(kind, Vector3(sc, sc, sc), sn, 0.25 if desert else 0.4, tint)
 	var M := {
-		"plaster": mat(Color("cfc4a8")), "brick": mat(Color("7a5a4a")), "roof": mat(Color("6b4a30")),
-		"concrete": mat(Color("85837a")), "concrete_d": mat(Color("5e5d57")), "wood": mat(Color("5d4630")),
-		"steel": mat(Color("3a3a35"), false, 0.6), "rust": mat(Color("5a3a28")), "charred": mat(Color("2d2a26")),
-		"sand": mat(Color("a8916a") if desert else Color("8d7f5c")), "rubble": mat(Color("7b736a") if not winter else Color("8a8784")),
-		"rock": mat(Color("9a8064")), "snow": mat(Color("eef3f6")), "canvas": mat(Color("8c8360")),
-		"olive": mat(Color("4d5233")), "pole": mat(Color("4a3a2a")),
+		"plaster": Tx.call("plaster", 1.0 / 15.0), "brick": Tx.call("brick", 1.0 / 15.0), "roof": Tx.call("roof", 1.0 / 22.0),
+		"concrete": Tx.call("concrete", 1.0 / 30.0), "concrete_d": Tx.call("concrete", 1.0 / 30.0, Color(0.72, 0.72, 0.7)),
+		"wood": Tx.call("wood", 1.0 / 16.0), "steel": Tx.call("rust", 1.0 / 14.0, Color(0.55, 0.58, 0.55)),
+		"rust": Tx.call("rust", 1.0 / 12.0), "charred": Tx.call("charred", 1.0 / 20.0),
+		"sand": Tx.call("sandbag", 1.0 / 8.0, Color(1.05, 1.0, 0.92) if desert else Color(0.9, 0.88, 0.8)),
+		"rubble": Tx.call("rubble", 1.0 / 12.0), "rock": Tx.call("sandstone" if desert else "granite", 1.0 / 40.0),
+		"snow": mat(Color("eef3f6")), "canvas": Tx.call("sandbag", 1.0 / 18.0, Color(0.95, 0.92, 0.75)),
+		"olive": mat(Color("4d5233")), "pole": Tx.call("wood", 1.0 / 10.0, Color(0.7, 0.65, 0.6)),
 	}
-	var win := mat(Color.WHITE)
-	win.albedo_texture = _window_texture(winter)
-	win.uv1_triplanar = true
-	win.uv1_world_triplanar = true
-	win.uv1_scale = Vector3(1.0 / 26.0, 1.0 / 22.0, 1.0 / 26.0)
+	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45)
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var smokes: Array = []
@@ -658,6 +643,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		for part in parts[pk]:
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
 			mm.mesh = part[0]
 			mm.instance_count = count
 			var mmi := MultiMeshInstance3D.new()
@@ -671,37 +657,27 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		var i: int = counters.get(pr.kind, 0)
 		counters[pr.kind] = i + 1
 		pr.y = terra.height(pr.pos.x, pr.pos.y)
+		var tint := Color.from_hsv(rng.randf_range(-0.03, 0.04), rng.randf_range(0.0, 0.25), rng.randf_range(0.8, 1.15))
 		for part in parts[pr.kind]:
 			pr.mms.append([mms[part], i])
+			(mms[part] as MultiMesh).set_instance_color(i, tint)
 		place_prop(pr)
 
-	# трава или камешки
-	if not winter:
-		var n := 1400 if hq else 600
+	# камешки в пустыне
+	if desert:
+		var n := 900 if hq else 400
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		var tuft := Geo.Group.new()
-		if desert:
-			tuft.add(Geo.sphere(5, 3), Transform3D(Basis.from_scale(Vector3(3, 1.6, 2.6)), Vector3.ZERO), M.rock, true)
-		else:
-			for k in 3:
-				tuft.add(Geo.cyl(0.0, 0.9, 4.5, 3), Transform3D(Basis(Vector3.UP, k * 2.1) * Basis(Vector3.BACK, 0.25), Vector3(cos(k * 2.1) * 0.8, 2.0, sin(k * 2.1) * 0.8)), M.rock, true)
-		var tmp := Node3D.new()
-		var made: Array = tuft.commit(tmp, false)
-		mm.mesh = (made[0] as MeshInstance3D).mesh
-		tmp.free()
+		tuft.add(Geo.sphere(5, 3), Transform3D(Basis.from_scale(Vector3(3, 1.6, 2.6)), Vector3.ZERO), M.rock, true)
+		mm.mesh = _one(tuft)
 		mm.instance_count = n
 		var placed := 0
 		for t in n * 3:
 			if placed >= n:
 				break
 			var p := Vector2(rng.randf_range(-200, D.WS + 200), rng.randf_range(-200, D.WS + 200))
-			var blocked := false
-			for o in data.obst:
-				if (o.r as Rect2).grow(4).has_point(p):
-					blocked = true
-					break
-			if blocked:
+			if _blocked(p, data.obst, 4.0):
 				continue
 			var s := rng.randf_range(0.6, 1.5)
 			mm.set_instance_transform(placed, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s)), Vector3(p.x, terra.height(p.x, p.y), p.y)))
@@ -709,9 +685,12 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		mm.visible_instance_count = placed
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		mmi.material_override = mat(Color("55702f") if not desert else Color("9a7c52"))
+		mmi.material_override = M.rock
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(mmi)
+	# трава, качающаяся на ветру: участки с отсечением по дальности
+	if hq or not winter:
+		_grass(parent, data, terra, rng, map_key, hq)
 
 	# зоны захвата на ровных площадках
 	for z in zones:
@@ -762,6 +741,129 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	return {"bush_mat": bmat, "smokes": smokes}
 
 
+static func _blocked(p: Vector2, obst: Array, m: float) -> bool:
+	for o in obst:
+		if (o.r as Rect2).grow(m).has_point(p):
+			return true
+	return false
+
+
+const GRASS_SHADER := """
+shader_type spatial;
+render_mode cull_disabled, diffuse_lambert;
+uniform sampler2D tex : source_color, filter_linear_mipmap;
+uniform vec4 tint : source_color = vec4(1.0);
+varying float hgt;
+
+void vertex() {
+	hgt = 1.0 - UV.y;
+	vec3 o = MODEL_MATRIX[3].xyz;
+	float t = TIME * 1.8 + o.x * 0.08 + o.z * 0.06;
+	VERTEX.x += sin(t) * 0.7 * hgt;
+	VERTEX.z += cos(t * 1.3) * 0.5 * hgt;
+	NORMAL = vec3(0.0, 1.0, 0.0);
+}
+
+void fragment() {
+	vec4 c = texture(tex, UV);
+	if (c.a < 0.5) {
+		discard;
+	}
+	ALBEDO = c.rgb * tint.rgb * COLOR.rgb * (0.6 + 0.4 * hgt);
+}
+"""
+
+const FOLIAGE_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert;
+uniform vec4 base : source_color = vec4(0.3, 0.42, 0.18, 1.0);
+uniform float crown_from = 12.0;
+uniform float sway = 0.5;
+varying float lh;
+
+void vertex() {
+	vec3 o = MODEL_MATRIX[3].xyz;
+	float h = max(VERTEX.y - crown_from, 0.0) / 20.0;
+	float t = TIME * 1.1 + o.x * 0.05 + o.z * 0.07;
+	VERTEX.x += sin(t) * sway * h * 2.0;
+	VERTEX.z += cos(t * 0.8) * sway * h * 1.5;
+	lh = VERTEX.y;
+}
+
+void fragment() {
+	// нижняя часть кроны в тени
+	float shade = clamp((lh - crown_from) / 18.0, 0.0, 1.0);
+	ALBEDO = base.rgb * COLOR.rgb * (0.55 + 0.5 * shade);
+	ROUGHNESS = 0.9;
+}
+"""
+
+
+static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGenerator, map_key: String, hq: bool) -> void:
+	var dry := map_key != "prokhorovka"
+	var total := 9000 if map_key == "prokhorovka" else 2500
+	if map_key == "stalingrad":
+		total = 900
+	if not hq:
+		total /= 3
+	var sh := Shader.new()
+	sh.code = GRASS_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("tex", TexLib.grass_texture(dry))
+	m.set_shader_parameter("tint", Color(0.92, 0.95, 0.85) if map_key == "stalingrad" else Color.WHITE)
+	var g := Geo.Group.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(7, 4.6)
+	for k in 3:
+		g.add(q, Transform3D(Basis(Vector3.UP, k * PI / 3.0), Vector3(0, 2.3, 0)), m)
+	var tuft := _one(g)
+	var chunks := 8
+	var cs := (D.WS + 200.0) / chunks
+	var per := total / (chunks * chunks)
+	for cx in chunks:
+		for cz in chunks:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
+			mm.mesh = tuft
+			mm.instance_count = per
+			var placed := 0
+			for t in per * 3:
+				if placed >= per:
+					break
+				var p := Vector2(-100.0 + (cx + rng.randf()) * cs, -100.0 + (cz + rng.randf()) * cs)
+				if _blocked(p, data.obst, 3.0):
+					continue
+				var mk: Color = terra.mask.get_pixel(clampi(int((p.x - terra.ORIGIN) / terra.SIZE * 1024), 0, 1023), clampi(int((p.y - terra.ORIGIN) / terra.SIZE * 1024), 0, 1023))
+				if mk.r > 0.35 or mk.g > 0.4:
+					continue
+				var s := rng.randf_range(0.7, 1.4)
+				var b := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.8, 1.3), s))
+				mm.set_instance_transform(placed, Transform3D(b, Vector3(p.x, terra.height(p.x, p.y) - 0.2, p.y)))
+				mm.set_instance_color(placed, Color.from_hsv(rng.randf_range(-0.04, 0.04), rng.randf_range(0.0, 0.2), rng.randf_range(0.8, 1.15)))
+				placed += 1
+			mm.visible_instance_count = placed
+			var mmi := MultiMeshInstance3D.new()
+			mmi.multimesh = mm
+			mmi.material_override = m
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mmi.visibility_range_end = 380.0
+			mmi.visibility_range_end_margin = 40.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+			parent.add_child(mmi)
+
+
+static func _foliage(c: Color, crown_from: float) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = FOLIAGE_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("base", c)
+	m.set_shader_parameter("crown_from", crown_from)
+	return m
+
+
 static func _phys(body: StaticBody3D, center: Vector3, size: Vector3, yaw := 0.0) -> void:
 	var cs := CollisionShape3D.new()
 	var bx := BoxShape3D.new()
@@ -775,19 +877,24 @@ static func _phys(body: StaticBody3D, center: Vector3, size: Vector3, yaw := 0.0
 static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	var out := {}
 	var trunk := mat(Color("4b3a2a"))
-	var leaves := mat(Color("3f6129"))
+	trunk.vertex_color_use_as_albedo = true
+	var leaves := _foliage(Color("3f6129"), 12.0)
 	var t := Geo.Group.new()
 	t.add(Geo.cyl(0.8, 1.4, 20, 7), Geo.xf(Vector3(0, 10, 0)), trunk)
+	for k in 3:
+		var a := k * 2.1 + 0.4
+		t.add(Geo.cyl(0.25, 0.55, 8, 5), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.7), Vector3(cos(a) * 2.0, 18.5, sin(a) * 2.0)), trunk)
 	var crown := Geo.Group.new()
-	for k in 4:
-		var a := k * 1.7
-		crown.add(Geo.sphere(7, 4), Transform3D(Basis.from_scale(Vector3(13, 11, 13) * (1.0 - k * 0.08)), Vector3(cos(a) * 3.5, 22 + k * 2.5, sin(a) * 3.5)), leaves, true)
+	var blobs := [[0.0, 0.0, 27.0, 14.0], [5.5, 1.0, 23.0, 11.0], [-5.0, 2.5, 23.5, 11.0], [1.5, -5.5, 22.5, 10.5],
+		[-2.0, 5.5, 24.0, 10.5], [4.0, -2.5, 29.5, 9.0], [-3.5, -2.0, 30.0, 8.5]]
+	for bl in blobs:
+		crown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.82, bl[3])), Vector3(bl[0], bl[2], bl[1])), leaves, true)
 	out["tree"] = [[_one(t), trunk], [_one(crown), leaves]]
 	var palm_t := Geo.Group.new()
 	for k in 4:
 		palm_t.add(Geo.cyl(0.7, 0.9, 8.5, 6), Geo.xf(Vector3(k * 0.6, 4 + k * 8, 0), Vector3(0, 0, -0.06 * k)), trunk)
 	var fronds := Geo.Group.new()
-	var green := mat(Color("4d6a2b"))
+	var green := _foliage(Color("4d6a2b"), 28.0)
 	for k in 7:
 		var a := k * TAU / 7.0
 		fronds.add(Geo.box(Vector3(12, 0.4, 3)), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.45), Vector3(2.4 + cos(a) * 5, 34, sin(a) * 5)), green)

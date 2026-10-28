@@ -4,6 +4,8 @@ extends Node3D
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
 const TankScript = preload("res://scripts/tank.gd")
+const Geo = preload("res://scripts/geo.gd")
+const TexLib = preload("res://scripts/textures.gd")
 
 var main  # main.gd
 var cam: Camera3D
@@ -55,47 +57,56 @@ func _ready() -> void:
 	_select_tank(main.save.tank)
 
 
+## Интерьер ангара: бетонный пол, стены из профнастила, фермы перекрытия, лампы над танком.
 func _build_scene() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("1a1f15")
+	env.background_color = Color("15130f")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("8a9478")
-	env.ambient_light_energy = 0.7
+	env.ambient_light_color = Color("9a9078")
+	env.ambient_light_energy = 0.38
 	env.fog_enabled = true
-	env.fog_light_color = Color("1a1f15")
-	env.fog_density = 0.006
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color("1d1a15")
+	env.fog_depth_begin = 180.0
+	env.fog_depth_end = 520.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-48, 30, 0)
-	sun.light_energy = 1.1
-	sun.shadow_enabled = true
-	add_child(sun)
-	var lamp := OmniLight3D.new()
-	lamp.position = Vector3(-40, 60, 50)
-	lamp.light_color = Color("f0b73a")
-	lamp.light_energy = 1.5
-	lamp.omni_range = 160
-	add_child(lamp)
-	# площадка-поворотный круг
-	var floor_m := StandardMaterial3D.new()
-	floor_m.albedo_color = Color("2a3022")
-	floor_m.roughness = 0.7
-	var disc := CylinderMesh.new()
-	disc.top_radius = 62
-	disc.bottom_radius = 64
-	disc.height = 3
-	disc.radial_segments = 48
-	var dmi := MeshInstance3D.new()
-	dmi.mesh = disc
-	dmi.material_override = floor_m
-	dmi.position.y = -1.5
-	add_child(dmi)
+	var g := Geo.Group.new()
+	var floor_m := TexLib.world_mat("concrete", Vector3(1, 1, 1) / 40.0, 0.0, 0.5, Color(0.75, 0.73, 0.68))
+	var wall_m := TexLib.world_mat("rust", Vector3(1, 1, 1) / 30.0, 0.0, 0.3, Color(0.75, 0.78, 0.72))
+	var beam_m := TexLib.world_mat("rust", Vector3(1, 1, 1) / 12.0, 0.0, 0.2, Color(0.55, 0.55, 0.52))
+	var wood_m := TexLib.world_mat("wood", Vector3(1, 1, 1) / 14.0)
+	var steel_m := TexLib.world_mat("concrete", Vector3(1, 1, 1) / 20.0, 0.0, 0.2, Color(0.45, 0.47, 0.45))
+	g.add(Geo.box(Vector3(700, 2, 700)), Geo.xf(Vector3(0, -1, 0)), floor_m)
+	# стены из профнастила: рёбра через каждые 6 единиц
+	for side in 4:
+		var bs := Basis(Vector3.UP, side * PI / 2)
+		g.add(Geo.box(Vector3(500, 190, 4)), Transform3D(bs, bs * Vector3(0, 95, -250)), wall_m)
+		for k in 80:
+			g.add(Geo.box(Vector3(2.2, 190, 3)), Transform3D(bs, bs * Vector3(-240 + k * 6.1, 95, -247.5)), wall_m)
+	# фермы перекрытия
+	for k in 5:
+		var z := -200.0 + k * 100.0
+		g.add(Geo.box(Vector3(500, 5, 5)), Geo.xf(Vector3(0, 170, z)), beam_m)
+		for x in range(-240, 241, 40):
+			g.add(Geo.box(Vector3(3, 3, 60)), Geo.xf(Vector3(x, 158, z), Vector3(0.6, 0, 0)), beam_m)
+	# поворотный стол и разметка
+	g.add(Geo.cyl(66, 68, 2.4, 64), Geo.xf(Vector3(0, 1.2, 0)), steel_m)
+	# ящики со снарядами и бочки у стен
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4
+	for k in 9:
+		var a := rng.randf() * TAU
+		var p := Vector3(cos(a), 0, sin(a)) * rng.randf_range(130, 200)
+		var sz := Vector3(rng.randf_range(12, 20), rng.randf_range(8, 12), rng.randf_range(8, 12))
+		g.add(Geo.box(sz), Geo.xf(p + Vector3(0, sz.y / 2, 0), Vector3(0, rng.randf() * TAU, 0)), wood_m)
+		g.add(Geo.cyl(4.2, 4.2, 10, 14), Geo.xf(p + Vector3(16, 5, 6)), beam_m)
+	g.commit(self, true)
 	var ring := TorusMesh.new()
-	ring.inner_radius = 63
-	ring.outer_radius = 65
+	ring.inner_radius = 64
+	ring.outer_radius = 66
 	ring.rings = 64
 	ring.ring_segments = 4
 	var rm := StandardMaterial3D.new()
@@ -104,17 +115,40 @@ func _build_scene() -> void:
 	var rmi := MeshInstance3D.new()
 	rmi.mesh = ring
 	rmi.material_override = rm
-	rmi.scale = Vector3(1, 0.2, 1)
+	rmi.position.y = 2.5
+	rmi.scale = Vector3(1, 0.15, 1)
 	add_child(rmi)
-	var ground := PlaneMesh.new()
-	ground.size = Vector2(1200, 1200)
-	var gm := StandardMaterial3D.new()
-	gm.albedo_color = Color("161a12")
-	var gmi := MeshInstance3D.new()
-	gmi.mesh = ground
-	gmi.material_override = gm
-	gmi.position.y = -3
-	add_child(gmi)
+	# подвесные лампы: тёплый конус света на танк и рассеянный по углам
+	for p in [Vector3(-30, 150, 20), Vector3(40, 150, -25)]:
+		var spot := SpotLight3D.new()
+		spot.position = p
+		spot.rotation_degrees = Vector3(-90, 0, 0)
+		spot.spot_angle = 42.0
+		spot.spot_range = 260.0
+		spot.light_energy = 3.2
+		spot.light_color = Color("ffd9a0")
+		spot.shadow_enabled = true
+		add_child(spot)
+		var shade := MeshInstance3D.new()
+		shade.mesh = Geo.cyl(3, 9, 6, 16)
+		shade.material_override = beam_m
+		shade.position = p + Vector3(0, 3, 0)
+		add_child(shade)
+		var bulb := MeshInstance3D.new()
+		bulb.mesh = Geo.sphere(10, 6)
+		bulb.scale = Vector3(4, 4, 4)
+		var bm := StandardMaterial3D.new()
+		bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		bm.albedo_color = Color("fff1c8")
+		bulb.material_override = bm
+		bulb.position = p
+		add_child(bulb)
+	var fill := OmniLight3D.new()
+	fill.position = Vector3(0, 90, 160)
+	fill.light_color = Color("8fa0b0")
+	fill.light_energy = 0.8
+	fill.omni_range = 320
+	add_child(fill)
 	cam = Camera3D.new()
 	cam.fov = 40
 	add_child(cam)
@@ -127,8 +161,8 @@ func _process(delta: float) -> void:
 		preview.tur = 0.4 + sin(orbit * 2.0) * 0.6
 		preview.gun_pitch = 0.05 + sin(orbit * 3.0) * 0.05
 		preview.sync_node()
-	cam.position = Vector3(cos(orbit) * 118.0, 44.0, sin(orbit) * 118.0)
-	cam.look_at(Vector3(0, 10, 0), Vector3.UP)
+	cam.position = Vector3(cos(orbit) * 96.0, 34.0, sin(orbit) * 96.0)
+	cam.look_at(Vector3(0, 9, 0), Vector3.UP)
 	var s := UI.safe(root)
 	margin.add_theme_constant_override("margin_left", int(24 + s.x))
 	margin.add_theme_constant_override("margin_top", int(18 + s.y))
