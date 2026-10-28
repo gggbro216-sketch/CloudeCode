@@ -442,11 +442,11 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	body.collision_mask = 0
 	parent.add_child(body)
 	var M := {
-		"plaster": mat(Color("cfc4a8")), "brick": mat(Color("8b5a44")), "roof": mat(Color("6b4a30")),
+		"plaster": mat(Color("cfc4a8")), "brick": mat(Color("7a5a4a")), "roof": mat(Color("6b4a30")),
 		"concrete": mat(Color("85837a")), "concrete_d": mat(Color("5e5d57")), "wood": mat(Color("5d4630")),
 		"steel": mat(Color("3a3a35"), false, 0.6), "rust": mat(Color("5a3a28")), "charred": mat(Color("2d2a26")),
 		"sand": mat(Color("a8916a") if desert else Color("8d7f5c")), "rubble": mat(Color("7b736a") if not winter else Color("8a8784")),
-		"rock": mat(Color("a98559")), "snow": mat(Color("eef3f6")), "canvas": mat(Color("8c8360")),
+		"rock": mat(Color("9a8064")), "snow": mat(Color("eef3f6")), "canvas": mat(Color("8c8360")),
 		"olive": mat(Color("4d5233")), "pole": mat(Color("4a3a2a")),
 	}
 	var win := mat(Color.WHITE)

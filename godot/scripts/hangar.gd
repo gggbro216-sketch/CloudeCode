@@ -35,7 +35,7 @@ class TankBars extends Control:
 		var rows := [
 			["Прочность", "%d" % int(T.hp), float(T.hp) / 1500.0],
 			["Урон", "%d" % int(T.dmg), float(T.dmg) / 320.0],
-			["Пробитие", "%d мм" % int(T.pen), float(T.pen) / 185.0],
+			["Пробитие", "%d мм" % int(T.pen), float(T.pen) / 165.0],
 			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 110.0],
 			["Скорость", "%d км/ч" % int(float(T.speed) * 0.3), float(T.speed) / 210.0],
 			["Перезарядка", "%.1f с" % float(T.reload), 2.2 / float(T.reload)],

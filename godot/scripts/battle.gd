@@ -40,7 +40,7 @@ var player: TankScript
 var watch: TankScript
 var cam: Camera3D
 var cam_yaw := -PI / 2
-var cam_pitch := 0.12
+var cam_pitch := 0.07
 var cam_d := 80.0
 var sniper := false
 var aim_point := Vector3.ZERO
@@ -61,6 +61,7 @@ var kills := 0
 var dmg_done := 0.0
 var hits := 0
 var shots := 0
+var stat := {"pen": 0, "nopen": 0, "rico": 0, "miss": 0, "ram": 0}  # для отладки баланса
 
 var hud: HudScript
 var fx: FxScript
@@ -482,14 +483,14 @@ func _suspend(tk: TankScript, dt: float) -> void:
 	var hr := terra.height(tk.pos.x + r.x * lz, tk.pos.y + r.y * lz)
 	var hl := terra.height(tk.pos.x - r.x * lz, tk.pos.y - r.y * lz)
 	tk.ground = maxf((hf + hb + hr + hl) * 0.25, terra.height(tk.pos.x, tk.pos.y) - 1.0)
-	var tp := atan2(hf - hb, 2.0 * lx) + clampf(tk.accel * 0.00022, -0.06, 0.06)
+	var tp := atan2(hf - hb, 2.0 * lx) + clampf(tk.accel * 0.00012, -0.035, 0.035)
 	var tr := -atan2(hr - hl, 2.0 * lz) - clampf(tk.yaw_rate * tk.sp * 0.00011, -0.05, 0.05)
 	if dt >= 1.0:
 		tk.pitch = tp
 		tk.roll = tr
 		return
-	tk.pitch_v += ((tp - tk.pitch) * 70.0 - tk.pitch_v * 9.0) * dt
-	tk.roll_v += ((tr - tk.roll) * 70.0 - tk.roll_v * 9.0) * dt
+	tk.pitch_v += ((tp - tk.pitch) * 70.0 - tk.pitch_v * 14.0) * dt
+	tk.roll_v += ((tr - tk.roll) * 70.0 - tk.roll_v * 14.0) * dt
 	tk.pitch += tk.pitch_v * dt
 	tk.roll += tk.roll_v * dt
 
@@ -519,6 +520,7 @@ func separate() -> void:
 			resolve(b)
 			if closing > 30.0 and a.team != b.team and a.alive and b.alive:
 				var e := closing * closing * 0.004
+				stat.ram += 1
 				_damage(b, roundf(e * ma / (ma + mb) * 2.0), a, "ТАРАН")
 				_damage(a, roundf(e * mb / (ma + mb) * 0.8), b, "ТАРАН")
 				shake = maxf(shake, 6.0) if a == watch or b == watch else shake
@@ -615,6 +617,7 @@ func _update_shells(dt: float) -> void:
 			s.dist += p0.distance_to(p1)
 			if s.dist > D.RANGE:
 				s.dead = true
+				stat.miss += 1
 		var node: Node3D = s.node
 		if s.dead:
 			node.queue_free()
@@ -646,18 +649,21 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		s.pos = hp + n * 0.5
 		s.vel = (v - 2.0 * v.dot(n) * n) * 0.7
 		s.dist = D.RANGE - 250.0
+		stat.rico += 1
 		fx.hit_sparks(hp)
 		_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)
 		sfx.play("rico", vol_at(tk.pos))
 		return
 	var eff := thick / maxf(cos(ang), 0.12)
 	if pen < eff:
+		stat.nopen += 1
 		fx.hit_sparks(hp)
 		_popup(tk, "НЕ ПРОБИЛ", Color("cfd3d8"), by)
 		sfx.play("nopen", vol_at(tk.pos))
 		if by.team == 0 and tk.team == 1:
 			tk.lit = maxf(tk.lit, 2.0)
 		return
+	stat.pen += 1
 	var dmg := roundf(float(s.dmg) * randf_range(0.75, 1.25))
 	fx.hit_sparks(hp)
 	fx.pen_fire(hp)
