@@ -8,7 +8,7 @@ const SAVE_PATH := "user://save.json"
 
 var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": 0,
-	"tank": "medium", "mode": "standard", "map": "random", "hq": true,
+	"tank": "t34", "mode": "standard", "map": "random", "hq": true,
 }
 var hangar: Node
 var battle: Node
@@ -32,7 +32,7 @@ func _load() -> void:
 				save[k] = d[k]
 	# защита от устаревших значений
 	if not D.TYPES.has(save.tank):
-		save.tank = "medium"
+		save.tank = "t34"
 	if not D.MODES.has(save.mode):
 		save.mode = "standard"
 	if save.map != "random" and not D.MAPS.has(save.map):

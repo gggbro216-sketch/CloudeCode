@@ -26,25 +26,27 @@ class TankBars extends Control:
 
 	func _ready() -> void:
 		font = ThemeDB.fallback_font
-		custom_minimum_size = Vector2(0, 150)
+		custom_minimum_size = Vector2(0, 158)
 
 	func _draw() -> void:
 		if T.is_empty():
 			return
+		var A: Array = T.armor
 		var rows := [
-			["Прочность", "%d" % int(T.hp), float(T.hp) / 1400.0],
-			["Скорость", "%d км/ч" % int(float(T.speed) * 0.35), float(T.speed) / 200.0],
-			["Урон", "%d" % int(T.dmg), float(T.dmg) / 200.0],
-			["Перезарядка", "%.1f с" % float(T.reload), 1.5 / float(T.reload)],
-			["Обзор", "%d м" % int(T.spot), float(T.spot) / 520.0],
+			["Прочность", "%d" % int(T.hp), float(T.hp) / 1500.0],
+			["Урон", "%d" % int(T.dmg), float(T.dmg) / 320.0],
+			["Пробитие", "%d мм" % int(T.pen), float(T.pen) / 185.0],
+			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 110.0],
+			["Скорость", "%d км/ч" % int(float(T.speed) * 0.3), float(T.speed) / 210.0],
+			["Перезарядка", "%.1f с" % float(T.reload), 2.2 / float(T.reload)],
 		]
 		var y := 0.0
 		for r in rows:
-			draw_string(font, Vector2(0, y + 16), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(UI.DIM))
-			draw_string(font, Vector2(0, y + 16), r[1], HORIZONTAL_ALIGNMENT_RIGHT, size.x, 15, Color(UI.TEXT))
-			draw_rect(Rect2(0, y + 21, size.x, 5), Color(0.05, 0.06, 0.04))
-			draw_rect(Rect2(0, y + 21, size.x * clampf(r[2], 0.05, 1.0), 5), Color("7bc65a"))
-			y += 30.0
+			draw_string(font, Vector2(0, y + 15), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(UI.DIM))
+			draw_string(font, Vector2(0, y + 15), r[1], HORIZONTAL_ALIGNMENT_RIGHT, size.x, 14, Color(UI.TEXT))
+			draw_rect(Rect2(0, y + 19, size.x, 4), Color(0.05, 0.06, 0.04))
+			draw_rect(Rect2(0, y + 19, size.x * clampf(r[2], 0.05, 1.0), 4), Color("7bc65a"))
+			y += 26.0
 
 
 func _ready() -> void:
@@ -121,6 +123,10 @@ func _build_scene() -> void:
 
 func _process(delta: float) -> void:
 	orbit += delta * 0.18
+	if preview:
+		preview.tur = 0.4 + sin(orbit * 2.0) * 0.6
+		preview.gun_pitch = 0.05 + sin(orbit * 3.0) * 0.05
+		preview.sync_node()
 	cam.position = Vector3(cos(orbit) * 118.0, 44.0, sin(orbit) * 118.0)
 	cam.look_at(Vector3(0, 10, 0), Vector3.UP)
 	var s := UI.safe(root)
@@ -181,11 +187,12 @@ func _build_ui() -> void:
 		var T: Dictionary = D.TYPES[key]
 		var b := Button.new()
 		b.text = "%s   %s" % [T.short, T.name]
+		b.add_theme_font_size_override("font_size", 18)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.toggle_mode = true
 		b.button_group = tg
 		b.button_pressed = key == main.save.tank
-		b.custom_minimum_size = Vector2(0, 52)
+		b.custom_minimum_size = Vector2(0, 42)
 		b.pressed.connect(_select_tank.bind(key))
 		lv.add_child(b)
 	tank_cls = UI.label("", 15, D.AMBER)
@@ -210,7 +217,7 @@ func _build_ui() -> void:
 	cs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	center.add_child(cs)
-	var hint := UI.label("Левый палец: газ и поворот корпуса. Правый палец: свайп крутит камеру, тап стреляет. Кусты прячут танк, выстрел выдаёт. Борт и корма пробиваются легче лба.", 14, UI.DIM)
+	var hint := UI.label("Левый палец: газ и поворот корпуса. Правый: свайп крутит камеру и поднимает прицел, тап стреляет. Круг прицела зелёный — пробьёт, красный — нет. Постой на месте, чтобы свестись.", 14, UI.DIM)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(hint)
@@ -289,7 +296,7 @@ func _select_tank(key: String) -> void:
 	main.save.tank = key
 	main.persist()
 	var T: Dictionary = D.TYPES[key]
-	tank_cls.text = String(T.cls).to_upper()
+	tank_cls.text = ("%s · %s" % [T.cls, T.nation]).to_upper()
 	tank_bars.T = T
 	tank_bars.queue_redraw()
 	if preview:
@@ -298,7 +305,7 @@ func _select_tank(key: String) -> void:
 	add_child(tk)
 	tk.setup(key, 0, Vector2.ZERO, "", false, true)
 	tk.hull = 0.4
-	tk.tur = 0.0
+	tk.tur = 0.4
 	tk.sync_node()
 	preview = tk
 

@@ -19,7 +19,7 @@ var aim_last := Vector2.ZERO
 var aim_start := Vector2.ZERO
 var aim_t0 := 0
 var aim_moved := 0.0
-var cam_dx := 0.0
+var cam_d := Vector2.ZERO
 var dragging := false
 var fire_idx := -1
 var fire_req := false
@@ -31,6 +31,7 @@ var fire_c := Vector2.ZERO
 var fire_r := 76.0
 var auto_rect := Rect2()
 var pause_c := Vector2.ZERO
+var zoom_c := Vector2.ZERO
 
 var feed: Array = []
 var col_ally := Color(D.ALLY)
@@ -69,9 +70,9 @@ func add_feed(parts: Array) -> void:
 		feed.pop_front()
 
 
-func take_cam_dx() -> float:
-	var v := cam_dx
-	cam_dx = 0.0
+func take_cam_delta() -> Vector2:
+	var v := cam_d
+	cam_d = Vector2.ZERO
 	return v
 
 
@@ -86,7 +87,7 @@ func reset_input() -> void:
 	move = Vector2.ZERO
 	dragging = false
 	fire_req = false
-	cam_dx = 0.0
+	cam_d = Vector2.ZERO
 
 
 # ---------- Касания ----------
@@ -124,6 +125,9 @@ func _input(event: InputEvent) -> void:
 		if auto_rect.grow(10.0).has_point(p):
 			auto_aim = not auto_aim
 			return
+		if p.distance_to(zoom_c) < 50.0:
+			battle.toggle_sniper()
+			return
 		if p.x < size.x * 0.5:
 			if move_idx == -1:
 				move_idx = e.index
@@ -145,7 +149,7 @@ func _input(event: InputEvent) -> void:
 				d = d.normalized() * SR
 			move = d / SR
 		elif e.index == aim_idx:
-			cam_dx += e.position.x - aim_last.x
+			cam_d += e.position - aim_last
 			aim_last = e.position
 			aim_moved = maxf(aim_moved, e.position.distance_to(aim_start))
 			if aim_moved > 8.0:
@@ -160,6 +164,7 @@ func _process(delta: float) -> void:
 	pause_c = Vector2(s.x - r - 32.0, 14.0 + margins.y + 32.0)
 	fire_c = Vector2(s.x - r - 96.0, s.y - bt - 104.0)
 	auto_rect = Rect2(fire_c.x - 60.0, fire_c.y - fire_r - 62.0, 120.0, 44.0)
+	zoom_c = Vector2(fire_c.x - fire_r - 64.0, fire_c.y + 26.0)
 	for f in feed:
 		f.t -= delta
 	feed = feed.filter(func(x): return x.t > 0)
@@ -199,7 +204,7 @@ func _draw() -> void:
 func _draw_world() -> void:
 	var w = battle.watch
 	for z in battle.zones:
-		var s = _proj(Vector3(z.pos.x, 64, z.pos.y))
+		var s = _proj(Vector3(z.pos.x, battle.terra.height(z.pos.x, z.pos.y) + 66.0, z.pos.y))
 		if s == null:
 			continue
 		var lbl: String = z.label
@@ -215,9 +220,9 @@ func _draw_world() -> void:
 			continue
 		if tk.team == 1 and not tk.vis[0]:
 			continue
-		if tk.pos.distance_to(w.pos) > 1000.0:
+		if tk.pos.distance_to(w.pos) > 1100.0:
 			continue
-		var s = _proj(Vector3(tk.pos.x, tk.barrel_y() + 22.0, tk.pos.y))
+		var s = _proj(tk.top() + Vector3(0, 12, 0))
 		if s == null:
 			continue
 		var col := team_color(tk.team)
@@ -225,46 +230,63 @@ func _draw_world() -> void:
 		draw_rect(Rect2(s.x - bw / 2 - 1, s.y - 1, bw + 2, 7), Color(0, 0, 0, 0.6))
 		draw_rect(Rect2(s.x - bw / 2, s.y, bw * clampf(tk.hp / tk.max_hp, 0.0, 1.0), 5), col)
 		_text(Vector2(s.x, s.y - 6), tk.callsign, 16, col, true, 4)
+		# маркер-треугольник команды
+		draw_colored_polygon(PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
 	for tx in battle.texts:
-		var s = _proj(Vector3(tx.pos.x, tx.h, tx.pos.y))
+		var s = _proj(tx.pos + Vector3(0, (1.3 - float(tx.life)) * 22.0, 0))
 		if s == null:
 			continue
 		var c: Color = tx.col
 		c.a = clampf(tx.life * 1.6, 0.0, 1.0)
-		_text(s, tx.s, 24, c, true, 5)
+		_text(s, tx.s, 22, c, true, 5)
 
 
+## Перекрестие: точка — куда смотрит камера; круг сведения — куда смотрит ствол.
+## Цвет круга: зелёный — пробьёт, жёлтый — как повезёт, красный — не пробьёт.
 func _draw_crosshair() -> void:
 	var w = battle.watch
-	if not w.alive:
+	var cam: Camera3D = battle.cam
+	var c := size / 2
+	if battle.sniper:
+		# оптика: затемнение по краям и сетка
+		var r := minf(size.x, size.y) * 0.46
+		var dark := Color(0.02, 0.02, 0.02, 0.92)
+		draw_rect(Rect2(0, 0, c.x - r, size.y), dark)
+		draw_rect(Rect2(c.x + r, 0, size.x - c.x - r, size.y), dark)
+		var ring := PackedVector2Array()
+		for i in 49:
+			ring.append(c + Vector2.from_angle(TAU * i / 48.0) * r)
+		draw_polyline(ring, dark, 40.0)
+		draw_line(c + Vector2(-r, 0), c + Vector2(-26, 0), Color(0, 0, 0, 0.7), 2.0)
+		draw_line(c + Vector2(26, 0), c + Vector2(r, 0), Color(0, 0, 0, 0.7), 2.0)
+		draw_line(c + Vector2(0, 26), c + Vector2(0, r), Color(0, 0, 0, 0.7), 2.0)
+		for k in range(1, 5):
+			draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
+	else:
+		draw_circle(c, 2.0, Color(1, 1, 1, 0.8))
+	if not w.alive or battle.gun_point == null:
 		return
-	var dir := Vector2.from_angle(w.tur)
-	var d: float = w.T.barrel
-	var on_foe := false
-	while d < D.RANGE and not on_foe:
-		var pt: Vector2 = w.pos + dir * d
-		if battle.in_rect(pt) != null:
-			break
-		for o in battle.tanks:
-			if o.alive and o.team != w.team and o.vis[0] and o.pos.distance_squared_to(pt) < pow(float(o.T.r), 2):
-				on_foe = true
-				break
-		if not on_foe:
-			d += 8.0
-	var end: Vector2 = w.pos + dir * d
-	var s = _proj(Vector3(end.x, w.barrel_y(), end.y))
+	var s = _proj(battle.gun_point)
 	if s == null:
 		return
-	var col := col_foe if on_foe else Color.WHITE
-	var r := 20.0
-	draw_arc(s, r, 0, TAU, 40, Color(0, 0, 0, 0.5), 5.0, true)
-	draw_arc(s, r, 0, TAU, 40, col, 2.5, true)
+	var half_h := size.y / 2.0 / tan(deg_to_rad(cam.fov) / 2.0)
+	var r := clampf(tan(float(w.disp)) * half_h, 7.0, size.y * 0.4)
+	var col := Color.WHITE
+	match battle.pen_hint:
+		0:
+			col = col_foe
+		1:
+			col = col_amber
+		2:
+			col = Color("7bc65a")
+	draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
+	draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
 	if w.rl > 0:
 		var k: float = 1.0 - w.rl / float(w.T.reload)
-		draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.5, true)
+		draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
-		draw_line(s + v * (r + 4), s + v * (r + 14), col, 2.5, true)
-	draw_circle(s, 2.2, col)
+		draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
+	draw_circle(s, 1.8, col)
 
 
 func _draw_top() -> void:
@@ -430,6 +452,14 @@ func _draw_controls() -> void:
 	var ac := col_amber if auto_aim else col_dim
 	draw_style_box(UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
 	_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
+	# снайперский прицел
+	var on: bool = battle.sniper
+	draw_circle(zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
+	draw_arc(zoom_c, 40, 0, TAU, 40, col_amber if on else Color(UI.LINE), 2.0, true)
+	var zc := Color("1b1405") if on else col_text
+	draw_arc(zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5, true)
+	draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
+	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 
 
 static func _fmt_t(s: float) -> String:

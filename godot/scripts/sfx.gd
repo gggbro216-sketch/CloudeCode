@@ -14,6 +14,9 @@ func _ready() -> void:
 	streams["hit"] = _wav(_hit())
 	streams["boom"] = _wav(_boom())
 	streams["cap"] = _wav(_cap())
+	streams["crack"] = _wav(_crack())
+	streams["rico"] = _wav(_rico())
+	streams["nopen"] = _wav(_nopen())
 	for i in 10:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
@@ -95,4 +98,38 @@ func _cap() -> PackedFloat32Array:
 		ph += TAU * f / RATE
 		var env := exp(-fmod(t, 0.13) * 12.0)
 		b[i] = (2.0 * absf(fmod(ph / TAU, 1.0) * 2.0 - 1.0) - 1.0) * 0.3 * env
+	return b
+
+
+## Треск ломающегося дерева.
+func _crack() -> PackedFloat32Array:
+	var b := _buf(0.5)
+	for i in b.size():
+		var t := float(i) / RATE
+		var burst := 1.0 if randf() < 0.08 * exp(-t * 6.0) else 0.0
+		b[i] = (randf() * 2.0 - 1.0) * (0.25 * exp(-t * 9.0) + burst * 0.6)
+	return b
+
+
+## Рикошет: звенящий свист с падающим тоном.
+func _rico() -> PackedFloat32Array:
+	var b := _buf(0.45)
+	var ph := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		ph += TAU * (2400.0 - 2600.0 * t) / RATE
+		b[i] = sin(ph) * 0.3 * exp(-t * 6.0) + (randf() * 2.0 - 1.0) * 0.3 * exp(-t * 40.0)
+	return b
+
+
+## Непробитие: глухой металлический удар.
+func _nopen() -> PackedFloat32Array:
+	var b := _buf(0.35)
+	var p1 := 0.0
+	var p2 := 0.0
+	for i in b.size():
+		var t := float(i) / RATE
+		p1 += TAU * 610.0 / RATE
+		p2 += TAU * 873.0 / RATE
+		b[i] = (sin(p1) + sin(p2) * 0.7) * 0.25 * exp(-t * 14.0) + (randf() * 2.0 - 1.0) * 0.4 * exp(-t * 50.0)
 	return b

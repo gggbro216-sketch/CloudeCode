@@ -1,28 +1,43 @@
 extends Node3D
-## Танк: параметры, состояние (позиция на плоскости карты) и 3D-модель.
-## Модель смотрит вдоль +X; угол a на карте даёт rotation.y = -a.
+## Танк: параметры, физическое состояние (подвеска, наклон по рельефу, инерция, сведение)
+## и связь с 3D-моделью. Положение на карте — pos (x, z), высота — ground.
 
 const D = preload("res://scripts/data.gd")
+const Models = preload("res://scripts/tank_models.gd")
 
 var T: Dictionary = {}
 var type_key := ""
 var team := 0
 var pos := Vector2.ZERO
-var hull := 0.0
-var tur := 0.0
+var hull := 0.0  # курс корпуса
+var tur := 0.0  # курс башни (мировой)
 var hp := 0.0
 var max_hp := 0.0
 var rl := 0.0  # до перезарядки, с
 var alive := true
 var is_player := false
 var callsign := ""
-var sp := 0.0
-var vel := Vector2.ZERO
 var lit := 0.0  # засвечен выстрелом/попаданием, с
 var vis := [true, true]  # виден ли команде 0 / 1
 var recoil := 0.0
 var dist_travel := 0.0
 var mark := 0.0
+
+# физика
+var sp := 0.0  # скорость вдоль корпуса
+var vel := Vector2.ZERO
+var accel := 0.0
+var yaw_rate := 0.0
+var ground := 0.0
+var pitch := 0.0
+var roll := 0.0
+var pitch_v := 0.0
+var roll_v := 0.0
+var gun_pitch := 0.0
+var gun_target := 0.0
+var disp := 0.05  # текущий разброс, рад
+var tur_rate := 0.0
+var trk := [0.0, 0.0]
 
 # состояние бота
 var role := "atk"
@@ -35,12 +50,22 @@ var b_gt := 0.0
 var b_zone = null
 var b_last := Vector2.ZERO
 var b_pt := 1.0
+var b_los := false
+var b_los_t := 0.0
 
-var hull_node := Node3D.new()
-var tur_node := Node3D.new()
-var bar_node := Node3D.new()
-var paint_mat: StandardMaterial3D
-var band_mat: StandardMaterial3D
+# модель
+var hull_node: Node3D
+var tur_node: Node3D
+var gun_node: Node3D
+var gun_pos0 := Vector3.ZERO
+var tur_pos0 := Vector3.ZERO
+var paints: Array = []
+var tracks: Array = []
+var barrel := 30.0
+var hh := 12.0
+var tur_h := 7.0
+var tz := 10.0
+var height := 20.0
 var smoke: CPUParticles3D
 
 # башня, сорванная детонацией боеукладки
@@ -67,102 +92,51 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 	rl = randf_range(0.5, T.reload)
 	b_strafe = 1.0 if randf() < 0.5 else -1.0
 	b_st = randf_range(1.0, 3.0)
-	_build(shadows)
+	disp = float(T.disp) * 4.0
+	var m := Models.build(self, key, shadows)
+	hull_node = m.hull
+	tur_node = m.tur
+	gun_node = m.gun
+	gun_pos0 = gun_node.position
+	tur_pos0 = tur_node.position
+	paints = m.paints
+	tracks = m.tracks
+	barrel = m.barrel
+	hh = m.hh
+	tur_h = m.tur_h
+	tz = m.tz
+	height = m.height
 	sync_node()
 
 
-func turret_y() -> float:
-	return float(T.W) * 0.45
+func center() -> Vector3:
+	return Vector3(pos.x, ground + hh * 0.65, pos.y)
 
 
-func barrel_y() -> float:
-	return float(T.W) * 0.6
+func top() -> Vector3:
+	return Vector3(pos.x, ground + height - 2.0, pos.y)
 
 
-func _mat(c: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = 0.85
-	return m
+func muzzle() -> Vector3:
+	return gun_node.global_transform * Vector3(barrel, 0, 0)
 
 
-func _add(mesh: Mesh, m: Material, p: Vector3, parent: Node3D, shadows: bool) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = m
-	mi.position = p
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mi)
-	return mi
-
-
-func _box(size: Vector3, m: Material, p: Vector3, parent: Node3D, shadows: bool) -> MeshInstance3D:
-	var b := BoxMesh.new()
-	b.size = size
-	return _add(b, m, p, parent, shadows)
-
-
-func _cyl(top: float, bottom: float, h: float, seg: int, m: Material, p: Vector3, parent: Node3D, shadows: bool) -> MeshInstance3D:
-	var c := CylinderMesh.new()
-	c.top_radius = top
-	c.bottom_radius = bottom
-	c.height = h
-	c.radial_segments = seg
-	c.rings = 1
-	return _add(c, m, p, parent, shadows)
-
-
-func _build(shadows: bool) -> void:
-	var L: float = T.L
-	var wd: float = T.W
-	var th := wd * 0.3
-	var ty := turret_y()
-	var bw: float = T.bw
-	var barrel: float = T.barrel
-	paint_mat = _mat(Color(T.paint))
-	var dark := _mat(Color("34362c"))
-	band_mat = StandardMaterial3D.new()
-	band_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	band_mat.albedo_color = Color(D.ALLY if team == 0 else D.FOE)
-	add_child(hull_node)
-	# гусеницы
-	_box(Vector3(L, th, wd * 0.26), dark, Vector3(0, th / 2, wd / 2 - wd * 0.13), hull_node, shadows)
-	_box(Vector3(L, th, wd * 0.26), dark, Vector3(0, th / 2, -(wd / 2 - wd * 0.13)), hull_node, shadows)
-	# корпус, надгусеничные полки, лобовой лист, моторное отделение
-	_box(Vector3(L - 6, ty - th + 1, wd * 0.62), paint_mat, Vector3(-2, th + (ty - th + 1) / 2 - 0.5, 0), hull_node, shadows)
-	_box(Vector3(L - 2, 1.2, wd), paint_mat, Vector3(0, th + 0.6, 0), hull_node, shadows)
-	var glacis := _box(Vector3(10, 2, wd * 0.62), paint_mat, Vector3(L / 2 - 6, ty - 2.2, 0), hull_node, shadows)
-	glacis.rotation.z = -0.5
-	_box(Vector3(9, 1.4, wd * 0.5), dark, Vector3(-L / 2 + 7, ty + 0.6, 0), hull_node, false)
-	# башня с цветной полосой команды
-	tur_node.position.y = ty
-	add_child(tur_node)
-	var tm := _cyl(wd * 0.3, wd * 0.38, wd * 0.26, 10, paint_mat, Vector3(-2, wd * 0.13, 0), tur_node, shadows)
-	tm.scale.x = 1.25
-	var band := _cyl(wd * 0.385, wd * 0.385, 1.6, 10, band_mat, Vector3(-2, wd * 0.07, 0), tur_node, false)
-	band.scale.x = 1.25
-	_cyl(wd * 0.1, wd * 0.1, 1.6, 8, dark, Vector3(-5, wd * 0.27, wd * 0.1), tur_node, false)
-	# ствол с дульным тормозом
-	bar_node.position = Vector3(0, wd * 0.15, 0)
-	tur_node.add_child(bar_node)
-	var blen := barrel - wd * 0.3
-	var tube := _cyl(bw * 0.38, bw * 0.5, blen, 8, dark, Vector3(wd * 0.3 + blen / 2, 0, 0), bar_node, shadows)
-	tube.rotation.z = -PI / 2
-	var brake := _cyl(bw * 0.7, bw * 0.7, 5, 8, dark, Vector3(barrel - 2.5, 0, 0), bar_node, false)
-	brake.rotation.z = -PI / 2
+func gun_dir() -> Vector3:
+	return gun_node.global_transform.basis.x.normalized()
 
 
 func sync_node() -> void:
-	position = Vector3(pos.x, 0, pos.y)
-	var pitch := 0.0
-	if alive:
-		pitch = clampf(-sp * 0.0004, -0.04, 0.04) + recoil * 0.05
-	hull_node.rotation = Vector3(0, -hull, pitch)
+	position = Vector3(pos.x, ground, pos.y)
+	hull_node.basis = Basis(Vector3.UP, -hull) * Basis(Vector3.BACK, pitch) * Basis(Vector3.RIGHT, roll)
 	if popping:
-		tur_node.position = Vector3(pop_off.x, turret_y() + pop_h, pop_off.y)
+		tur_node.position = tur_pos0 + Vector3(pop_off.x, pop_h, pop_off.y)
 	else:
-		tur_node.rotation.y = -tur
-	bar_node.position.x = -recoil * 3.0
+		tur_node.rotation.y = -(tur - hull)
+	gun_node.rotation.z = gun_pitch
+	gun_node.position = gun_pos0 - Vector3(recoil * 2.5, 0, 0)
+	if tracks.size() == 2:
+		(tracks[0] as StandardMaterial3D).uv1_offset.x = trk[0]
+		(tracks[1] as StandardMaterial3D).uv1_offset.x = trk[1]
 
 
 func smoke_on(v: bool) -> void:
@@ -171,9 +145,11 @@ func smoke_on(v: bool) -> void:
 
 
 func make_wreck(pop: bool) -> void:
-	paint_mat.albedo_color = Color("2b2a26")
-	band_mat.albedo_color = Color("33322e")
-	bar_node.rotation.z = -0.12
+	for p in paints:
+		(p as StandardMaterial3D).albedo_color = Color(0.22, 0.2, 0.18)
+	for t in tracks:
+		(t as StandardMaterial3D).albedo_color = Color(0.5, 0.45, 0.4)
+	gun_pitch = float(T.elev[0])
 	smoke_on(false)
 	if pop:
 		popping = true
@@ -185,7 +161,7 @@ func make_wreck(pop: bool) -> void:
 func update_pop(dt: float) -> void:
 	if not popping:
 		return
-	if pop_h > -turret_y() + 2.0 or pop_vh > 0:
+	if pop_h > -hh * 0.6 or pop_vh > 0:
 		pop_vh -= 320.0 * dt
 		pop_h += pop_vh * dt
 		pop_off += pop_v * dt

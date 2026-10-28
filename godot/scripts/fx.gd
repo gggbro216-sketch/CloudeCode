@@ -105,24 +105,71 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 	return p
 
 
-func muzzle(at: Vector3, a: float) -> void:
-	var dir := Vector3(cos(a), 0.05, sin(a))
-	emit(at, 12, 0.18, "fire", 40, 200, dir, 25, 0, 6, true, false, 4)
-	emit(at, 8, 1.1, "smoke", 15, 60, dir, 35, 6, 14, false, true, 2)
+func muzzle(at: Vector3, dir: Vector3) -> void:
+	emit(at, 14, 0.16, "fire", 60, 240, dir, 22, 0, 7, true, false, 4)
+	emit(at, 10, 1.3, "smoke", 15, 70, dir, 35, 6, 16, false, true, 2)
+	flash(at, Color(1, 0.75, 0.4), 5.0, 70.0)
 
 
 func hit_sparks(at: Vector3) -> void:
-	emit(at, 16, 0.35, "spark", 60, 170, Vector3.UP, 90, -220, 4, true, false)
+	emit(at, 18, 0.35, "spark", 60, 180, Vector3.UP, 90, -220, 4, true, false)
 	emit(at, 4, 0.8, "smoke", 5, 20, Vector3.UP, 60, 5, 12, false, true, 1)
 
 
-func impact(at: Vector3) -> void:
-	emit(at, 8, 0.4, "spark", 40, 120, Vector3.UP, 80, -200, 3, true, false)
-	emit(at, 6, 0.9, "dust", 10, 40, Vector3.UP, 70, 4, 16, false, true, 2)
+## Попадание в землю — комья грунта и пыль; в постройку — каменная крошка.
+func impact(at: Vector3, ground: bool) -> void:
+	emit(at, 10, 0.4, "spark", 40, 120, Vector3.UP, 80, -200, 3, true, false)
+	emit(at, 8, 1.2, "dust", 15, 55, Vector3.UP, 50, 4, 20, false, true, 2)
+	debris(at, Color(0.24, 0.2, 0.15) if ground else Color(0.45, 0.43, 0.4))
+
+
+func debris(at: Vector3, col: Color) -> void:
+	var key := "deb_%s" % col.to_html()
+	if not ramps.has(key):
+		var c := col
+		c.a = 1.0
+		var e := col
+		e.a = 0.0
+		ramps[key] = _ramp([c, c, e])
+	emit(at, 14, 1.0, key, 40, 110, Vector3.UP, 40, -260, 2.2, false, false)
 
 
 func shot_dust(at: Vector3) -> void:
-	emit(at, 5, 0.8, "dust", 20, 50, Vector3.UP, 85, 0, 24, false, true, 3)
+	emit(at, 6, 1.0, "dust", 25, 60, Vector3.UP, 85, 0, 28, false, true, 3)
+
+
+func track_dust(at: Vector3) -> void:
+	emit(at, 2, 1.1, "dust", 4, 12, Vector3.UP, 40, 3, 14, false, true, 1.5)
+
+
+## Пробитие: короткий огненный выброс.
+func pen_fire(at: Vector3) -> void:
+	emit(at, 12, 0.45, "fire", 20, 70, Vector3.UP, 70, 10, 8, true, false, 2)
+	flash(at, Color(1, 0.6, 0.3), 3.0, 50.0)
+
+
+## Кратковременная вспышка света.
+func flash(at: Vector3, col: Color, energy: float, rng: float) -> void:
+	if get_child_count() > 120:
+		return
+	var l := OmniLight3D.new()
+	l.light_color = col
+	l.light_energy = energy
+	l.omni_range = rng
+	l.shadow_enabled = false
+	add_child(l)
+	l.global_position = at
+	var tw := create_tween()
+	tw.tween_property(l, "light_energy", 0.0, 0.14)
+	tw.tween_callback(l.queue_free)
+
+
+## Столб дыма над пожаром или вдали на горизонте.
+func smoke_column(at: Vector3, big: bool) -> void:
+	if big:
+		emit(at + Vector3(0, 20, 0), 16, 9.0, "dark", 25, 40, Vector3.UP, 12, 2, 120, false, true, 0, false)
+	else:
+		emit(at, 10, 4.5, "dark", 14, 24, Vector3.UP, 10, 3, 26, false, true, 0, false)
 
 
 func explosion(at: Vector3) -> void:
