@@ -148,9 +148,9 @@ static func camo_texture(kind: String) -> ImageTexture:
 	var b := n2.get_seamless_image(S, S)
 	var g := n3.get_seamless_image(S, S)
 	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
-	var base := Color("4a5a32")
+	var base := Color("3f4c2b")
 	if kind == "olive":
-		base = Color("525638")
+		base = Color("464a2f")
 	elif kind == "german":
 		base = Color("a8956a")
 	for y in S:

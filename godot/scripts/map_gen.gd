@@ -438,7 +438,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		"snow": mat(Color("eef3f6")), "canvas": Tx.call("sandbag", 1.0 / 18.0, Color(0.95, 0.92, 0.75)),
 		"olive": mat(Color("4d5233")), "pole": Tx.call("wood", 1.0 / 10.0, Color(0.7, 0.65, 0.6)),
 	}
-	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45)
+	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45, Color(0.78, 0.78, 0.8) if winter else Color.WHITE)
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var smokes: Array = []
@@ -770,6 +770,9 @@ void fragment() {
 		discard;
 	}
 	ALBEDO = c.rgb * tint.rgb * COLOR.rgb * (0.6 + 0.4 * hgt);
+	// обе стороны травинки освещаются как земля, сверху
+	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+	ROUGHNESS = 0.95;
 }
 """
 

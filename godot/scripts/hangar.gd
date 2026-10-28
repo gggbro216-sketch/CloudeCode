@@ -64,7 +64,7 @@ func _build_scene() -> void:
 	env.background_color = Color("15130f")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("9a9078")
-	env.ambient_light_energy = 0.38
+	env.ambient_light_energy = 0.6
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color("1d1a15")
@@ -125,7 +125,7 @@ func _build_scene() -> void:
 		spot.rotation_degrees = Vector3(-90, 0, 0)
 		spot.spot_angle = 42.0
 		spot.spot_range = 260.0
-		spot.light_energy = 3.2
+		spot.light_energy = 5.5
 		spot.light_color = Color("ffd9a0")
 		spot.shadow_enabled = true
 		add_child(spot)
@@ -146,7 +146,7 @@ func _build_scene() -> void:
 	var fill := OmniLight3D.new()
 	fill.position = Vector3(0, 90, 160)
 	fill.light_color = Color("8fa0b0")
-	fill.light_energy = 0.8
+	fill.light_energy = 1.4
 	fill.omni_range = 320
 	add_child(fill)
 	cam = Camera3D.new()

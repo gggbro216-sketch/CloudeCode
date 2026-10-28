@@ -99,10 +99,10 @@ static func get_tex(kind: String) -> ImageTexture:
 				for x in S:
 					var v := nz.get_pixel(x, y).r
 					var c := Color("d2c8ae").darkened((v - 0.4) * 0.3 + (fine.get_pixel(x, y).r - 0.5) * 0.1)
-					if v > 0.72:
+					if v > 0.8:
 						c = brick.get_pixel(x, y)
-					elif v > 0.68:
-						c = c.darkened(0.25)
+					elif v > 0.77:
+						c = c.darkened(0.2)
 					img.set_pixel(x, y, c)
 		"roof":
 			# черепица: ряды с тенью под нижней кромкой
