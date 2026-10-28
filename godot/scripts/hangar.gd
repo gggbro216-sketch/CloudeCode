@@ -63,8 +63,8 @@ func _build_scene() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color("15130f")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("9a9078")
-	env.ambient_light_energy = 0.6
+	env.ambient_light_color = Color("b4b0a4")
+	env.ambient_light_energy = 1.0
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color("1d1a15")
@@ -125,8 +125,8 @@ func _build_scene() -> void:
 		spot.rotation_degrees = Vector3(-90, 0, 0)
 		spot.spot_angle = 42.0
 		spot.spot_range = 260.0
-		spot.light_energy = 5.5
-		spot.light_color = Color("ffd9a0")
+		spot.light_energy = 8.0
+		spot.light_color = Color("fff0dc")
 		spot.shadow_enabled = true
 		add_child(spot)
 		var shade := MeshInstance3D.new()
