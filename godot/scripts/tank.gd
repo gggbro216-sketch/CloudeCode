@@ -1,11 +1,11 @@
 extends Node3D
-## Танк: параметры, физическое состояние (подвеска, наклон по рельефу, инерция, сведение)
-## и связь с 3D-моделью. Положение на карте — pos (x, z), высота — ground.
+## Танк: характеристики, физическое состояние (импульс, подвеска, наклон по рельефу, сведение),
+## повреждения модулей и связь с 3D-моделью. Положение на карте — pos (x, z), высота — ground.
 
 const D = preload("res://scripts/data.gd")
 const Models = preload("res://scripts/tank_models.gd")
 
-var T: Dictionary = {}
+var T: Dictionary = {}  # исходные характеристики + производные в единицах карты
 var type_key := ""
 var team := 0
 var pos := Vector2.ZERO
@@ -24,10 +24,11 @@ var dist_travel := 0.0
 var mark := 0.0
 
 # физика
-var sp := 0.0  # скорость вдоль корпуса
-var vel := Vector2.ZERO
+var vel := Vector2.ZERO  # скорость центра масс
+var sp := 0.0  # проекция скорости на курс
 var accel := 0.0
 var yaw_rate := 0.0
+var throttle := 0.0
 var ground := 0.0
 var pitch := 0.0
 var roll := 0.0
@@ -37,7 +38,12 @@ var gun_pitch := 0.0
 var gun_target := 0.0
 var disp := 0.05  # текущий разброс, рад
 var tur_rate := 0.0
-var trk := [0.0, 0.0]
+var travel := [0.0, 0.0]  # путь левой и правой гусеницы
+
+# повреждения
+var track_broken := 0.0  # сколько ещё стоит с перебитой гусеницей, с
+var fire := 0.0  # сколько ещё горит, с
+var fire_fx: CPUParticles3D
 
 # состояние бота
 var role := "atk"
@@ -59,12 +65,15 @@ var tur_node: Node3D
 var gun_node: Node3D
 var gun_pos0 := Vector3.ZERO
 var tur_pos0 := Vector3.ZERO
-var paints: Array = []
+var paint: ShaderMaterial
 var tracks: Array = []
 var barrel := 30.0
 var hh := 12.0
 var tur_h := 7.0
-var tz := 10.0
+var tz := 8.0
+var tur_f := 8.0
+var tur_b := 9.0
+var th := 7.0
 var height := 20.0
 var smoke: CPUParticles3D
 
@@ -79,7 +88,8 @@ var pop_spin := Vector2.ZERO
 
 func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool) -> void:
 	type_key = key
-	T = D.TYPES[key]
+	T = D.TYPES[key].duplicate()
+	T.merge(D.derived(D.TYPES[key]), true)
 	team = tm
 	pos = p
 	b_last = p
@@ -99,18 +109,27 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 	gun_node = m.gun
 	gun_pos0 = gun_node.position
 	tur_pos0 = tur_node.position
-	paints = m.paints
+	paint = m.paint
 	tracks = m.tracks
 	barrel = m.barrel
 	hh = m.hh
 	tur_h = m.tur_h
 	tz = m.tz
+	tur_f = m.tur_f
+	tur_b = m.tur_b
+	th = m.th
 	height = m.height
+	paint.set_shader_parameter("tank_h", height)
 	sync_node()
 
 
+func set_dust(c: Color, amount: float) -> void:
+	paint.set_shader_parameter("dust_color", c)
+	paint.set_shader_parameter("dust_amount", amount)
+
+
 func center() -> Vector3:
-	return Vector3(pos.x, ground + hh * 0.65, pos.y)
+	return Vector3(pos.x, ground + hh * 0.6, pos.y)
 
 
 func top() -> Vector3:
@@ -133,10 +152,13 @@ func sync_node() -> void:
 	else:
 		tur_node.rotation.y = -(tur - hull)
 	gun_node.rotation.z = gun_pitch
-	gun_node.position = gun_pos0 - Vector3(recoil * 2.5, 0, 0)
-	if tracks.size() == 2:
-		(tracks[0] as StandardMaterial3D).uv1_offset.x = trk[0]
-		(tracks[1] as StandardMaterial3D).uv1_offset.x = trk[1]
+	gun_node.position = gun_pos0 - Vector3(recoil * 0.35 * D.UPM, 0, 0)
+	paint.set_shader_parameter("ground_y", ground)
+	paint.set_shader_parameter("travel_l", travel[0])
+	paint.set_shader_parameter("travel_r", travel[1])
+	var link := 0.24 * D.UPM
+	(tracks[0] as StandardMaterial3D).uv1_offset.x = -fmod(travel[0] / link, 1.0)
+	(tracks[1] as StandardMaterial3D).uv1_offset.x = -fmod(travel[1] / link, 1.0)
 
 
 func smoke_on(v: bool) -> void:
@@ -145,12 +167,13 @@ func smoke_on(v: bool) -> void:
 
 
 func make_wreck(pop: bool) -> void:
-	for p in paints:
-		(p as StandardMaterial3D).albedo_color = Color(0.22, 0.2, 0.18)
+	paint.set_shader_parameter("burnt", 0.92)
 	for t in tracks:
-		(t as StandardMaterial3D).albedo_color = Color(0.5, 0.45, 0.4)
+		(t as StandardMaterial3D).albedo_color = Color(0.45, 0.4, 0.36)
 	gun_pitch = float(T.elev[0])
 	smoke_on(false)
+	if fire_fx:
+		fire_fx.emitting = false
 	if pop:
 		popping = true
 		pop_vh = randf_range(110.0, 160.0)
@@ -162,7 +185,7 @@ func update_pop(dt: float) -> void:
 	if not popping:
 		return
 	if pop_h > -hh * 0.6 or pop_vh > 0:
-		pop_vh -= 320.0 * dt
+		pop_vh -= D.GRAVITY * 2.0 * dt
 		pop_h += pop_vh * dt
 		pop_off += pop_v * dt
 		tur_node.rotation.x += pop_spin.x * dt

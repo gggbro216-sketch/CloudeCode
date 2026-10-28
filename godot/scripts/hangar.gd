@@ -34,11 +34,11 @@ class TankBars extends Control:
 		var A: Array = T.armor
 		var rows := [
 			["Прочность", "%d" % int(T.hp), float(T.hp) / 1500.0],
-			["Урон", "%d" % int(T.dmg), float(T.dmg) / 320.0],
-			["Пробитие", "%d мм" % int(T.pen), float(T.pen) / 165.0],
-			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 110.0],
-			["Скорость", "%d км/ч" % int(float(T.speed) * 0.3), float(T.speed) / 210.0],
-			["Перезарядка", "%.1f с" % float(T.reload), 2.2 / float(T.reload)],
+			["Урон / пробитие", "%d / %d мм" % [int(T.dmg), int(T.pen)], float(T.pen) / 165.0],
+			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 120.0],
+			["Скорость", "%d км/ч" % int(T.kmh), float(T.kmh) / 56.0],
+			["Мощность", "%d л.с. · %.1f т" % [int(T.power), float(T.mass)], float(T.power) / float(T.mass) / 16.0],
+			["Перезарядка", "%.1f с" % float(T.reload), 2.4 / float(T.reload)],
 		]
 		var y := 0.0
 		for r in rows:

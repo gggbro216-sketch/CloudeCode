@@ -16,7 +16,7 @@ class Group:
 		return sts[m]
 
 	## Добавить сетку с преобразованием. flat — плоские нормали (low-poly).
-	func add(mesh: Mesh, xf: Transform3D, m: Material, flat := false, col := Color.WHITE, uv2 := Vector2.ZERO) -> void:
+	func add(mesh: Mesh, xf: Transform3D, m: Material, flat := false, col := Color.WHITE, uv2 := Vector2.ZERO, uv_over = null) -> void:
 		var st := _st(m)
 		var arr := mesh.surface_get_arrays(0)
 		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
@@ -55,7 +55,10 @@ class Group:
 					st.set_normal((nb * norms[i]).normalized())
 				else:
 					st.set_normal(Vector3.UP)
-				st.set_uv(uvs[i] if not uvs.is_empty() else Vector2.ZERO)
+				if uv_over != null:
+					st.set_uv(uv_over)
+				else:
+					st.set_uv(uvs[i] if not uvs.is_empty() else Vector2.ZERO)
 				if extra:
 					st.set_color(col)
 					st.set_uv2(uv2)
@@ -155,7 +158,8 @@ static func prism(profile: PackedVector2Array, width: float) -> ArrayMesh:
 
 
 ## Усечённая призма: многоугольник вида сверху (x, z), высота h, верх сужен в top раз.
-static func frustum(poly: PackedVector2Array, h: float, top: float, shift := 0.0) -> ArrayMesh:
+## smooth — сглаженные боковые нормали (литые башни).
+static func frustum(poly: PackedVector2Array, h: float, top: float, shift := 0.0, smooth := false) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := poly.size()
@@ -168,16 +172,88 @@ static func frustum(poly: PackedVector2Array, h: float, top: float, shift := 0.0
 	for i in range(0, tris.size(), 3):
 		tri(st, high[tris[i]], high[tris[i + 1]], high[tris[i + 2]], Vector3.UP)
 		tri(st, low[tris[i]], low[tris[i + 1]], low[tris[i + 2]], Vector3.DOWN)
+	var fn: Array = []
 	for i in n:
 		var a: Vector3 = low[i]
 		var b: Vector3 = low[(i + 1) % n]
-		var c: Vector3 = high[(i + 1) % n]
 		var d: Vector3 = high[i]
 		var nrm := (b - a).cross(d - a).normalized()
-		var mid := (a + b + c + d) / 4.0
+		var c4: Vector3 = high[(i + 1) % n]
+		var mid := (a + b + d + c4) / 4.0
 		if nrm.dot(Vector3(mid.x, 0, mid.z)) < 0:
 			nrm = -nrm
-		quad(st, a, b, c, d, nrm)
+		fn.append(nrm)
+	for i in n:
+		var j := (i + 1) % n
+		var a: Vector3 = low[i]
+		var b: Vector3 = low[j]
+		var c: Vector3 = high[j]
+		var d: Vector3 = high[i]
+		var nf: Vector3 = fn[i]
+		if not smooth:
+			quad(st, a, b, c, d, nf)
+			continue
+		var na: Vector3 = (fn[(i - 1 + n) % n] + nf).normalized()
+		var nb: Vector3 = (nf + fn[j]).normalized()
+		_tri_n(st, a, b, c, na, nb, nb, nf)
+		_tri_n(st, a, c, d, na, nb, na, nf)
+	return st.commit()
+
+
+## Треугольник с нормалями в вершинах (для сглаживания); face задаёт сторону.
+static func _tri_n(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, face: Vector3) -> void:
+	if (b - a).cross(c - a).dot(face) > 0:
+		var t := b
+		b = c
+		c = t
+		var tn := nb
+		nb = nc
+		nc = tn
+	st.set_uv(Vector2.ZERO)
+	st.set_normal(na)
+	st.add_vertex(a)
+	st.set_uv(Vector2.ZERO)
+	st.set_normal(nb)
+	st.add_vertex(b)
+	st.set_uv(Vector2.ZERO)
+	st.set_normal(nc)
+	st.add_vertex(c)
+
+
+## Корпус с наклонными бортами: боковой профиль (x, y) вытянут по z, ширина меняется
+## линейно от w0 на высоте y0 до w1 на высоте y1.
+static func loft(profile: PackedVector2Array, y0: float, w0: float, y1: float, w1: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hw := func(y: float) -> float: return lerpf(w0, w1, clampf((y - y0) / maxf(y1 - y0, 0.001), 0.0, 1.0)) / 2.0
+	var cen := Vector2.ZERO
+	for p in profile:
+		cen += p
+	cen /= profile.size()
+	var tris := Geometry2D.triangulate_polygon(profile)
+	for s: float in [1.0, -1.0]:
+		for i in range(0, tris.size(), 3):
+			var v: Array = []
+			for k in 3:
+				var p := profile[tris[i + k]]
+				v.append(Vector3(p.x, p.y, s * hw.call(p.y)))
+			var v0: Vector3 = v[0]
+			var v1: Vector3 = v[1]
+			var v2: Vector3 = v[2]
+			var nrm := (v1 - v0).cross(v2 - v0).normalized()
+			if nrm.z * s < 0:
+				nrm = -nrm
+			tri(st, v0, v1, v2, nrm)
+	for i in profile.size():
+		var a := profile[i]
+		var b := profile[(i + 1) % profile.size()]
+		var e := b - a
+		var n2 := Vector2(e.y, -e.x).normalized()
+		if n2.dot((a + b) / 2.0 - cen) < 0:
+			n2 = -n2
+		var za: float = hw.call(a.y)
+		var zb: float = hw.call(b.y)
+		quad(st, Vector3(a.x, a.y, za), Vector3(b.x, b.y, zb), Vector3(b.x, b.y, -zb), Vector3(a.x, a.y, -za), Vector3(n2.x, n2.y, 0))
 	return st.commit()
 
 

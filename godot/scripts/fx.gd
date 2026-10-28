@@ -24,6 +24,7 @@ func _ready() -> void:
 	ramps["spark"] = _ramp([Color(1, 0.85, 0.5, 1), Color(1, 0.5, 0.1, 0)])
 	ramps["smoke"] = _ramp([Color(0.42, 0.42, 0.4, 0.55), Color(0.3, 0.3, 0.29, 0)])
 	ramps["dark"] = _ramp([Color(0.12, 0.12, 0.11, 0.75), Color(0.1, 0.1, 0.1, 0)])
+	ramps["exhaust"] = _ramp([Color(0.32, 0.33, 0.36, 0.5), Color(0.4, 0.41, 0.44, 0)])
 	set_dust(Color(0.55, 0.5, 0.4))
 	grow_curve.add_point(Vector2(0, 0.35))
 	grow_curve.add_point(Vector2(1, 1))
@@ -105,10 +106,26 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 	return p
 
 
-func muzzle(at: Vector3, dir: Vector3) -> void:
-	emit(at, 14, 0.16, "fire", 60, 240, dir, 22, 0, 7, true, false, 4)
-	emit(at, 10, 1.3, "smoke", 15, 70, dir, 35, 6, 16, false, true, 2)
-	flash(at, Color(1, 0.75, 0.4), 5.0, 70.0)
+func muzzle(at: Vector3, dir: Vector3, caliber := 85.0) -> void:
+	var k := caliber / 85.0
+	emit(at, 16, 0.14, "fire", 80, 300 * k, dir, 18, 0, 8.0 * k, true, false, 5)
+	emit(at, 8, 0.12, "fire", 10, 60, Vector3.UP, 180, 0, 6.0 * k, true, false, 5)
+	emit(at, 14, 1.8, "smoke", 20, 90 * k, dir, 30, 5, 18.0 * k, false, true, 2.5)
+	flash(at, Color(1, 0.75, 0.4), 6.0 * k, 90.0)
+
+
+## Сизый выхлоп из патрубков при резком разгоне.
+func exhaust(at: Vector3, fwd: Vector2) -> void:
+	emit(at, 5, 1.6, "exhaust", 6, 18, Vector3(-fwd.x, 0.8, -fwd.y).normalized(), 25, 4, 9, false, true, 1.5)
+
+
+## Пожар в моторном отделении: пламя и чёрный дым, привязанные к танку.
+func deck_fire(tank: Node3D, local: Vector3) -> CPUParticles3D:
+	var p := emit(local, 18, 0.7, "fire", 8, 25, Vector3.UP, 20, 12, 7, true, false, 0, false, tank)
+	var s := emit(local + Vector3(0, 3, 0), 10, 2.2, "dark", 10, 22, Vector3.UP, 15, 4, 16, false, true, 0, false, tank)
+	p.emitting = false
+	s.reparent(p)
+	return p
 
 
 func hit_sparks(at: Vector3) -> void:

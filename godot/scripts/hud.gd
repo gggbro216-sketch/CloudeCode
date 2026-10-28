@@ -272,13 +272,11 @@ func _draw_crosshair() -> void:
 	var half_h := size.y / 2.0 / tan(deg_to_rad(cam.fov) / 2.0)
 	var r := clampf(tan(float(w.disp)) * half_h, 7.0, size.y * 0.4)
 	var col := Color.WHITE
-	match battle.pen_hint:
-		0:
-			col = col_foe
-		1:
-			col = col_amber
-		2:
-			col = Color("7bc65a")
+	if battle.gun_limited:
+		col = Color(0.7, 0.7, 0.7)
+		_text(s + Vector2(0, r + 30), "ПРЕДЕЛ НАВОДКИ", 14, col, true, 3)
+	else:
+		col = _pen_color()
 	draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
 	draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
 	if w.rl > 0:
@@ -287,6 +285,18 @@ func _draw_crosshair() -> void:
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
 		draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
 	draw_circle(s, 1.8, col)
+
+
+func _pen_color() -> Color:
+	var col := Color.WHITE
+	match battle.pen_hint:
+		0:
+			col = col_foe
+		1:
+			col = col_amber
+		2:
+			col = Color("7bc65a")
+	return col
 
 
 func _draw_top() -> void:
@@ -421,6 +431,21 @@ func _draw_hp() -> void:
 	draw_rect(Rect2(cx - 150, y + 6, 300, 14), Color(0.04, 0.05, 0.03, 0.75))
 	draw_rect(Rect2(cx - 149, y + 7, 298 * f, 12), c)
 	_text(Vector2(cx, y + 42), "%d / %d" % [ceili(maxf(p.hp, 0.0)), int(p.max_hp)], 20, col_text, true, 4)
+	if not p.alive:
+		return
+	# скорость и состояние модулей
+	var kmh := absf(p.sp) / D.UPM * 3.6
+	_text(Vector2(cx - 200, y + 18), "%d км/ч" % int(round(kmh)), 18, col_text, true, 3)
+	var tags: Array = []
+	if p.track_broken > 0.0:
+		tags.append(["ГУСЕНИЦА %.0f" % ceil(p.track_broken), col_amber])
+	if p.fire > 0.0:
+		tags.append(["ПОЖАР", col_foe])
+	var tx := cx + 200
+	for t in tags:
+		_text(Vector2(tx, y + 18), t[0], 16, t[1], true, 3)
+		tx += 0.0
+		y -= 22
 
 
 func _draw_controls() -> void:
@@ -538,7 +563,7 @@ func _build_pause() -> void:
 	vb.add_child(_button("ПРОДОЛЖИТЬ", true, func(): battle.set_paused(false)))
 	var snd := _button("ЗВУК: ВКЛ", false, func(): pass)
 	snd.pressed.connect(func():
-		battle.sfx.muted = not battle.sfx.muted
+		battle.sfx.set_muted(not battle.sfx.muted)
 		snd.text = "ЗВУК: ВЫКЛ" if battle.sfx.muted else "ЗВУК: ВКЛ")
 	vb.add_child(snd)
 	vb.add_child(_button("ПОКИНУТЬ БОЙ", false, func(): battle.leave.emit(false)))
