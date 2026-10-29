@@ -425,9 +425,10 @@ static func compose(pool: Array, first: String, budget: int, rng: RandomNumberGe
 
 ## Две команды равного боевого веса: много случайных составов каждой стороны,
 ## из них — случайная пара с одинаковой суммой (иначе ближайшая).
-static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNumberGenerator, year: int) -> Array:
+## tier — уровень боя: на VII–VIII вес команды больше, чтобы тяжёлых машин было не по три.
+static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNumberGenerator, year: int, tier := 5) -> Array:
 	# у лёгких машин семь танков не набирают полного веса: бюджет — по более лёгкой стороне
-	var budget := mini(TEAM_BUDGET, int(minf(_mean_pts(mine, year), _mean_pts(theirs, year)) * TEAM_MAX))
+	var budget := mini(TEAM_BUDGET + maxi(0, tier - 6) * 9, int(minf(_mean_pts(mine, year), _mean_pts(theirs, year)) * TEAM_MAX))
 	var a_list: Array = []
 	var b_list: Array = []
 	for i in 40:

@@ -387,7 +387,7 @@ func _spawn() -> void:
 	var tier := D.tier(player_type)
 	var mine := D.pool(map_key, side, history, tier)
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
-	teams = D.match_teams(mine, theirs, player_type, rng, year)
+	teams = D.match_teams(mine, theirs, player_type, rng, year, tier)
 	# позывные — по армии, которая ведёт машину
 	var names := {}
 	for nat in D.CALLSIGNS:
