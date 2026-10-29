@@ -17,8 +17,11 @@
 ## Сборка APK
 
 ```
-./build_apk.sh <путь к godot> <keystore> <alias> <пароль>
+./build_apk.sh <путь к godot>
 ```
+
+По умолчанию APK подписывается ключом проекта `signing/fireline.keystore` (пароль и alias — в
+`signing/README.md`), так что новые сборки ставятся поверх старых как обновление.
 
 Готовый файл появится в `build/Fireline.apk` (arm64, Android 5.0+). Нужны шаблоны экспорта Godot той же
 версии, JDK 17+ и Android SDK с build-tools (путь задаётся в настройках редактора `export/android/android_sdk_path`).
