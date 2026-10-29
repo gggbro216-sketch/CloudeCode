@@ -158,8 +158,8 @@ const TREE := {
 	"crusader": ["cromwell", "sherman", "chaffee"], "cromwell": ["firefly"], "sherman": ["firefly"],
 	"m13_40": ["pz3"], "pz3": ["pz4", "stug"], "pz4": ["tiger", "panther"], "stug": ["jagdpanther"], "tiger": ["tiger2"],
 }
-const RESEARCH_XP := {3: 400, 4: 800, 5: 2500, 6: 6000, 7: 12000, 8: 22000}  # опыт на исследование танка
-const PRICE := {3: 8000, 4: 15000, 5: 45000, 6: 110000, 7: 250000, 8: 450000}  # серебро
+const RESEARCH_XP := {3: 400, 4: 800, 5: 2500, 6: 5000, 7: 9000, 8: 15000}  # опыт на исследование танка
+const PRICE := {3: 8000, 4: 15000, 5: 45000, 6: 90000, 7: 180000, 8: 320000}  # серебро
 const START_SILVER := 60000
 const FREE_XP_SHARE := 0.05  # доля опыта за бой, которая идёт в свободный
 const SLOTS := ["gun", "turret", "engine", "susp"]

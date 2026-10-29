@@ -849,6 +849,9 @@ func show_result(st: Dictionary) -> void:
 	if float(st.mult) > 1.0:
 		row.call("Победа" if st.result == "win" else "Ничья", "×%s" % String.num(st.mult, 1).replace(".", ","),
 			"×%s" % String.num(st.mult, 1).replace(".", ","), "7bc65a")
+	if float(st.get("tier_mult", 1.0)) > 1.0:
+		var tm := "×%s" % String.num(st.tier_mult, 1).replace(".", ",")
+		row.call("Уровень танка", tm, tm, "7bc65a")
 	if int(st.repair) > 0:
 		row.call("Ремонт", "", "−" + _num(st.repair), "e2563c")
 	if int(st.cons_cost) > 0:

@@ -1615,7 +1615,7 @@ func _find_cover(b: TankScript, tg: TankScript):
 	var bd := 1e9
 	for i in 10:
 		var a := away + (float(i) - 4.5) * 0.42
-		var p := b.pos + Vector2.from_angle(a) * (45.0 + float(i % 3) * 45.0)
+		var p := b.pos + Vector2.from_angle(a) * (40.0 + float(i % 2) * 40.0)
 		if p.x < 150.0 or p.y < 150.0 or p.x > D.WS - 150.0 or p.y > D.WS - 150.0 or blocked_at(p, r):
 			continue
 		var top := Vector3(p.x, terra.height(p.x, p.y) + b.height * 0.85, p.y)
@@ -1662,8 +1662,9 @@ func _bot(b: TankScript, dt: float) -> void:
 			strafe = 0.0  # перед выстрелом останавливается, чтобы свестись
 		if b.b_zone != null and in_zone(b, b.b_zone) and b.b_zone.side != b.team:
 			fwd = 0.0
-		# перезарядка долгая или танк еле жив: прячется за холм или дом и выезжает к выстрелу
-		var hide := b.b_los and d < 900.0 and b.rl > 1.4 and (float(T.reload) >= 3.5 or low) and not b.immobile
+		# танк еле жив или без толстой брони с долгой перезарядкой: прячется за холм или дом
+		# и выезжает к выстрелу (бронированные машины и САУ держат позицию лбом к противнику)
+		var hide := b.b_los and d < 900.0 and b.rl > 1.4 and not b.immobile and (low or (float(T.reload) >= 3.5 and not T.armored and not b.casemate))
 		b.b_cover_t -= dt
 		if hide and (b.b_cover == null or b.b_cover_t <= 0.0):
 			b.b_cover = _find_cover(b, tg)
@@ -2085,13 +2086,15 @@ func rewards() -> Dictionary:
 		if float(ln[1]) >= 1.0 or float(ln[2]) >= 1.0:
 			shown.append([ln[0], roundi(ln[1]), roundi(ln[2])])
 	var mult: float = {"win": 1.5, "draw": 1.1}.get(result, 1.0)
-	xp = roundf(xp * mult)
-	silver = roundf(silver * mult)
+	# на высоких уровнях бой ценнее (как и ремонт дороже)
+	var tk_mult := 1.0 + maxi(0, tier - 4) * 0.2
+	xp = roundf(xp * mult * tk_mult)
+	silver = roundf(silver * mult * tk_mult)
 	var repair := roundi((1.0 - clampf(player.hp / player.max_hp, 0.0, 1.0)) * float(D.REPAIR_FULL[tier]))
 	var cons_cost := 0
 	for c in player.cons_used:
 		cons_cost += int(D.CONSUMABLES[c].price)
-	return {"lines": shown, "mult": mult, "xp": int(xp), "free_xp": roundi(xp * D.FREE_XP_SHARE),
+	return {"lines": shown, "mult": mult, "tier_mult": tk_mult, "xp": int(xp), "free_xp": roundi(xp * D.FREE_XP_SHARE),
 		"silver_gross": int(silver), "repair": repair, "cons_cost": cons_cost, "silver": int(silver) - repair - cons_cost}
 
 
