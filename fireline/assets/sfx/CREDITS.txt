@@ -1,0 +1,26 @@
+Звуки взяты из соседнего проекта godot/ («Стальной Штурм»): часть синтезирована (tools/gen_sfx.py:
+whiz, capture, radio_*), остальные — записи с freesound.org. Ниже полный список источников.
+
+Записи с freesound.org. CC0 — общественное достояние; CC-BY — Creative Commons Attribution,
+использованы фрагменты, обработаны (обрезка, фильтры, нормализация, петли).
+
+nicStage — «Sherman E8 ("Easy 8") tank starting up and running», CC-BY 4.0, https://freesound.org/s/368670/
+JoniHeinonen — «WAR-TANK, LEOPARD-ENGINE STAND BY», CC-BY 3.0, https://freesound.org/s/161897/
+YleArkisto — «Panssarivaunut maastossa / Tanks on terrain, tracks creaking», CC-BY 4.0, https://freesound.org/s/386661/
+qubodup — «Tank or Tower Turret Moving and Turning», CC0, https://freesound.org/s/171657/
+GaryQ — «Tank fire Mixed.wav», CC0, https://freesound.org/s/127845/
+qubodup — «Cannon Shot», CC0, https://freesound.org/s/187767/
+ReadeOnly — «cannon_boom7.wav», CC0, https://freesound.org/s/186951/
+Za-Games — «Deep Boom», CC0, https://freesound.org/s/539968/
+juskiddink — «Nearby explosion with debris.wav», CC-BY 4.0, https://freesound.org/s/108641/
+OGsoundFX — «Guns & Explosions Album - Heavy Object Impact 10», CC-BY 4.0, https://freesound.org/s/423113/
+EpicWizard — «SFX Metal Shed Door - Hits, Clangs, Rattle», CC0, https://freesound.org/s/264889/
+cedarstudios — «ricochet.mp3», CC0, https://freesound.org/s/148840/
+IdkMrGarcia — «explosion.wav», CC0, https://freesound.org/s/446625/
+GryffDavid — «Bouncing Shell Casings (Various Sizes)», CC0, https://freesound.org/s/318964/
+bendodge — «Incoming Artillery.wav», CC-BY 3.0, https://freesound.org/s/170991/
+Aegersum — «Cannon artillery - distant gunshots.wav», CC-BY 3.0, https://freesound.org/s/345844/
+reinsamba — «chimney fire.wav», CC-BY 4.0, https://freesound.org/s/18766/
+klankbeeld — «wind cornfield 1613PM 220529_0375.wav», CC-BY 4.0, https://freesound.org/s/673807/
+
+Звуки винтовок, пулемётов, миномётов и ракет синтезируются в игре (scripts/sfx.gd).
