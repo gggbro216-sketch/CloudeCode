@@ -76,6 +76,74 @@ void fragment() {
 }
 """
 
+# Шейдер готовых моделей (assets/models): атлас RGB — исходный цвет, A — мелкая светотень.
+# Броня перекрашивается в камуфляж карты с сохранением светотени исходника; резина и голый
+# металл (UV2.x = 0) остаются как есть. Катки крутятся вокруг своих осей (CUSTOM0: центр,
+# 1/радиус, борт). Вершины модели — в метрах.
+const MODEL_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+
+uniform sampler2D albedo : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform sampler2D camo : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D grime : filter_linear_mipmap, repeat_enable;
+uniform float tex_scale = 0.225;
+uniform float paint_mix = 0.88;
+uniform float upm = 7.5;
+uniform vec4 dust_color : source_color = vec4(0.55, 0.5, 0.4, 1.0);
+uniform float dust_amount = 0.6;
+uniform float ground_y = 0.0;
+uniform float tank_h = 20.0;
+uniform float burnt = 0.0;
+uniform float travel_l = 0.0;
+uniform float travel_r = 0.0;
+varying vec3 opos;
+varying vec3 onrm;
+varying float wy;
+varying float painted;
+
+vec3 tri3(sampler2D t, vec3 p, vec3 n) {
+	vec3 w = pow(abs(n), vec3(4.0));
+	w /= (w.x + w.y + w.z + 0.0001);
+	return texture(t, p.zy).rgb * w.x + texture(t, p.xz).rgb * w.y + texture(t, p.xy).rgb * w.z;
+}
+
+void vertex() {
+	if (CUSTOM0.z > 0.0) {
+		float travel = CUSTOM0.w > 0.0 ? travel_r : travel_l;
+		float a = -travel / upm * CUSTOM0.z;
+		float cs = cos(a);
+		float sn = sin(a);
+		vec2 p = VERTEX.xy - CUSTOM0.xy;
+		VERTEX.xy = CUSTOM0.xy + vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs);
+		NORMAL.xy = vec2(NORMAL.x * cs - NORMAL.y * sn, NORMAL.x * sn + NORMAL.y * cs);
+	}
+	opos = VERTEX;
+	onrm = NORMAL;
+	painted = UV2.x;
+	wy = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
+}
+
+void fragment() {
+	vec4 t = texture(albedo, UV);
+	vec3 camo_c = tri3(camo, opos * tex_scale, onrm);
+	float g = tri3(grime, opos * tex_scale * 2.7, onrm).r;
+	// перекраска: камуфляж × светотень исходной текстуры; светлые надписи и номера исходника
+	// срезаются сверху, тени и стыки листов остаются
+	float det = clamp(t.a * 2.0, 0.45, 1.1);
+	vec3 paint_c = camo_c * mix(1.0, det, 0.85) * (0.86 + 0.26 * g);
+	vec3 c = mix(t.rgb, paint_c, painted * paint_mix);
+	float h = clamp((wy - ground_y) / tank_h, 0.0, 1.0);
+	float dirt = smoothstep(0.5, 0.06, h + (g - 0.5) * 0.3) * dust_amount;
+	dirt += smoothstep(0.7, 1.0, onrm.y) * 0.18 * dust_amount;
+	c = mix(c, dust_color.rgb * (0.78 + 0.35 * g), clamp(dirt, 0.0, 0.85));
+	c = mix(c, vec3(0.06, 0.055, 0.05) * (0.5 + g), burnt);
+	ALBEDO = c;
+	ROUGHNESS = mix(0.66, 0.95, clamp(dirt + burnt, 0.0, 1.0)) - (1.0 - painted) * 0.12;
+	SPECULAR = 0.3;
+}
+"""
+
 # Размеры в метрах. hull — боковой профиль корпуса (x от кормы -L/2 до носа +L/2, y вверх).
 # th — высота верхней ветви гусеницы; tw — ширина гусеницы; up_w — ширина верхнего корпуса;
 # wheels — x катков; wr — радиус катка; spr/idl — звёздочка и ленивец [x, y, r];
@@ -478,6 +546,9 @@ static func _cyl_x(r1: float, r2: float, l: float, seg := 12) -> Array:
 ## и размеры в единицах карты. sup — узел и габариты верхней части для попаданий: башня
 ## или неподвижная рубка.
 static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_cfg := {}) -> Dictionary:
+	var info := model_info(key)
+	if not info.is_empty():
+		return _build_model(root, key, info, shadows, paint_cfg)
 	var S: Dictionary = SPECS[key]
 	var TT := D.spec(key, year)
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
@@ -683,6 +754,186 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
 		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
 		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
+
+
+# ---------- Готовые модели (assets/models, см. tools/import_models.py) ----------
+
+const MODEL_DIR := "res://assets/models/"
+static var use_models := true
+
+
+## Сведения о модели: шарниры, контур гусениц, места знаков. Пустой словарь — модели нет.
+static func model_info(key: String) -> Dictionary:
+	if not use_models:
+		return {}
+	var ck := "model_" + key
+	if _cache.has(ck):
+		return _cache[ck]
+	var info := {}
+	var path := MODEL_DIR + key + ".json"
+	if FileAccess.file_exists(path) and ResourceLoader.exists(MODEL_DIR + key + ".glb"):
+		var d = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if d is Dictionary:
+			info = d
+			var scene: PackedScene = load(MODEL_DIR + key + ".glb")
+			var inst := scene.instantiate()
+			for mi in inst.find_children("*", "MeshInstance3D", true, false):
+				info["mesh_" + String(mi.name)] = (mi as MeshInstance3D).mesh
+			inst.free()
+			info["atlas"] = load(MODEL_DIR + key + ".png")
+	_cache[ck] = info
+	return info
+
+
+static func model_material(info: Dictionary, camo: String) -> ShaderMaterial:
+	if not _cache.has("model_shader"):
+		var sh := Shader.new()
+		sh.code = MODEL_SHADER
+		_cache["model_shader"] = sh
+	var m := ShaderMaterial.new()
+	m.shader = _cache["model_shader"]
+	m.set_shader_parameter("albedo", info.atlas)
+	m.set_shader_parameter("camo", camo_texture(camo))
+	m.set_shader_parameter("grime", grime_texture())
+	m.set_shader_parameter("upm", U)
+	m.set_shader_parameter("tex_scale", 0.03 * U)
+	return m
+
+
+static func _model_part(parent: Node3D, mesh: Mesh, mat: Material, shadows: bool) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.scale = Vector3.ONE * U
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+static func _v3(a: Array) -> Vector3:
+	return Vector3(float(a[0]), float(a[1]), float(a[2]))
+
+
+## Танк из готовой модели: тот же набор узлов и размеров, что у процедурной (build).
+static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: bool, paint_cfg: Dictionary) -> Dictionary:
+	var S: Dictionary = SPECS[key]
+	var emblem: String = paint_cfg.get("emblem", S.emblem)
+	var L: float = S.L
+	var W: float = S.W
+	var th: float = S.th
+	var paint := model_material(info, paint_cfg.get("camo", S.camo))
+	var hull := Node3D.new()
+	root.add_child(hull)
+	_model_part(hull, info.mesh_hull, paint, shadows)
+
+	# гусеницы — своя лента по контуру гусениц модели, текстура бежит с ходом танка
+	var trk: Dictionary = info.track
+	var outline := PackedVector2Array()
+	for p in trk.outline:
+		outline.append(Vector2(float(p[0]), float(p[1])) * U)
+	var tw: float = trk.w
+	var tz: float = trk.z
+	var trk_l := _track_mat()
+	var trk_r := _track_mat()
+	var tg := Geo.Group.new()
+	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_r)
+	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_l)
+	tg.commit(hull, shadows)
+
+	# опознавательные знаки на борту корпуса
+	var em_turret: bool = emblem == "ussr" or S.get("em_turret", false)
+	if not em_turret and info.get("em_hull") != null:
+		var e: Array = info.em_hull
+		_emblems(hull, emblem, Vector3(float(e[0]), float(e[1]), float(e[2]) + 0.03), 0.7, float(e[3]))
+
+	# пятно тени
+	var blob := MeshInstance3D.new()
+	var bq := QuadMesh.new()
+	bq.size = Vector2(L * 1.25, W * 1.35) * U
+	var bm := StandardMaterial3D.new()
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bm.albedo_texture = _blob()
+	bm.disable_receive_shadows = true
+	blob.mesh = bq
+	blob.material_override = bm
+	blob.rotation = Vector3(-PI / 2, 0, 0)
+	blob.position.y = 0.05 * U
+	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hull.add_child(blob)
+
+	var casemate: bool = S.get("casemate", false)
+	var top := Node3D.new()
+	var tur: Node3D
+	var gun := Node3D.new()
+	var out := {"hull": hull, "paint": paint, "tracks": [trk_l, trk_r], "th": th * U, "barrel": float(info.barrel) * U}
+	if casemate:
+		# рубка — часть корпуса; качается установка орудия; размеры рубки — по SPECS
+		var roof := 0.0
+		for p in S.hull:
+			roof = maxf(roof, float(p[1]))
+		var front: float = S.tpoly[1]
+		var back: float = S.tpoly[2]
+		var hw: float = S.tpoly[3]
+		var tur_h: float = S.tur_h
+		top.position = Vector3(float(S.tur_x), roof - 0.02, 0) * U
+		hull.add_child(top)
+		tur = Node3D.new()
+		tur.position = _v3(info.trunnion) * U
+		hull.add_child(tur)
+		gun.position = Vector3.ZERO
+		out.merge({"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U, "tur_b": back * U,
+			"height": (roof + tur_h + 0.3) * U, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U})
+	else:
+		var ring := _v3(info.ring)
+		top.position = ring * U
+		hull.add_child(top)
+		tur = top
+		_model_part(top, info.mesh_turret, paint, shadows)
+		gun.position = _v3(info.trunnion) * U
+		# коробка попаданий башни — основной объём модели без мелочей, в пределах разумного
+		# отклонения от исторических размеров (на них настроен баланс)
+		var bmin := _v3(info.box_min)
+		var bmax := _v3(info.box_max)
+		var hs: float = S.tpoly[3]
+		var hw := clampf(maxf(-bmin.z, bmax.z), hs * 0.85, hs * 1.2)
+		var front := clampf(bmax.x, float(S.tpoly[1]) * 0.85, float(S.tpoly[1]) * 1.35)
+		var back := clampf(-bmin.x, float(S.tpoly[2]) * 0.8, float(S.tpoly[2]) * 1.25)
+		var tur_h := clampf(bmax.y, float(S.tur_h) * 0.85, float(S.tur_h) * 1.2)
+		out.merge({"hh": ring.y * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U, "tur_b": back * U,
+			"height": (ring.y + tur_h + 0.3) * U, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U})
+		if em_turret and info.get("em_tur") != null:
+			var e: Array = info.em_tur
+			_emblems(top, emblem, Vector3(float(e[0]), float(e[1]), float(e[2]) + 0.03), 0.55, float(e[3]))
+		if paint_cfg.get("band", false):
+			_berlin_band(top, info, shadows)
+	tur.add_child(gun)
+	if info.has("mesh_gun"):
+		_model_part(gun, info.mesh_gun, paint, shadows)
+	out.merge({"tur": tur, "gun": gun, "sup": top})
+	return out
+
+
+## Берлин, 1945: белая полоса вокруг башни и белый крест на крыше.
+static func _berlin_band(top: Node3D, info: Dictionary, shadows: bool) -> void:
+	var poly := PackedVector2Array()
+	for p in info.band:
+		poly.append(Vector2(float(p[0]), float(p[1])) * 1.025)
+	if Geometry2D.is_polygon_clockwise(poly):
+		poly.reverse()
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.82, 0.81, 0.77)
+	m.roughness = 0.85
+	var g := Geo.Group.new()
+	var yb: float = info.band_y
+	g.add(Geo.frustum(poly, 0.13, 1.0, 0.0, false), T3(Vector3(0, yb - 0.065, 0)), m)
+	var tmax := _v3(info.tur_max)
+	var tmin := _v3(info.tur_min)
+	var rw := minf(tmax.z, -tmin.z) * 0.75
+	var cx := (tmax.x + tmin.x) * 0.5 - 0.1
+	g.add(Geo.box(Vector3(rw * 2.0, 0.02, 0.16)), T3(Vector3(cx, tmax.y + 0.01, 0)), m)
+	g.add(Geo.box(Vector3(0.16, 0.02, rw * 2.0)), T3(Vector3(cx, tmax.y + 0.01, 0)), m)
+	g.commit(top, shadows)
 
 
 static func _track_mat() -> StandardMaterial3D:

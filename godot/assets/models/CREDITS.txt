@@ -1,0 +1,17 @@
+Модели танков с sketchfab.com (CC-BY 4.0: Creative Commons Attribution). Изменены: упрощены,
+разделены на части, текстуры собраны в атлас и перекрашиваются под карту, гусеницы заменены.
+
+Stafford — «Tank T-34/76D F-34 ( 1942 )», CC-BY 4.0, https://sketchfab.com/3d-models/tank-t-3476d-f-34-1942-876f6900000744358c0a7c8f7230741a
+Stafford — «Tank T-34-85  ZiS-S-53 ( 1944 )», CC-BY 4.0, https://sketchfab.com/3d-models/tank-t-34-85-zis-s-53-1944-f7dfafa6de044810b9d7dd3880c8490f
+Stafford — «Tank KV-1 ZIS-5 ( 1941 )», CC-BY 4.0, https://sketchfab.com/3d-models/tank-kv-1-zis-5-1941-37cc8ff316144cf0a80fc02fea85782a
+ShaposhnikovG — «IS2 Soviet WWII Tank», CC-BY 4.0, https://sketchfab.com/3d-models/is2-soviet-wwii-tank-7efb256211eb423cb3f479e96bcb08fc
+barking_dogo — «M4 Sherman», CC-BY 4.0, https://sketchfab.com/3d-models/m4-sherman-8766b7d04637437e884c511f89126a98
+barking_dogo — «M4 Sherman Firefly», CC-BY 4.0, https://sketchfab.com/3d-models/m4-sherman-firefly-c903938af7f347dc9c64cda035e9f7ab
+rks.sdsk — «Cromwell MK IV», CC-BY 4.0, https://sketchfab.com/3d-models/cromwell-mk-iv-373a8bb8189b42a690a51d41170280d1
+buffinbag — «M24 Chaffee», CC-BY 4.0, https://sketchfab.com/3d-models/m24-chaffee-4f5e64590a514da2a6736fcac5c954e9
+OnlyPalantir — «PzKpfw III Ausf. J», CC-BY 4.0, https://sketchfab.com/3d-models/pzkpfw-iii-ausf-j-154de167f29b4387b92c83a7b54cb2bc
+Greg McKechnie — «Panzer IV», CC-BY 4.0, https://sketchfab.com/3d-models/panzer-iv-098195c920b645e3af7ae7a744caeda2
+_JooL_ — «StuG III Aufs. G», CC-BY 4.0, https://sketchfab.com/3d-models/stug-iii-aufs-g-14e16abe7e8d4fb3888c92f4a72a487a
+brow.wes — «Panther G», CC-BY 4.0, https://sketchfab.com/3d-models/panther-g-f76129fb212e4f70b76dbb34d770d823
+M1RON — «Tiger I (PzKpfw VI Ausf. E)», CC-BY 4.0, https://sketchfab.com/3d-models/tiger-i-pzkpfw-vi-ausf-e-5dde7ae017584613a823784f744935fc
+Stafford — «Tank Pz.Kpfw.VI Ausf.B «Henschel Tiger II»», CC-BY 4.0, https://sketchfab.com/3d-models/tank-pzkpfwvi-ausfb-henschel-tiger-ii-f3fe1d22f3bb4528af3b152917daa65b

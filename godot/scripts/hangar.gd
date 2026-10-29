@@ -364,7 +364,7 @@ func _fill_stats() -> void:
 		stats_row.add_child(pc)
 
 
-## Окно с авторами звуков (CC-BY требует указывать их).
+## Окно с авторами моделей и звуков (CC-BY требует указывать их).
 func _show_credits() -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.6)
@@ -380,15 +380,16 @@ func _show_credits() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	pc.add_child(v)
-	v.add_child(UI.label("АВТОРЫ ЗВУКОВ", 22, D.AMBER))
+	v.add_child(UI.label("АВТОРЫ", 22, D.AMBER))
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	v.add_child(sc)
-	var txt := "Игра и модели: процедурная генерация.\n\n"
-	var f := FileAccess.open("res://assets/sfx/CREDITS.txt", FileAccess.READ)
-	if f:
-		txt += f.get_as_text()
+	var txt := "Карты, окружение и «Крусейдер» — процедурная генерация.\n\n"
+	for path in ["res://assets/models/CREDITS.txt", "res://assets/sfx/CREDITS.txt"]:
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f:
+			txt += f.get_as_text() + "\n"
 	var l := UI.label(txt, 13)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
