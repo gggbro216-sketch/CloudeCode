@@ -79,7 +79,19 @@ void fragment() {
 # th — высота верхней ветви гусеницы; tw — ширина гусеницы; up_w — ширина верхнего корпуса;
 # wheels — x катков; wr — радиус катка; spr/idl — звёздочка и ленивец [x, y, r];
 # rollers — x поддерживающих роликов; tur_x — центр погона; tpoly — башня сверху; tur_h — высота.
+# Необязательные ключи: shelf — надгусеничные полки (по умолчанию есть); hatch — люк заряжающего
+# на крыше; cupola: [] — без командирской башенки; bogies — тележки блокированной подвески;
+# skirts — год, с которого ставились бортовые экраны; casemate — неподвижная рубка вместо башни
+# (tpoly — её контур, орудие качается в лобовом листе).
 const SPECS := {
+	"t34_76": {
+		"L": 5.92, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.96, 0.62], [-2.68, 1.44], [1.5, 1.5], [2.96, 0.76], [2.8, 0.42], [-2.76, 0.42]],
+		"wheels": [1.8, 0.85, -0.12, -1.08, -2.02], "wr": 0.415, "wheel": "spoked",
+		"spr": [-2.66, 0.6, 0.36], "idl": [2.54, 0.58, 0.33], "rollers": [],
+		"tur_x": 0.85, "tpoly": ["hex", 0.9, 1.22, 0.92], "tur_h": 0.72, "tur_top": 0.78, "smooth": false,
+		"mant": "f34", "gun_len": 2.15, "gun_r": [0.075, 0.058], "brake": "none",
+		"cupola": [], "hatch": false},
 	"t34": {
 		"L": 6.1, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
 		"hull": [[-3.05, 0.62], [-2.76, 1.44], [1.6, 1.5], [3.05, 0.76], [2.88, 0.42], [-2.85, 0.42]],
@@ -88,14 +100,14 @@ const SPECS := {
 		"tur_x": 0.42, "tpoly": ["oval", 1.02, 1.6, 1.08], "tur_h": 0.86, "tur_top": 0.8, "smooth": true,
 		"mant": "cast", "gun_len": 4.3, "gun_r": [0.085, 0.064], "brake": "none",
 		"cupola": [-0.85, -0.46, 0.3, 0.3]},
-	"tiger": {
-		"L": 6.32, "W": 3.56, "tw": 0.725, "th": 0.98, "up_w": 3.42, "camo": "german", "emblem": "germany",
-		"hull": [[-3.16, 0.52], [-3.16, 1.76], [2.36, 1.86], [2.36, 1.24], [3.16, 1.12], [3.16, 0.62], [2.92, 0.46], [-2.92, 0.46]],
-		"wheels": [2.12, 1.5, 0.88, 0.26, -0.36, -0.98, -1.6, -2.22], "wr": 0.4, "wheel": "interleaved",
-		"spr": [2.86, 0.86, 0.42], "idl": [-2.94, 0.84, 0.33], "rollers": [],
-		"tur_x": 0.25, "tpoly": ["horseshoe", 0.95, 1.25, 1.12], "tur_h": 0.94, "tur_top": 0.98, "smooth": false,
-		"mant": "plate", "gun_len": 4.75, "gun_r": [0.1, 0.075], "brake": "double",
-		"cupola": [-0.72, -0.56, 0.37, 0.3]},
+	"kv1": {
+		"L": 6.75, "W": 3.32, "tw": 0.7, "th": 0.9, "up_w": 2.72, "camo": "green", "emblem": "ussr",
+		"hull": [[-3.3, 0.5], [-3.37, 1.2], [-3.05, 1.78], [2.75, 1.78], [3.3, 1.08], [3.37, 0.98], [3.05, 0.42], [-3.0, 0.42]],
+		"wheels": [2.38, 1.43, 0.48, -0.47, -1.42, -2.37], "wr": 0.3, "wheel": "single",
+		"spr": [-3.05, 0.66, 0.37], "idl": [3.02, 0.62, 0.34], "rollers": [1.9, 0.0, -1.9],
+		"tur_x": 0.4, "tpoly": ["oval", 1.05, 1.38, 1.06], "tur_h": 0.9, "tur_top": 0.8, "smooth": true,
+		"mant": "kv", "gun_len": 2.2, "gun_r": [0.075, 0.058], "brake": "none",
+		"cupola": [], "hatch": false},
 	"is2": {
 		"L": 6.77, "W": 3.07, "tw": 0.65, "th": 0.86, "up_w": 3.07, "camo": "green", "emblem": "ussr",
 		"hull": [[-3.38, 0.6], [-3.2, 1.56], [1.75, 1.62], [3.38, 0.84], [3.12, 0.44], [-3.05, 0.44]],
@@ -104,14 +116,14 @@ const SPECS := {
 		"tur_x": 0.55, "tpoly": ["oval", 1.12, 1.55, 1.2], "tur_h": 0.96, "tur_top": 0.74, "smooth": true,
 		"mant": "cast_big", "gun_len": 4.95, "gun_r": [0.11, 0.085], "brake": "double_big",
 		"cupola": [-0.78, -0.48, 0.3, 0.32]},
-	"pz4": {
-		"L": 5.89, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german", "emblem": "germany",
-		"hull": [[-2.95, 0.5], [-2.95, 1.55], [1.38, 1.6], [1.42, 1.22], [2.42, 1.14], [2.95, 1.0], [2.95, 0.6], [2.7, 0.4], [-2.75, 0.4]],
-		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
-		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
-		"tur_x": 0.05, "tpoly": ["pz4", 1.0, 1.0, 1.0], "tur_h": 0.82, "tur_top": 0.86, "smooth": false,
-		"mant": "box", "gun_len": 3.75, "gun_r": [0.075, 0.06], "brake": "ball",
-		"cupola": [-0.98, 0.0, 0.33, 0.3], "skirts": true},
+	"sherman": {
+		"L": 5.84, "W": 2.62, "tw": 0.42, "th": 0.98, "up_w": 2.62, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.92, 0.62], [-2.92, 1.88], [1.45, 1.9], [2.35, 1.2], [2.68, 1.1], [2.92, 0.85], [2.86, 0.52], [2.5, 0.4], [-2.7, 0.55]],
+		"wheels": [1.86, 1.26, 0.3, -0.3, -1.26, -1.86], "wr": 0.254, "wheel": "vvss", "bogies": [1.56, 0.0, -1.56],
+		"spr": [2.6, 0.8, 0.31], "idl": [-2.62, 0.5, 0.29], "rollers": [1.4, -0.16, -1.72],
+		"tur_x": -0.15, "tpoly": ["oval", 0.95, 1.28, 0.88], "tur_h": 0.74, "tur_top": 0.87, "smooth": true,
+		"mant": "rotor", "gun_len": 2.3, "gun_r": [0.068, 0.054], "brake": "none",
+		"cupola": [], "hatch": false, "shelf": false},
 	"chaffee": {
 		"L": 5.03, "W": 2.95, "tw": 0.41, "th": 0.88, "up_w": 2.95, "camo": "olive", "emblem": "usa",
 		"hull": [[-2.52, 0.62], [-2.52, 1.58], [0.62, 1.64], [2.52, 0.86], [2.4, 0.5], [-2.32, 0.5]],
@@ -120,6 +132,54 @@ const SPECS := {
 		"tur_x": 0.32, "tpoly": ["oval", 0.92, 1.08, 0.95], "tur_h": 0.74, "tur_top": 0.8, "smooth": true,
 		"mant": "rounded", "gun_len": 2.95, "gun_r": [0.07, 0.056], "brake": "none",
 		"cupola": [-0.38, -0.45, 0.26, 0.26]},
+	"crusader": {
+		"L": 5.97, "W": 2.77, "tw": 0.3, "th": 0.98, "up_w": 2.6, "camo": "desert", "emblem": "uk",
+		"hull": [[-2.98, 0.55], [-2.98, 1.36], [1.15, 1.42], [2.65, 1.12], [2.98, 0.92], [2.9, 0.52], [2.6, 0.42], [-2.75, 0.45]],
+		"wheels": [2.1, 1.05, 0.0, -1.05, -2.1], "wr": 0.4, "wheel": "double",
+		"spr": [-2.72, 0.72, 0.34], "idl": [2.7, 0.62, 0.32], "rollers": [],
+		"tur_x": 0.35, "tpoly": ["crusader", 0.9, 1.05, 0.86], "tur_h": 0.6, "tur_top": 0.74, "smooth": false,
+		"mant": "6pdr", "gun_len": 2.35, "gun_r": [0.052, 0.04], "brake": "none",
+		"cupola": [], "hatch": false, "shelf": false},
+	"pz3": {
+		"L": 5.52, "W": 2.95, "tw": 0.4, "th": 0.85, "up_w": 2.9, "camo": "german", "emblem": "germany",
+		"hull": [[-2.76, 0.55], [-2.78, 1.62], [1.58, 1.64], [1.62, 1.36], [2.5, 1.2], [2.76, 0.92], [2.66, 0.55], [2.36, 0.42], [-2.5, 0.45]],
+		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
+		"spr": [2.46, 0.72, 0.33], "idl": [-2.52, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
+		"tur_x": -0.1, "tpoly": ["pz", 0.85, 1.12, 0.86], "tur_h": 0.74, "tur_top": 0.86, "smooth": false,
+		"mant": "box_spaced", "gun_len": 2.85, "gun_r": [0.058, 0.045], "brake": "none",
+		"cupola": [-0.86, 0.0, 0.3, 0.28], "hatch": false, "skirts": 1943},
+	"pz4": {
+		"L": 5.89, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german", "emblem": "germany",
+		"hull": [[-2.95, 0.5], [-2.95, 1.55], [1.38, 1.6], [1.42, 1.22], [2.42, 1.14], [2.95, 1.0], [2.95, 0.6], [2.7, 0.4], [-2.75, 0.4]],
+		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
+		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
+		"tur_x": 0.05, "tpoly": ["pz4", 1.0, 1.0, 1.0], "tur_h": 0.82, "tur_top": 0.86, "smooth": false,
+		"mant": "box", "gun_len": 3.75, "gun_r": [0.075, 0.06], "brake": "ball",
+		"cupola": [-0.98, 0.0, 0.33, 0.3], "skirts": 1943},
+	"stug": {
+		"L": 5.4, "W": 2.95, "tw": 0.4, "th": 0.85, "up_w": 2.9, "camo": "german", "emblem": "germany",
+		"hull": [[-2.7, 0.55], [-2.75, 1.38], [1.8, 1.4], [2.48, 1.2], [2.7, 0.92], [2.62, 0.55], [2.32, 0.42], [-2.45, 0.45]],
+		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
+		"spr": [2.42, 0.72, 0.33], "idl": [-2.47, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
+		"tur_x": 0.12, "tpoly": ["stug", 1.1, 1.36, 1.32], "tur_h": 0.66, "tur_top": 0.9, "smooth": false,
+		"mant": "saukopf", "gun_len": 2.34, "gun_r": [0.08, 0.06], "brake": "double",
+		"cupola": [-0.62, -0.7, 0.28, 0.18], "hatch": false, "skirts": 1943, "casemate": true},
+	"panther": {
+		"L": 6.87, "W": 3.27, "tw": 0.66, "th": 1.02, "up_w": 3.2, "camo": "german", "emblem": "germany",
+		"hull": [[-3.1, 0.52], [-3.32, 1.88], [2.12, 1.88], [3.43, 1.0], [2.98, 0.45], [-2.95, 0.45]],
+		"wheels": [2.2, 1.58, 0.96, 0.34, -0.28, -0.9, -1.52, -2.14], "wr": 0.43, "wheel": "interleaved",
+		"spr": [2.96, 0.9, 0.42], "idl": [-2.98, 0.84, 0.34], "rollers": [],
+		"tur_x": 0.55, "tpoly": ["panther", 1.0, 1.4, 0.95], "tur_h": 0.88, "tur_top": 0.68, "smooth": false,
+		"mant": "bell", "gun_len": 3.3, "gun_r": [0.08, 0.055], "brake": "double",
+		"cupola": [-0.78, -0.48, 0.33, 0.3], "hatch": false},
+	"tiger": {
+		"L": 6.32, "W": 3.56, "tw": 0.725, "th": 0.98, "up_w": 3.42, "camo": "german", "emblem": "germany",
+		"hull": [[-3.16, 0.52], [-3.16, 1.76], [2.36, 1.86], [2.36, 1.24], [3.16, 1.12], [3.16, 0.62], [2.92, 0.46], [-2.92, 0.46]],
+		"wheels": [2.12, 1.5, 0.88, 0.26, -0.36, -0.98, -1.6, -2.22], "wr": 0.4, "wheel": "interleaved",
+		"spr": [2.86, 0.86, 0.42], "idl": [-2.94, 0.84, 0.33], "rollers": [],
+		"tur_x": 0.25, "tpoly": ["horseshoe", 0.95, 1.25, 1.12], "tur_h": 0.94, "tur_top": 0.98, "smooth": false,
+		"mant": "plate", "gun_len": 4.75, "gun_r": [0.1, 0.075], "brake": "double",
+		"cupola": [-0.72, -0.56, 0.37, 0.3]},
 }
 
 static var _cache := {}
@@ -127,7 +187,8 @@ static var _cache := {}
 
 # ---------- Текстуры ----------
 
-## Камуфляж: однотонный 4БО (СССР), оливковый (США) или тёмно-жёлтый с полосами (Германия).
+## Камуфляж: однотонный 4БО (СССР), оливковый (США), тёмно-жёлтый с полосами (Германия)
+## или светлый пустынный с тёмными пятнами (Великобритания).
 static func camo_texture(kind: String) -> ImageTexture:
 	var key := "camo_" + kind
 	if _cache.has(key):
@@ -153,6 +214,8 @@ static func camo_texture(kind: String) -> ImageTexture:
 		base = Color("464a2f")
 	elif kind == "german":
 		base = Color("a8956a")
+	elif kind == "desert":
+		base = Color("c4b38a")
 	for y in S:
 		for x in S:
 			var va := a.get_pixel(x, y).r
@@ -165,6 +228,10 @@ static func camo_texture(kind: String) -> ImageTexture:
 				var s2 := smoothstep(0.06, 0.025, absf(vb - 0.44))
 				c = c.lerp(Color("4f5935"), s1 * 0.9)
 				c = c.lerp(Color("5e3b26"), s2 * 0.85)
+			elif kind == "desert":
+				# британская пустынная окраска: светлый камень с резкими тёмно-оливковыми пятнами
+				c = c.lerp(Color("5c5a40"), smoothstep(0.6, 0.63, va) * 0.9)
+				c = c.darkened((vb - 0.5) * 0.12)
 			else:
 				c = c.darkened((va - 0.5) * 0.22)
 				c = c.lightened(clampf((vb - 0.7) * 0.6, 0.0, 0.12))
@@ -218,14 +285,20 @@ static func track_texture() -> ImageTexture:
 	return t
 
 
-## Опознавательный знак: красная звезда, белая звезда в круге или балочный крест.
+## Опознавательный знак: красная звезда, белая звезда в круге, балочный крест
+## или британская опознавательная полоса.
 static func emblem_texture(kind: String) -> ImageTexture:
 	var key := "em_" + kind
 	if _cache.has(key):
 		return _cache[key]
 	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	if kind == "germany":
+	if kind == "uk":
+		# опознавательная полоса бело-красно-белая, как на британских танках в Африке
+		img.fill_rect(Rect2i(28, 38, 24, 52), Color("ece8dc"))
+		img.fill_rect(Rect2i(52, 38, 24, 52), Color("a8231b"))
+		img.fill_rect(Rect2i(76, 38, 24, 52), Color("ece8dc"))
+	elif kind == "germany":
 		img.fill_rect(Rect2i(46, 6, 36, 116), Color("ece8dc"))
 		img.fill_rect(Rect2i(6, 46, 116, 36), Color("ece8dc"))
 		img.fill_rect(Rect2i(53, 13, 22, 102), Color("141414"))
@@ -332,6 +405,23 @@ static func _turret_poly(spec: Array) -> PackedVector2Array:
 			return pts
 		"pz4":
 			return _pts([[0.88, 0.5], [0.3, 0.86], [-1.18, 0.8], [-1.3, 0.0], [-1.18, -0.8], [0.3, -0.86], [0.88, -0.5]])
+		"pz":
+			# граненая башня Pz III: лоб с маской, скошенные скулы, корма углом
+			return _pts([[f, hw * 0.58], [f * 0.34, hw], [-b * 0.9, hw * 0.93], [-b, 0.0], [-b * 0.9, -hw * 0.93], [f * 0.34, -hw], [f, -hw * 0.58]])
+		"crusader":
+			# низкая многогранная башня «Крусейдера»
+			return _pts([[f, hw * 0.45], [f * 0.6, hw * 0.85], [-b * 0.3, hw], [-b * 0.85, hw * 0.8], [-b, hw * 0.45],
+				[-b, -hw * 0.45], [-b * 0.85, -hw * 0.8], [-b * 0.3, -hw], [f * 0.6, -hw * 0.85], [f, -hw * 0.45]])
+		"hex":
+			# «гайка» Т-34 обр. 1943: вытянутый шестигранник
+			return _pts([[f, hw * 0.5], [f * 0.45, hw], [-b * 0.72, hw], [-b, hw * 0.55], [-b, -hw * 0.55],
+				[-b * 0.72, -hw], [f * 0.45, -hw], [f, -hw * 0.5]])
+		"panther":
+			# башня «Пантеры» сужается ко лбу
+			return _pts([[f, hw * 0.66], [-b * 0.86, hw], [-b, hw * 0.84], [-b, -hw * 0.84], [-b * 0.86, -hw], [f, -hw * 0.66]])
+		"stug":
+			# рубка StuG III со скошенными скулами и бортовыми нишами
+			return _pts([[f, hw * 0.62], [f * 0.72, hw], [-b, hw], [-b, -hw], [f * 0.72, -hw], [f, -hw * 0.62]])
 	return Geo.oval(f, b, hw, 22)
 
 
@@ -340,13 +430,17 @@ static func _cyl_x(r1: float, r2: float, l: float, seg := 12) -> Array:
 	return [Geo.cyl(r1, r2, l, seg), Vector3(0, 0, -PI / 2)]
 
 
-## Строит модель в root. Возвращает узлы корпуса, башни, орудия, материалы и размеры (в единицах).
-static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
+## Строит модель в root. year — год сражения (от него зависят, например, бортовые экраны).
+## Возвращает узлы корпуса, башни (у САУ — качающейся установки орудия), орудия, материалы
+## и размеры в единицах карты. sup — узел и габариты верхней части для попаданий: башня
+## или неподвижная рубка.
+static func build(root: Node3D, key: String, shadows: bool, year := 1944) -> Dictionary:
 	var S: Dictionary = SPECS[key]
 	var L: float = S.L
 	var W: float = S.W
 	var tw: float = S.tw
 	var th: float = S.th
+	var skirts: bool = S.has("skirts") and year >= int(S.skirts)
 	var paint := paint_material(S.camo)
 	var hull := Node3D.new()
 	root.add_child(hull)
@@ -384,6 +478,10 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 					_wheel_disc(hb, x, cy, z + zo, wr, tw * 0.3, s, false)
 				"spoked":
 					_wheel_spoked(hb, x, cy, z, wr, tw * 0.8, s)
+				"single":
+					_wheel_disc(hb, x, cy, z, wr, tw * 0.72, s, false)
+				"vvss":
+					_wheel_disc(hb, x, cy, z, wr, tw * 0.5, s, true)
 				_:
 					_wheel_disc(hb, x, cy, z + s * tw * 0.22, wr, tw * 0.3, s, true)
 					_wheel_disc(hb, x, cy, z - s * tw * 0.22, wr, tw * 0.3, s, true)
@@ -391,6 +489,14 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 				for k in 10:
 					var a := TAU * k / 10.0
 					belt_pts.append(Vector2(x + cos(a) * (wr + 0.02), cy + sin(a) * (wr + 0.02)))
+		# тележки блокированной подвески: корпус с пружиной, рычаги, ролик сверху
+		for bx: float in S.get("bogies", []):
+			var by := wr + 0.04
+			hb.put(Geo.box(Vector3(0.5, 0.42, tw * 0.3)), T3(Vector3(bx, by + 0.2, z)), "paint", true)
+			hb.put(Geo.box(Vector3(0.34, 0.2, tw * 0.36)), T3(Vector3(bx, by + 0.42, z)), "paint", true)
+			hb.put(Geo.cyl(0.07, 0.07, 0.3, 8), T3(Vector3(bx, by + 0.15, z)), "steel")
+			for d: float in [-1.0, 1.0]:
+				hb.put(Geo.box(Vector3(0.36, 0.09, tw * 0.62)), T3(Vector3(bx + d * 0.17, by + 0.04, z), Vector3(0, 0, d * 0.35)), "steel", true)
 		# звёздочка (с зубьями) и ленивец
 		_sprocket(hb, spr[0], spr[1], z, spr[2], tw * 0.7, s)
 		_wheel_disc(hb, idl[0], idl[1], z, idl[2], tw * 0.6, s, false)
@@ -400,7 +506,8 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 			if s > 0:
 				belt_pts.append(Vector2(x, ry + 0.12))
 		# надгусеничная полка
-		hb.put(Geo.box(Vector3(L * 0.97, 0.03, tw + 0.08)), T3(Vector3(0, th + 0.05, s * (tz + 0.02))), "paint", true)
+		if S.get("shelf", true):
+			hb.put(Geo.box(Vector3(L * 0.97, 0.03, tw + 0.08)), T3(Vector3(0, th + 0.05, s * (tz + 0.02))), "paint", true)
 	for a in [spr, idl]:
 		for k in 12:
 			var ang := TAU * k / 12.0
@@ -419,12 +526,20 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 	tg.commit(hull, shadows)
 
 	# --- детали корпуса
-	_hull_details(hb, key, S, roof)
+	_hull_details(hb, key, S, roof, skirts)
 	hb.g.commit(hull, shadows)
 
-	# опознавательные знаки на бортах корпуса (Германия, США)
+	# опознавательные знаки на бортах корпуса (Германия, США): на экранах, если они есть,
+	# иначе на борту, повторяя его наклон
 	if S.emblem != "ussr":
-		_emblems(hull, S.emblem, Vector3(-L * 0.08, roof * 0.72, up_w / 2 + 0.02), 0.7, 0.0)
+		var ey := th + (roof - th) * 0.5
+		var ez := up_w / 2 - (ey - th) * side_k + 0.02
+		var tilt := atan(side_k)
+		if skirts:
+			ey = 1.0
+			ez = W / 2 + 0.24
+			tilt = 0.0
+		_emblems(hull, S.emblem, Vector3(-L * 0.08, ey, ez), 0.7, tilt)
 
 	# пятно тени под танком
 	var blob := MeshInstance3D.new()
@@ -442,23 +557,37 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hull.add_child(blob)
 
-	# --- башня
-	var tur := Node3D.new()
-	tur.position = Vector3(float(S.tur_x), roof - 0.02, 0) * U
-	hull.add_child(tur)
-	var tb := Builder.new(paint)
+	# --- башня или рубка
+	var casemate: bool = S.get("casemate", false)
 	var tpoly := _turret_poly(S.tpoly)
 	var tur_h: float = S.tur_h
-	tb.put(Geo.frustum(tpoly, tur_h, S.tur_top, 0.0, S.smooth), T3(Vector3.ZERO), "paint", not S.smooth)
 	var front: float = S.tpoly[1]
-	var gun_y := tur_h * 0.46
+	var hw: float = S.tpoly[3]
+	var gun_y := tur_h * (0.42 if casemate else 0.46)
+	var top := Node3D.new()  # верх: вращается (башня) или неподвижен (рубка)
+	top.position = Vector3(float(S.tur_x), roof - 0.02, 0) * U
+	hull.add_child(top)
+	var tb := Builder.new(paint)
+	tb.put(Geo.frustum(tpoly, tur_h, S.tur_top, 0.0, S.smooth), T3(Vector3.ZERO), "paint", not S.smooth)
+	_turret_details(tb, key, S, front, tur_h, skirts)
+	var tur := top
 	var trunnion := Vector3(front * 0.9, gun_y, 0)
-	_turret_details(tb, key, S, front, tur_h)
-	tb.g.commit(tur, shadows)
+	if casemate:
+		# рубка на корпусе, а маска с орудием качается в амбразуре лобового листа
+		tb.g.commit(top, shadows)
+		tur = Node3D.new()
+		tur.position = top.position + Vector3(front * float(S.tur_top) * 0.98, gun_y, 0) * U
+		hull.add_child(tur)
+		var mb := Builder.new(paint)
+		_mantlet(mb, S, 0.0, 0.0)
+		mb.g.commit(tur, shadows)
+		trunnion = Vector3(0.05, 0, 0)
+	else:
+		_mantlet(tb, S, front, gun_y)
+		tb.g.commit(top, shadows)
 	if S.emblem == "ussr":
-		var hw: float = S.tpoly[3]
 		var tilt := atan2(hw * (1.0 - float(S.tur_top)), tur_h)
-		_emblems(tur, "ussr", Vector3(-0.2, tur_h * 0.5, hw * (1.0 + float(S.tur_top)) / 2.0 + 0.03), 0.55, tilt)
+		_emblems(top, "ussr", Vector3(-0.2, tur_h * 0.5, hw * (1.0 + float(S.tur_top)) / 2.0 + 0.03), 0.55, tilt)
 
 	# --- орудие на оси возвышения
 	var gun := Node3D.new()
@@ -491,9 +620,11 @@ static func build(root: Node3D, key: String, shadows: bool) -> Dictionary:
 	gb.put(hole[0], T3(Vector3(tip + 0.005, 0, 0), hole[1]), "slit")
 	gb.g.commit(gun, shadows)
 
+	var back: float = S.tpoly[2]
 	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paint": paint, "tracks": [trk_l, trk_r],
-		"hh": roof * U, "tur_h": tur_h * U, "tz": float(S.tpoly[3]) * U, "tur_f": front * U,
-		"tur_b": float(S.tpoly[2]) * U, "height": (roof + tur_h + 0.3) * U, "th": th * U}
+		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
+		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
+		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
 
 
 static func _track_mat() -> StandardMaterial3D:
@@ -547,13 +678,15 @@ static func _on_edge(prof: Array, i: int, t: float) -> Array:
 	return [p, atan2(b.y - a.y, b.x - a.x)]
 
 
-static func _hull_details(b: Builder, key: String, S: Dictionary, roof: float) -> void:
+static func _hull_details(b: Builder, key: String, S: Dictionary, roof: float, skirts: bool) -> void:
 	var L: float = S.L
 	var W: float = S.W
 	var up_w: float = S.up_w
+	var th: float = S.th
 	var prof: Array = S.hull
+	var side_k := tan(deg_to_rad(float(D.TYPES[key].side_slope)))
 	match key:
-		"t34":
+		"t34", "t34_76":
 			# люк механика-водителя и шаровая установка пулемёта на лобовом листе
 			var e := _on_edge(prof, 2, 0.45)
 			var p: Vector2 = e[0]
@@ -641,13 +774,9 @@ static func _hull_details(b: Builder, key: String, S: Dictionary, roof: float) -
 			for k in 5:
 				b.put(Geo.box(Vector3(0.05, 0.13, 0.36)), T3(Vector3(2.98, 0.68 + k * 0.08, -0.6 + (k % 2) * 0.05)), "steel", true)
 				b.put(Geo.box(Vector3(0.05, 0.13, 0.36)), T3(Vector3(2.98, 0.68 + k * 0.08, 0.6 - (k % 2) * 0.05)), "steel", true)
-			# бортовые экраны «шюрцен» на кронштейнах
-			for s: float in [1.0, -1.0]:
-				var rail := _cyl_x(0.025, 0.025, 4.6, 6)
-				b.put(rail[0], T3(Vector3(-0.1, 1.48, s * (W / 2 + 0.16)), rail[1]), "steel")
-				for k in 5:
-					var px := -2.15 + k * 0.98
-					b.put(Geo.box(Vector3(0.94, 0.95, 0.03)), T3(Vector3(px, 1.0, s * (W / 2 + 0.18)), Vector3(0.03 * s, 0, 0.01 * (k - 2))), "paint", true)
+			# бортовые экраны «шюрцен» на кронштейнах (с весны 1943 г.)
+			if skirts:
+				_skirts(b, W, -2.15, 5, 0.98, 1.48)
 			b.put(Geo.box(Vector3(1.0, 0.04, 1.1)), T3(Vector3(-2.2, 1.57, 0)), "slit", true)
 		"chaffee":
 			for s: float in [1.0, -1.0]:
@@ -664,46 +793,285 @@ static func _hull_details(b: Builder, key: String, S: Dictionary, roof: float) -
 			for k in 9:
 				b.put(Geo.box(Vector3(1.6, 0.05, 0.06)), T3(Vector3(-1.6, 1.62, -0.75 + k * 0.19)), "paint", true)
 
+		"kv1":
+			# смотровой прибор механика-водителя и курсовой пулемёт на верхнем лобовом листе
+			var e := _on_edge(prof, 3, 0.35)
+			var p: Vector2 = e[0]
+			b.put(Geo.box(Vector3(0.3, 0.12, 0.5)), T3(Vector3(p.x, p.y + 0.04, -0.45), Vector3(0, 0, e[1])), "paint", true)
+			b.put(Geo.box(Vector3(0.05, 0.04, 0.3)), T3(Vector3(p.x + 0.07, p.y + 0.1, -0.45), Vector3(0, 0, e[1])), "slit", true)
+			var e2 := _on_edge(prof, 3, 0.5)
+			var p2: Vector2 = e2[0]
+			b.put(Geo.sphere(12, 8), T3(Vector3(p2.x, p2.y, 0.55), Vector3.ZERO, Vector3(0.3, 0.3, 0.3)), "paint")
+			var mg := _cyl_x(0.025, 0.025, 0.4, 6)
+			b.put(mg[0], T3(Vector3(p2.x + 0.25, p2.y - 0.08, 0.55), mg[1] + Vector3(0, 0, -0.3)), "steel")
+			b.put(Geo.cyl(0.1, 0.1, 0.15, 10), T3(Vector3(2.95, 1.6, -1.0), Vector3(0, 0, -PI / 2)), "glass")
+			for s: float in [1.0, -1.0]:
+				# буксирные крюки спереди и сзади
+				b.put(Geo.box(Vector3(0.18, 0.1, 0.1)), T3(Vector3(3.42, 0.7, s * 0.95)), "steel", true)
+				b.put(Geo.box(Vector3(0.18, 0.1, 0.1)), T3(Vector3(-3.42, 0.7, s * 0.95)), "steel", true)
+				# ящики ЗИП на надгусеничных полках
+				b.put(Geo.box(Vector3(1.0, 0.36, 0.38)), T3(Vector3(0.9, th + 0.25, s * (up_w / 2 + 0.2))), "paint", true)
+				b.put(Geo.box(Vector3(0.7, 0.3, 0.38)), T3(Vector3(-1.6, th + 0.22, s * (up_w / 2 + 0.2))), "paint", true)
+				# выхлопные трубы на кормовом листе
+				var ex := _cyl_x(0.09, 0.09, 0.35, 8)
+				b.put(ex[0], T3(Vector3(-3.3, 1.45, s * 0.55), ex[1] + Vector3(0, 0, 0.5)), "rust")
+				# буксирный трос вдоль борта
+				var rope := _cyl_x(0.03, 0.03, 3.4, 6)
+				b.put(rope[0], T3(Vector3(-0.4, 1.45, s * (up_w / 2 + 0.03)), rope[1]), "rope")
+			# запасные траки на нижнем лобовом листе
+			for k in 3:
+				var ek := _on_edge(prof, 5, 0.25 + k * 0.22)
+				var pk: Vector2 = ek[0]
+				b.put(Geo.box(Vector3(0.06, 0.16, 0.6)), T3(Vector3(pk.x + 0.03, pk.y, 0.75), Vector3(0, 0, ek[1] + PI / 2)), "steel", true)
+			# жалюзи моторного отделения
+			b.put(Geo.box(Vector3(1.4, 0.04, 1.3)), T3(Vector3(-2.1, 1.79, 0)), "slit", true)
+			for k in 7:
+				b.put(Geo.box(Vector3(1.4, 0.05, 0.07)), T3(Vector3(-2.1, 1.81, -0.57 + k * 0.19)), "paint", true)
+		"sherman":
+			for s: float in [1.0, -1.0]:
+				# люки механика и помощника на крыше перед башней, перископы
+				b.put(Geo.box(Vector3(0.5, 0.05, 0.48)), T3(Vector3(1.1, 1.92, s * 0.52)), "paint", true)
+				b.put(Geo.box(Vector3(0.1, 0.1, 0.16)), T3(Vector3(1.28, 1.98, s * 0.52)), "paint", true)
+				# фары с защитными решётками у верхних углов лобового листа
+				var e := _on_edge(prof, 2, 0.62)
+				var p: Vector2 = e[0]
+				b.put(Geo.cyl(0.07, 0.08, 0.12, 10), T3(Vector3(p.x + 0.04, p.y + 0.1, s * 1.0), Vector3(0, 0, -PI / 2 - 0.3)), "glass")
+				b.put(Geo.box(Vector3(0.04, 0.22, 0.24)), T3(Vector3(p.x + 0.15, p.y + 0.12, s * 1.0)), "steel", true)
+				# буксирные проушины
+				b.put(Geo.box(Vector3(0.14, 0.12, 0.08)), T3(Vector3(2.95, 0.66, s * 0.72)), "steel", true)
+				# воздухоочистители на кормовом листе
+				b.put(Geo.cyl(0.13, 0.13, 0.5, 12), T3(Vector3(-3.04, 1.35, s * 0.82)), "paint")
+				b.put(Geo.cyl(0.14, 0.14, 0.06, 12), T3(Vector3(-3.04, 1.62, s * 0.82)), "steel")
+			# шаровая установка курсового пулемёта справа
+			var e2 := _on_edge(prof, 2, 0.4)
+			var p2: Vector2 = e2[0]
+			b.put(Geo.sphere(12, 8), T3(Vector3(p2.x, p2.y, 0.5), Vector3.ZERO, Vector3(0.24, 0.24, 0.24)), "paint")
+			var mg := _cyl_x(0.025, 0.025, 0.35, 6)
+			b.put(mg[0], T3(Vector3(p2.x + 0.2, p2.y - 0.08, 0.5), mg[1] + Vector3(0, 0, -0.45)), "steel")
+			# литой картер трансмиссии: болты по фланцу
+			for k in 13:
+				b.put(Geo.cyl(0.03, 0.03, 0.03, 6), T3(Vector3(2.68, 1.11, -1.1 + k * 0.183), Vector3(0, 0, -0.3)), "steel")
+			# решётки моторного отделения, лопата и топор
+			b.put(Geo.box(Vector3(1.0, 0.04, 1.4)), T3(Vector3(-2.2, 1.9, 0)), "slit", true)
+			for k in 8:
+				b.put(Geo.box(Vector3(1.0, 0.05, 0.07)), T3(Vector3(-2.2, 1.92, -0.63 + k * 0.18)), "paint", true)
+			b.put(Geo.box(Vector3(1.2, 0.05, 0.1)), T3(Vector3(-0.95, 1.92, 1.05)), "wood", true)
+			b.put(Geo.box(Vector3(0.9, 0.05, 0.1)), T3(Vector3(-1.05, 1.92, -1.05)), "wood", true)
+			b.put(Geo.box(Vector3(0.22, 0.04, 0.2)), T3(Vector3(-0.3, 1.92, 1.05)), "steel", true)
+			# отражатель выхлопа под кормой
+			b.put(Geo.box(Vector3(0.08, 0.36, 1.6)), T3(Vector3(-2.98, 0.95, 0), Vector3(0, 0, 0.4)), "paint", true)
+		"panther":
+			# смотровой лючок механика и откидная крышка пулемёта на лобовом листе
+			var e := _on_edge(prof, 2, 0.22)
+			var p: Vector2 = e[0]
+			b.put(Geo.box(Vector3(0.2, 0.07, 0.46)), T3(Vector3(p.x, p.y + 0.03, -0.62), Vector3(0, 0, e[1])), "paint", true)
+			b.put(Geo.box(Vector3(0.06, 0.04, 0.3)), T3(Vector3(p.x + 0.02, p.y + 0.07, -0.62), Vector3(0, 0, e[1])), "slit", true)
+			b.put(Geo.box(Vector3(0.18, 0.06, 0.26)), T3(Vector3(p.x, p.y + 0.03, 0.62), Vector3(0, 0, e[1])), "paint", true)
+			b.put(Geo.box(Vector3(0.05, 0.03, 0.16)), T3(Vector3(p.x + 0.02, p.y + 0.06, 0.62), Vector3(0, 0, e[1])), "slit", true)
+			# фара «Бош»
+			b.put(Geo.cyl(0.1, 0.12, 0.2, 10), T3(Vector3(p.x - 0.1, p.y + 0.22, -1.05), Vector3(0, 0, -PI / 2)), "paint")
+			for s: float in [1.0, -1.0]:
+				# буксирные серьги
+				b.put(Geo.box(Vector3(0.2, 0.22, 0.08)), T3(Vector3(3.3, 0.82, s * 1.1)), "steel", true)
+				# выхлопные трубы с кожухами на кормовом листе
+				b.put(Geo.cyl(0.085, 0.085, 0.85, 10), T3(Vector3(-3.36, 1.62, s * 0.48)), "rust")
+				b.put(Geo.cyl(0.13, 0.13, 0.5, 10), T3(Vector3(-3.33, 1.42, s * 0.48)), "paint")
+				# решётки вентиляторов на моторной палубе
+				b.put(Geo.cyl(0.28, 0.28, 0.04, 16), T3(Vector3(-2.55, 1.89, s * 0.52)), "slit")
+				for k in 4:
+					b.put(Geo.box(Vector3(0.54, 0.04, 0.05)), T3(Vector3(-2.55, 1.91, s * 0.52 - 0.18 + k * 0.12)), "steel", true)
+				b.put(Geo.box(Vector3(0.75, 0.04, 0.5)), T3(Vector3(-1.7, 1.89, s * 0.55)), "slit", true)
+				# буксирный трос вдоль наклонного борта
+				var rope := _cyl_x(0.03, 0.03, 4.6, 6)
+				b.put(rope[0], T3(Vector3(-0.4, th + 0.22, s * (up_w / 2 - 0.22 * side_k + 0.04)), rope[1]), "rope")
+			# домкрат и ящик ЗИП на корме
+			b.put(Geo.cyl(0.09, 0.09, 0.6, 10), T3(Vector3(-3.4, 1.0, -0.95), Vector3(PI / 2, 0, 0)), "steel")
+			b.put(Geo.box(Vector3(0.25, 0.3, 0.7)), T3(Vector3(-3.32, 1.05, 0.95)), "paint", true)
+			b.put(Geo.cyl(0.012, 0.012, 2.0, 4), T3(Vector3(-2.9, 2.88, -0.9)), "steel")
+		"pz3":
+			# смотровой прибор механика и шаровая установка пулемёта в лобовом листе рубки
+			b.put(Geo.box(Vector3(0.1, 0.12, 0.34)), T3(Vector3(1.64, 1.52, -0.55)), "paint", true)
+			b.put(Geo.box(Vector3(0.03, 0.03, 0.24)), T3(Vector3(1.7, 1.52, -0.55)), "slit", true)
+			b.put(Geo.sphere(12, 8), T3(Vector3(1.62, 1.5, 0.55), Vector3.ZERO, Vector3(0.26, 0.26, 0.26)), "paint")
+			var mg := _cyl_x(0.022, 0.022, 0.3, 6)
+			b.put(mg[0], T3(Vector3(1.8, 1.5, 0.55), mg[1]), "steel")
+			# люки доступа к тормозам и запасные траки на носу
+			var e := _on_edge(prof, 3, 0.5)
+			var p: Vector2 = e[0]
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.box(Vector3(0.42, 0.05, 0.62)), T3(Vector3(p.x, p.y + 0.03, s * 0.5), Vector3(0, 0, e[1])), "paint", true)
+				b.put(Geo.box(Vector3(0.16, 0.12, 0.08)), T3(Vector3(2.78, 0.7, s * 0.85)), "steel", true)
+				b.put(Geo.box(Vector3(0.16, 0.12, 0.08)), T3(Vector3(-2.82, 0.7, s * 0.85)), "steel", true)
+			var ek := _on_edge(prof, 4, 0.5)
+			var pk: Vector2 = ek[0]
+			for z: float in [-0.75, -0.38, 0.0, 0.38, 0.75]:
+				b.put(Geo.box(Vector3(0.05, 0.13, 0.34)), T3(Vector3(pk.x + 0.03, pk.y, z), Vector3(0, 0, ek[1] + PI / 2)), "steel", true)
+			# фара «Нотек», глушитель поперёк кормы, антенна
+			b.put(Geo.box(Vector3(0.14, 0.1, 0.12)), T3(Vector3(2.4, th + 0.12, -1.25)), "paint", true)
+			b.put(Geo.cyl(0.16, 0.16, 1.5, 12), T3(Vector3(-2.94, 1.0, 0), Vector3(PI / 2, 0, 0)), "rust")
+			b.put(Geo.cyl(0.012, 0.012, 2.0, 4), T3(Vector3(-2.4, 2.62, 1.15)), "steel")
+			# решётки и люки моторного отделения, инструмент на полках
+			b.put(Geo.box(Vector3(0.9, 0.04, 1.6)), T3(Vector3(-2.15, 1.63, 0)), "slit", true)
+			for k in 8:
+				b.put(Geo.box(Vector3(0.9, 0.05, 0.07)), T3(Vector3(-2.15, 1.65, -0.7 + k * 0.2)), "paint", true)
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.box(Vector3(0.6, 0.05, 0.55)), T3(Vector3(-1.35, 1.64, s * 0.45)), "paint", true)
+			b.put(Geo.box(Vector3(1.4, 0.06, 0.12)), T3(Vector3(-0.6, th + 0.1, 1.3)), "wood", true)
+			b.put(Geo.box(Vector3(0.8, 0.1, 0.14)), T3(Vector3(-1.7, th + 0.1, -1.3)), "steel", true)
+			if skirts:
+				_skirts(b, W, -2.1, 5, 0.94, 1.3)
+		"crusader":
+			# выступающая рубка механика-водителя справа
+			var e := _on_edge(prof, 2, 0.32)
+			var p: Vector2 = e[0]
+			b.put(Geo.box(Vector3(0.62, 0.28, 0.64)), T3(Vector3(p.x - 0.05, p.y + 0.12, 0.6)), "paint", true)
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.38)), T3(Vector3(p.x + 0.27, p.y + 0.18, 0.6)), "slit", true)
+			b.put(Geo.box(Vector3(0.3, 0.04, 0.4)), T3(Vector3(p.x - 0.1, p.y + 0.28, 0.6)), "paint", true)
+			for s: float in [1.0, -1.0]:
+				# фары и буксирные серьги
+				b.put(Geo.cyl(0.08, 0.09, 0.14, 10), T3(Vector3(2.75, 1.12, s * 1.05), Vector3(0, 0, -PI / 2)), "glass")
+				b.put(Geo.box(Vector3(0.16, 0.14, 0.08)), T3(Vector3(3.0, 0.62, s * 0.8)), "steel", true)
+				# песочные экраны над гусеницами
+				b.put(Geo.box(Vector3(L * 0.92, 0.32, 0.03)), T3(Vector3(-0.05, th - 0.08, s * (W / 2 + 0.02))), "paint", true)
+				# выхлопная труба вдоль кормы
+				var ex := _cyl_x(0.07, 0.07, 0.5, 8)
+				b.put(ex[0], T3(Vector3(-3.05, 1.12, s * 0.75), ex[1]), "rust")
+			# большие жалюзи моторного отделения и канистры на корме
+			b.put(Geo.box(Vector3(2.0, 0.04, 1.8)), T3(Vector3(-1.75, 1.41, 0)), "slit", true)
+			for k in 10:
+				b.put(Geo.box(Vector3(2.0, 0.05, 0.07)), T3(Vector3(-1.75, 1.43, -0.81 + k * 0.18)), "paint", true)
+			for k in 4:
+				b.put(Geo.box(Vector3(0.14, 0.34, 0.24)), T3(Vector3(-3.07, 0.95, -0.4 + k * 0.27)), "olive", true)
+			b.put(Geo.box(Vector3(1.4, 0.06, 0.12)), T3(Vector3(-0.4, 1.44, -1.15)), "wood", true)
+		"stug":
+			# люки доступа к тормозам на верхнем лобовом листе
+			var e := _on_edge(prof, 2, 0.5)
+			var p: Vector2 = e[0]
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.box(Vector3(0.4, 0.05, 0.6)), T3(Vector3(p.x, p.y + 0.03, s * 0.5), Vector3(0, 0, e[1])), "paint", true)
+				b.put(Geo.box(Vector3(0.16, 0.12, 0.08)), T3(Vector3(2.72, 0.7, s * 0.85)), "steel", true)
+				b.put(Geo.box(Vector3(0.16, 0.12, 0.08)), T3(Vector3(-2.78, 0.7, s * 0.85)), "steel", true)
+			# фара «Нотек» на левой полке, запасные траки на носу
+			b.put(Geo.box(Vector3(0.14, 0.1, 0.12)), T3(Vector3(2.4, th + 0.12, -1.25)), "paint", true)
+			b.put(Geo.box(Vector3(0.02, 0.04, 0.08)), T3(Vector3(2.48, th + 0.12, -1.25)), "glass", true)
+			for k in 2:
+				var ek := _on_edge(prof, 3, 0.3 + k * 0.4)
+				var pk: Vector2 = ek[0]
+				for z: float in [-0.75, -0.38, 0.38, 0.75]:
+					b.put(Geo.box(Vector3(0.05, 0.13, 0.34)), T3(Vector3(pk.x + 0.03, pk.y, z), Vector3(0, 0, ek[1] + PI / 2)), "steel", true)
+			# глушитель поперёк кормы
+			b.put(Geo.cyl(0.16, 0.16, 1.5, 12), T3(Vector3(-2.9, 1.0, 0), Vector3(PI / 2, 0, 0)), "rust")
+			# решётки и люки моторного отделения
+			b.put(Geo.box(Vector3(0.9, 0.04, 1.6)), T3(Vector3(-2.15, 1.41, 0)), "slit", true)
+			for k in 8:
+				b.put(Geo.box(Vector3(0.9, 0.05, 0.07)), T3(Vector3(-2.15, 1.43, -0.7 + k * 0.2)), "paint", true)
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.box(Vector3(0.6, 0.05, 0.55)), T3(Vector3(-1.38, 1.42, s * 0.45)), "paint", true)
+			# инструмент и домкрат на полках
+			b.put(Geo.box(Vector3(1.4, 0.06, 0.12)), T3(Vector3(-0.6, th + 0.1, 1.3)), "wood", true)
+			b.put(Geo.box(Vector3(0.8, 0.1, 0.14)), T3(Vector3(-1.7, th + 0.1, -1.3)), "steel", true)
+			if skirts:
+				_skirts(b, W, -2.1, 5, 0.94, 1.3)
+
+
+## Бортовые экраны: count листов шагом step от x0, поручень на высоте rail_y.
+static func _skirts(b: Builder, W: float, x0: float, count: int, step: float, rail_y: float) -> void:
+	for s: float in [1.0, -1.0]:
+		var rail := _cyl_x(0.025, 0.025, step * count, 6)
+		b.put(rail[0], T3(Vector3(x0 + step * (count - 1) / 2.0, rail_y, s * (W / 2 + 0.16)), rail[1]), "steel")
+		for k in count:
+			var px := x0 + k * step
+			b.put(Geo.box(Vector3(step - 0.04, 0.95, 0.03)), T3(Vector3(px, rail_y - 0.48, s * (W / 2 + 0.18)), Vector3(0.03 * s, 0, 0.01 * (k - 2))), "paint", true)
 
 static func th_top(S: Dictionary) -> float:
 	return float(S.th) + 0.06
 
 
-static func _turret_details(b: Builder, key: String, S: Dictionary, front: float, h: float) -> void:
+## Маска орудия: front — лоб башни (у рубки 0 — ось качания), gy — высота оси орудия.
+static func _mantlet(b: Builder, S: Dictionary, front: float, gy: float) -> void:
+	match S.mant:
+		"cast":
+			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.9, gy, 0), Vector3.ZERO, Vector3(0.5, 0.6, 0.95)), "paint")
+			b.put(Geo.box(Vector3(0.4, 0.5, 0.82)), T3(Vector3(front * 0.82, gy, 0)), "paint")
+		"cast_big":
+			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.92, gy, 0), Vector3.ZERO, Vector3(0.62, 0.66, 1.15)), "paint")
+			b.put(Geo.box(Vector3(0.5, 0.58, 1.0)), T3(Vector3(front * 0.82, gy, 0)), "paint")
+		"plate":
+			b.put(Geo.box(Vector3(0.26, 0.78, 1.55)), T3(Vector3(front + 0.12, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.18, 0.18, 0.4, 12), T3(Vector3(front + 0.4, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			# смотровой прибор и спаренный пулемёт в маске
+			b.put(Geo.box(Vector3(0.06, 0.06, 0.08)), T3(Vector3(front + 0.26, gy + 0.13, -0.35)), "slit", true)
+			b.put(Geo.box(Vector3(0.06, 0.06, 0.08)), T3(Vector3(front + 0.26, gy - 0.06, 0.38)), "slit", true)
+		"box":
+			b.put(Geo.box(Vector3(0.3, 0.48, 0.62)), T3(Vector3(front + 0.1, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.13, 0.15, 0.35, 12), T3(Vector3(front + 0.35, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+		"rounded":
+			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.92, gy, 0), Vector3.ZERO, Vector3(0.4, 0.5, 0.8)), "paint")
+		"box_spaced":
+			# маска Pz III L с навесным 20-мм экраном
+			b.put(Geo.box(Vector3(0.24, 0.44, 0.66)), T3(Vector3(front + 0.06, gy, 0)), "paint", true)
+			b.put(Geo.box(Vector3(0.04, 0.42, 0.72)), T3(Vector3(front + 0.26, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.1, 0.12, 0.28, 12), T3(Vector3(front + 0.38, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.05)), T3(Vector3(front + 0.29, gy + 0.02, 0.22)), "slit", true)
+		"6pdr":
+			# плоская маска 6-фунтовки с прорезями прицела и пулемёта «Беза»
+			b.put(Geo.box(Vector3(0.14, 0.34, 0.62)), T3(Vector3(front + 0.02, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.08, 0.1, 0.3, 12), T3(Vector3(front + 0.22, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.05)), T3(Vector3(front + 0.1, gy + 0.03, -0.2)), "slit", true)
+			b.put(Geo.cyl(0.025, 0.025, 0.25, 6), T3(Vector3(front + 0.2, gy - 0.02, 0.2), Vector3(0, 0, -PI / 2)), "steel")
+		"f34":
+			# литая бронировка пушки Ф-34: короб с округлым лбом и муфта ствола
+			b.put(Geo.box(Vector3(0.42, 0.42, 0.56)), T3(Vector3(front + 0.06, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.21, 0.21, 0.56, 14), T3(Vector3(front + 0.26, gy, 0), Vector3(PI / 2, 0, 0)), "paint")
+			b.put(Geo.cyl(0.11, 0.13, 0.32, 12), T3(Vector3(front + 0.5, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.05)), T3(Vector3(front + 0.45, gy + 0.02, 0.2)), "slit", true)
+		"kv":
+			# маска ЗиС-5: скошенный короб и толстая муфта
+			b.put(Geo.box(Vector3(0.36, 0.5, 0.7)), T3(Vector3(front + 0.04, gy, 0)), "paint", true)
+			b.put(Geo.box(Vector3(0.22, 0.36, 0.5)), T3(Vector3(front + 0.28, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.12, 0.14, 0.36, 12), T3(Vector3(front + 0.5, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.05)), T3(Vector3(front + 0.4, gy + 0.04, 0.2)), "slit", true)
+		"rotor":
+			# установка M34: узкий ротор с прицелом и спаренным пулемётом
+			b.put(Geo.box(Vector3(0.16, 0.42, 0.74)), T3(Vector3(front + 0.02, gy, 0)), "paint", true)
+			b.put(Geo.cyl(0.19, 0.19, 0.66, 16), T3(Vector3(front + 0.1, gy, 0), Vector3(PI / 2, 0, 0)), "paint")
+			b.put(Geo.cyl(0.1, 0.11, 0.3, 12), T3(Vector3(front + 0.4, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			b.put(Geo.box(Vector3(0.05, 0.05, 0.05)), T3(Vector3(front + 0.33, gy, 0.22)), "slit", true)
+			b.put(Geo.box(Vector3(0.05, 0.05, 0.05)), T3(Vector3(front + 0.33, gy + 0.05, -0.24)), "slit", true)
+		"bell":
+			# литая скруглённая маска «Пантеры» и прорези бинокулярного прицела
+			b.put(Geo.cyl(0.38, 0.38, 0.96, 18), T3(Vector3(front - 0.02, gy, 0), Vector3(PI / 2, 0, 0)), "paint")
+			b.put(Geo.cyl(0.13, 0.15, 0.42, 12), T3(Vector3(front + 0.5, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+			for z: float in [-0.3, -0.38]:
+				b.put(Geo.box(Vector3(0.05, 0.05, 0.04)), T3(Vector3(front + 0.35, gy + 0.12, z)), "slit", true)
+			b.put(Geo.box(Vector3(0.05, 0.05, 0.05)), T3(Vector3(front + 0.35, gy + 0.05, 0.3)), "slit", true)
+		"saukopf":
+			# литая маска «свиное рыло» на штурмовом орудии
+			b.put(Geo.sphere(16, 10), T3(Vector3(front + 0.06, gy, 0), Vector3.ZERO, Vector3(0.56, 0.44, 0.52)), "paint")
+			b.put(Geo.cyl(0.12, 0.24, 0.42, 14), T3(Vector3(front + 0.36, gy, 0), Vector3(0, 0, -PI / 2)), "paint")
+
+
+static func _turret_details(b: Builder, key: String, S: Dictionary, front: float, h: float, skirts: bool) -> void:
 	var hw: float = S.tpoly[3]
 	var back: float = S.tpoly[2]
 	var top: float = S.tur_top
-	# маска орудия
-	match S.mant:
-		"cast":
-			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.9, h * 0.46, 0), Vector3.ZERO, Vector3(0.5, 0.6, 0.95)), "paint")
-			b.put(Geo.box(Vector3(0.4, 0.5, 0.82)), T3(Vector3(front * 0.82, h * 0.46, 0)), "paint")
-		"cast_big":
-			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.92, h * 0.46, 0), Vector3.ZERO, Vector3(0.62, 0.66, 1.15)), "paint")
-			b.put(Geo.box(Vector3(0.5, 0.58, 1.0)), T3(Vector3(front * 0.82, h * 0.46, 0)), "paint")
-		"plate":
-			b.put(Geo.box(Vector3(0.26, 0.78, 1.55)), T3(Vector3(front + 0.12, h * 0.46, 0)), "paint", true)
-			b.put(Geo.cyl(0.18, 0.18, 0.4, 12), T3(Vector3(front + 0.4, h * 0.46, 0), Vector3(0, 0, -PI / 2)), "paint")
-			# смотровой прибор и спаренный пулемёт в маске
-			b.put(Geo.box(Vector3(0.06, 0.06, 0.08)), T3(Vector3(front + 0.26, h * 0.6, -0.35)), "slit", true)
-			b.put(Geo.box(Vector3(0.06, 0.06, 0.08)), T3(Vector3(front + 0.26, h * 0.4, 0.38)), "slit", true)
-		"box":
-			b.put(Geo.box(Vector3(0.3, 0.48, 0.62)), T3(Vector3(front + 0.1, h * 0.46, 0)), "paint", true)
-			b.put(Geo.cyl(0.13, 0.15, 0.35, 12), T3(Vector3(front + 0.35, h * 0.46, 0), Vector3(0, 0, -PI / 2)), "paint")
-		"rounded":
-			b.put(Geo.sphere(16, 10), T3(Vector3(front * 0.92, h * 0.46, 0), Vector3.ZERO, Vector3(0.4, 0.5, 0.8)), "paint")
 	# командирская башенка со смотровыми щелями и открытым люком
 	var cp: Array = S.cupola
-	var cx: float = cp[0]
-	var cz: float = cp[1]
-	var cr: float = cp[2]
-	var ch: float = cp[3]
-	b.put(Geo.cyl(cr, cr * 1.05, ch, 16), T3(Vector3(cx, h * top + ch / 2 - 0.02, cz)), "paint")
-	b.put(Geo.cyl(cr * 1.01, cr * 1.01, 0.05, 16), T3(Vector3(cx, h * top + ch * 0.55, cz)), "slit")
-	b.put(Geo.cyl(cr * 0.88, cr * 0.92, 0.07, 16), T3(Vector3(cx, h * top + ch + 0.01, cz)), "paint")
-	b.put(Geo.box(Vector3(0.1, 0.05, 0.04)), T3(Vector3(cx + cr * 0.4, h * top + ch + 0.06, cz)), "steel", true)
+	var cx := 0.0
+	var cz := 0.0
+	var ch := 0.0
+	if not cp.is_empty():
+		cx = cp[0]
+		cz = cp[1]
+		var cr: float = cp[2]
+		ch = cp[3]
+		b.put(Geo.cyl(cr, cr * 1.05, ch, 16), T3(Vector3(cx, h * top + ch / 2 - 0.02, cz)), "paint")
+		b.put(Geo.cyl(cr * 1.01, cr * 1.01, 0.05, 16), T3(Vector3(cx, h * top + ch * 0.55, cz)), "slit")
+		b.put(Geo.cyl(cr * 0.88, cr * 0.92, 0.07, 16), T3(Vector3(cx, h * top + ch + 0.01, cz)), "paint")
+		b.put(Geo.box(Vector3(0.1, 0.05, 0.04)), T3(Vector3(cx + cr * 0.4, h * top + ch + 0.06, cz)), "steel", true)
 	# люк заряжающего
-	b.put(Geo.box(Vector3(0.5, 0.05, 0.45)), T3(Vector3(-0.1, h * top + 0.02, -cz * 0.9 if cz != 0.0 else 0.4)), "paint", true)
+	if S.get("hatch", true):
+		b.put(Geo.box(Vector3(0.5, 0.05, 0.45)), T3(Vector3(-0.1, h * top + 0.02, -cz * 0.9 if cz != 0.0 else 0.4)), "paint", true)
 	match key:
 		"t34":
 			for s: float in [1.0, -1.0]:
@@ -734,12 +1102,97 @@ static func _turret_details(b: Builder, key: String, S: Dictionary, front: float
 				var rail := _cyl_x(0.02, 0.02, 1.3, 6)
 				b.put(rail[0], T3(Vector3(-0.3, h * 0.72, s * (hw * 0.86 + 0.05)), rail[1]), "steel")
 		"pz4":
-			# экраны вокруг башни
+			# экраны вокруг башни (с весны 1943 г.)
 			for s: float in [1.0, -1.0]:
-				b.put(Geo.box(Vector3(1.55, 0.66, 0.03)), T3(Vector3(-0.35, h * 0.5, s * (hw + 0.24)), Vector3(0, 0, 0)), "paint", true)
-				b.put(Geo.box(Vector3(0.12, 0.04, 0.24)), T3(Vector3(-0.35, h * 0.75, s * (hw + 0.12))), "steel", true)
+				if skirts:
+					b.put(Geo.box(Vector3(1.55, 0.66, 0.03)), T3(Vector3(-0.35, h * 0.5, s * (hw + 0.24)), Vector3(0, 0, 0)), "paint", true)
+					b.put(Geo.box(Vector3(0.12, 0.04, 0.24)), T3(Vector3(-0.35, h * 0.75, s * (hw + 0.12))), "steel", true)
+				# бортовые люки башни
 				b.put(Geo.box(Vector3(0.45, 0.4, 0.05)), T3(Vector3(-0.1, h * 0.45, s * 0.84)), "paint", true)
-			b.put(Geo.box(Vector3(0.03, 0.66, 1.9)), T3(Vector3(-1.52, h * 0.5, 0)), "paint", true)
+			if skirts:
+				b.put(Geo.box(Vector3(0.03, 0.66, 1.9)), T3(Vector3(-1.52, h * 0.5, 0)), "paint", true)
+		"t34_76":
+			# два круглых люка, перископы, поручни, лючки для стрельбы из личного оружия
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.cyl(0.26, 0.27, 0.06, 16), T3(Vector3(-0.42, h * top + 0.03, s * 0.36)), "paint")
+				b.put(Geo.box(Vector3(0.06, 0.04, 0.12)), T3(Vector3(-0.2, h * top + 0.07, s * 0.36)), "steel", true)
+				b.put(Geo.box(Vector3(0.12, 0.1, 0.1)), T3(Vector3(0.22, h * top + 0.05, s * 0.36)), "paint", true)
+				var rail := _cyl_x(0.02, 0.02, 0.9, 6)
+				b.put(rail[0], T3(Vector3(-0.3, h * 0.62, s * (_side_at(hw, top, 0.62) + 0.05)), rail[1]), "steel")
+				b.put(Geo.cyl(0.05, 0.05, 0.05, 8), T3(Vector3(-0.7, h * 0.45, s * _side_at(hw, top, 0.45)), Vector3(PI / 2, 0, 0)), "steel")
+			b.put(Geo.sphere(12, 6), T3(Vector3(0.42, h * top, 0), Vector3.ZERO, Vector3(0.28, 0.14, 0.28)), "paint")
+		"kv1":
+			# пулемёт ДТ в корме башни, большой люк, перископы, смотровые щели, антенна
+			b.put(Geo.sphere(12, 8), T3(Vector3(-back * _side_at(1.0, top, 0.45), h * 0.45, 0), Vector3.ZERO, Vector3(0.26, 0.26, 0.26)), "paint")
+			var dt := _cyl_x(0.02, 0.02, 0.3, 6)
+			b.put(dt[0], T3(Vector3(-back * _side_at(1.0, top, 0.45) - 0.14, h * 0.45, 0), dt[1]), "steel")
+			b.put(Geo.cyl(0.36, 0.38, 0.06, 18), T3(Vector3(-0.25, h * top + 0.03, 0)), "paint")
+			b.put(Geo.box(Vector3(0.06, 0.05, 0.4)), T3(Vector3(-0.25, h * top + 0.08, 0)), "steel", true)
+			b.put(Geo.box(Vector3(0.14, 0.14, 0.1)), T3(Vector3(0.3, h * top + 0.07, -0.42)), "paint", true)
+			b.put(Geo.box(Vector3(0.1, 0.1, 0.08)), T3(Vector3(0.15, h * top + 0.05, 0.48)), "paint", true)
+			for s: float in [1.0, -1.0]:
+				var rail := _cyl_x(0.02, 0.02, 1.1, 6)
+				b.put(rail[0], T3(Vector3(-0.3, h * 0.66, s * (_side_at(hw, top, 0.66) + 0.04)), rail[1]), "steel")
+				b.put(Geo.box(Vector3(0.18, 0.04, 0.04)), T3(Vector3(0.25, h * 0.68, s * _side_at(hw * 0.97, top, 0.68))), "slit", true)
+			b.put(Geo.cyl(0.012, 0.012, 1.8, 4), T3(Vector3(-0.75, h * top + 0.9, 0.55)), "steel")
+		"sherman":
+			# раздвижной люк командира, «Браунинг» калибра .50 на турели, перископы, антенна
+			b.put(Geo.cyl(0.3, 0.32, 0.07, 16), T3(Vector3(-0.35, h * top + 0.03, 0.36)), "paint")
+			b.put(Geo.box(Vector3(0.04, 0.05, 0.56)), T3(Vector3(-0.35, h * top + 0.08, 0.36)), "steel", true)
+			var m2 := _cyl_x(0.03, 0.03, 1.5, 6)
+			b.put(m2[0], T3(Vector3(-0.15, h * top + 0.45, 0.36), m2[1] + Vector3(0, 0, 0.06)), "steel")
+			b.put(Geo.box(Vector3(0.3, 0.15, 0.12)), T3(Vector3(-0.55, h * top + 0.42, 0.36)), "steel", true)
+			b.put(Geo.cyl(0.03, 0.03, 0.38, 6), T3(Vector3(-0.55, h * top + 0.2, 0.36)), "steel")
+			for z: float in [-0.4, 0.12]:
+				b.put(Geo.box(Vector3(0.12, 0.1, 0.1)), T3(Vector3(0.35, h * top + 0.05, z)), "paint", true)
+			var px := -0.5
+			var pz := hw * sqrt(1.0 - pow(px / back, 2.0)) * _side_at(1.0, top, 0.5)
+			b.put(Geo.cyl(0.08, 0.08, 0.05, 10), T3(Vector3(px, h * 0.5, -pz), Vector3(PI / 2, 0, 0)), "steel")
+			b.put(Geo.cyl(0.012, 0.012, 2.2, 4), T3(Vector3(-0.95, h * top + 1.1, -0.3)), "steel")
+		"panther":
+			# дымовые мортирки по три на борт, лючки, люк в корме башни, вентилятор
+			for s: float in [1.0, -1.0]:
+				for k in 3:
+					var x := front * 0.15 - k * 0.15
+					var sw := lerpf(hw * 0.66, hw, clampf((front - x) / (front + back * 0.86), 0.0, 1.0))
+					b.put(Geo.cyl(0.045, 0.045, 0.2, 8), T3(Vector3(x, h * 0.8, s * (_side_at(sw, top, 0.8) + 0.05)), Vector3(s * 0.7, 0, 0)), "paint")
+				var sw2 := lerpf(hw * 0.66, hw, clampf((front + 0.7) / (front + back * 0.86), 0.0, 1.0))
+				b.put(Geo.cyl(0.06, 0.06, 0.05, 8), T3(Vector3(-0.7, h * 0.45, s * _side_at(sw2, top, 0.45)), Vector3(PI / 2, 0, 0)), "steel")
+			b.put(Geo.cyl(0.3, 0.3, 0.06, 16), T3(Vector3(-back * _side_at(1.0, top, 0.48) - 0.02, h * 0.48, 0), Vector3(0, 0, PI / 2)), "paint")
+			b.put(Geo.cyl(0.12, 0.12, 0.05, 10), T3(Vector3(0.3, h * top + 0.02, 0.1)), "paint")
+		"stug":
+			# смотровой прибор механика в лобовом листе рубки, ниша прицела, щит пулемёта
+			b.put(Geo.box(Vector3(0.08, 0.12, 0.38)), T3(Vector3(front * _side_at(1.0, top, 0.62) + 0.02, h * 0.62, -0.62)), "paint", true)
+			b.put(Geo.box(Vector3(0.03, 0.03, 0.28)), T3(Vector3(front * _side_at(1.0, top, 0.62) + 0.06, h * 0.62, -0.62)), "slit", true)
+			b.put(Geo.box(Vector3(0.3, 0.12, 0.22)), T3(Vector3(front * 0.55, h * top + 0.05, -0.3)), "paint", true)
+			b.put(Geo.box(Vector3(0.04, 0.32, 0.5)), T3(Vector3(0.05, h * top + 0.17, 0.5)), "paint", true)
+			var mg := _cyl_x(0.02, 0.02, 0.8, 6)
+			b.put(mg[0], T3(Vector3(0.35, h * top + 0.25, 0.5), mg[1]), "steel")
+			b.put(Geo.box(Vector3(0.55, 0.05, 0.45)), T3(Vector3(-0.5, h * top + 0.02, 0.5)), "paint", true)
+			# стереотруба командира и антенна
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.cyl(0.02, 0.02, 0.4, 6), T3(Vector3(cx + 0.1, h * top + ch + 0.2, cz + s * 0.07)), "steel")
+			b.put(Geo.cyl(0.012, 0.012, 2.0, 4), T3(Vector3(-back * 0.8, h * top + 1.0, 0.85)), "steel")
+			# ящик ЗИП на корме рубки
+			b.put(Geo.box(Vector3(0.22, 0.3, 0.9)), T3(Vector3(-back * _side_at(1.0, top, 0.45) - 0.1, h * 0.45, 0)), "paint", true)
+		"pz3":
+			for s: float in [1.0, -1.0]:
+				# бортовые люки и смотровые щели
+				b.put(Geo.box(Vector3(0.42, 0.4, 0.05)), T3(Vector3(-0.15, h * 0.45, s * _side_at(hw * 0.97, top, 0.45))), "paint", true)
+				b.put(Geo.box(Vector3(0.16, 0.03, 0.04)), T3(Vector3(0.25, h * 0.62, s * _side_at(hw * 0.99, top, 0.62))), "slit", true)
+				if skirts:
+					b.put(Geo.box(Vector3(1.4, 0.6, 0.03)), T3(Vector3(-0.35, h * 0.5, s * (hw + 0.22))), "paint", true)
+					b.put(Geo.box(Vector3(0.12, 0.04, 0.22)), T3(Vector3(-0.35, h * 0.75, s * (hw + 0.11))), "steel", true)
+			# ящик «Роммеля» на корме башни
+			b.put(Geo.box(Vector3(0.42, 0.4, 1.1)), T3(Vector3(-back * 0.92 - 0.12, h * 0.5, 0)), "paint", true)
+		"crusader":
+			# два люка, перископы, бомбомёт, ящик на корме, антенна
+			for s: float in [1.0, -1.0]:
+				b.put(Geo.box(Vector3(0.45, 0.04, 0.36)), T3(Vector3(-0.35, h * top + 0.02, s * 0.25)), "paint", true)
+				b.put(Geo.box(Vector3(0.1, 0.1, 0.1)), T3(Vector3(0.12, h * top + 0.05, s * 0.3)), "paint", true)
+			b.put(Geo.cyl(0.05, 0.05, 0.35, 8), T3(Vector3(0.05, h * 0.75, _side_at(hw, top, 0.75) + 0.08), Vector3(0.6, 0, 0)), "steel")
+			b.put(Geo.box(Vector3(0.3, 0.32, 1.0)), T3(Vector3(-back * _side_at(1.0, top, 0.45) - 0.12, h * 0.45, 0)), "paint", true)
+			b.put(Geo.cyl(0.012, 0.012, 2.4, 4), T3(Vector3(-0.7, h * top + 1.2, -0.4)), "steel")
 		"chaffee":
 			# крупнокалиберный пулемёт на турели в корме крыши
 			var m2 := _cyl_x(0.03, 0.03, 1.5, 6)
@@ -747,6 +1200,11 @@ static func _turret_details(b: Builder, key: String, S: Dictionary, front: float
 			b.put(Geo.box(Vector3(0.28, 0.15, 0.12)), T3(Vector3(-0.85, h * top + 0.48, 0.35)), "steel", true)
 			b.put(Geo.cyl(0.03, 0.03, 0.45, 6), T3(Vector3(-0.85, h * top + 0.22, 0.35)), "steel")
 			b.put(Geo.box(Vector3(0.12, 0.1, 0.12)), T3(Vector3(0.3, h * top + 0.05, 0.4)), "paint", true)
+
+
+## Насколько сужается башня к высоте yf (доля высоты): для деталей на наклонных бортах.
+static func _side_at(w: float, top: float, yf: float) -> float:
+	return w * (1.0 + (top - 1.0) * yf)
 
 
 static func _emblems(parent: Node3D, kind: String, pos: Vector3, size: float, tilt: float) -> void:

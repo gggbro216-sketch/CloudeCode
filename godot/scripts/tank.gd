@@ -40,6 +40,12 @@ var disp := 0.05  # текущий разброс, рад
 var tur_rate := 0.0
 var travel := [0.0, 0.0]  # путь левой и правой гусеницы
 
+# счётчики боя
+var shots_fired := 0
+var hits_taken := 0
+var pens_taken := 0
+var dmg_dealt := 0.0
+
 # повреждения
 var track_broken := 0.0  # сколько ещё стоит с перебитой гусеницей, с
 var fire := 0.0  # сколько ещё горит, с
@@ -75,6 +81,10 @@ var tur_f := 8.0
 var tur_b := 9.0
 var th := 7.0
 var height := 20.0
+var casemate := false  # САУ: орудие в неподвижной рубке, наводка только в секторе
+var up_node: Node3D  # башня или рубка — верхняя коробка попаданий
+var up_min := Vector3.ZERO
+var up_max := Vector3.ZERO
 var smoke: CPUParticles3D
 
 # башня, сорванная детонацией боеукладки
@@ -86,7 +96,7 @@ var pop_v := Vector2.ZERO
 var pop_spin := Vector2.ZERO
 
 
-func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool) -> void:
+func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944) -> void:
 	type_key = key
 	T = D.TYPES[key].duplicate()
 	T.merge(D.derived(D.TYPES[key]), true)
@@ -103,7 +113,7 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 	b_strafe = 1.0 if randf() < 0.5 else -1.0
 	b_st = randf_range(1.0, 3.0)
 	disp = float(T.disp) * 4.0
-	var m := Models.build(self, key, shadows)
+	var m := Models.build(self, key, shadows, year)
 	hull_node = m.hull
 	tur_node = m.tur
 	gun_node = m.gun
@@ -119,6 +129,10 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 	tur_b = m.tur_b
 	th = m.th
 	height = m.height
+	casemate = bool(T.casemate)
+	up_node = m.sup
+	up_min = m.sup_min
+	up_max = m.sup_max
 	paint.set_shader_parameter("tank_h", height)
 	sync_node()
 
@@ -174,7 +188,7 @@ func make_wreck(pop: bool) -> void:
 	smoke_on(false)
 	if fire_fx:
 		fire_fx.emitting = false
-	if pop:
+	if pop and not casemate:
 		popping = true
 		pop_vh = randf_range(110.0, 160.0)
 		pop_v = Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))

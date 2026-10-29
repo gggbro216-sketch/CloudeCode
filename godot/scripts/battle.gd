@@ -29,7 +29,11 @@ const FIRE_TIME := 6.0  # сколько горит двигатель, с
 var mode := "standard"
 var map_key := "prokhorovka"
 var hq := true
-var player_type := "t34"
+var player_type := "t34_76"
+var history := true  # только машины, воевавшие на этой карте
+var side := "allies"  # сторона игрока; команда 0 — его сторона, команда 1 — противник
+var year := 1943
+var teams: Array = [[], []]  # типы машин команд
 
 var terra: Terrain
 var obst: Array = []
@@ -88,12 +92,15 @@ func setup(cfg: Dictionary) -> void:
 	map_key = cfg.map
 	hq = cfg.hq
 	player_type = cfg.tank
+	history = cfg.get("history", true)
+	side = D.TYPES[player_type].side
 
 
 func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	grip_base = D.MAPS[map_key].grip
+	year = D.MAPS[map_key].year
 	zones = MapGen.make_zones(mode)
 	var data := MapGen.generate(map_key, zones, rng)
 	obst = data.obst
@@ -138,7 +145,9 @@ func _ready() -> void:
 	hud = HudScript.new()
 	hud.battle = self
 	layer.add_child(hud)
-	hud.add_feed([["%s · %s" % [D.MODES[mode].name, D.MAPS[map_key].name], Color(D.AMBER)]])
+	var M: Dictionary = D.MAPS[map_key]
+	hud.add_feed([["%s · %s" % [D.MODES[mode].name, M.name], Color(D.AMBER)]])
+	hud.add_feed([["%s: %s против %s" % [M.date, M[side], M[D.foe_side(side) + "_g"]], Color("cfd3c0")]])
 	for tk: TankScript in tanks:
 		_suspend(tk, 1.0)
 		tk.sync_node()
@@ -252,26 +261,34 @@ func _ground_basis(x: float, z: float) -> Basis:
 
 func _spawn() -> void:
 	var ws := D.WS
-	var keys: Array = D.TYPES.keys()
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	# команды равного боевого веса из машин, воевавших здесь (или из всех машин стороны)
+	var mine := D.roster(map_key, side, history)
+	var theirs := D.roster(map_key, D.foe_side(side), history)
+	teams = D.match_teams(mine, theirs, player_type, rng)
 	var names: Array = D.NAMES.duplicate()
 	names.shuffle()
-	player = _add_tank(player_type, 0, Vector2(ws / 2, ws - 300), "Вы", true)
-	watch = player
-	for i in 4:
-		var side := -1.0 if i < 2 else 1.0
-		var b := _add_tank(keys[randi() % keys.size()], 0, Vector2(ws / 2 + side * (150.0 + (i % 2) * 160.0), ws - 310.0 - (i % 2) * 30.0), names.pop_back(), false)
-		if i == 0:
-			b.role = "def"
-	for i in 5:
-		var b := _add_tank(keys[randi() % keys.size()], 1, Vector2(ws / 2 + (i - 2) * 160.0, 300.0 + (i % 2) * 30.0), names.pop_back(), false)
-		if i == 0:
-			b.role = "def"
+	for team in 2:
+		var list: Array = teams[team]
+		var y := ws - 300.0 if team == 0 else 300.0
+		for i in list.size():
+			# игрок в центре строя, остальные расходятся в стороны
+			var slot := (i + 1) / 2 * (1 if i % 2 == 1 else -1)
+			var p := Vector2(ws / 2 + slot * 150.0, y + (-30.0 if team == 0 else 30.0) * (i % 2))
+			var me := team == 0 and i == 0
+			var tk := _add_tank(list[i], team, p, "Вы" if me else names.pop_back(), me)
+			if me:
+				player = tk
+				watch = tk
+			elif (team == 0 and i == 1) or (team == 1 and i == 0):
+				tk.role = "def"
 
 
 func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) -> TankScript:
 	var tk: TankScript = TankScript.new()
 	add_child(tk)
-	tk.setup(key, team, p, nm, is_player, hq)
+	tk.setup(key, team, p, nm, is_player, hq, year)
 	tk.set_dust(Color(D.MAPS[map_key].dust), 0.75 if map_key == "alamein" else 0.55)
 	tk.smoke = fx.damage_smoke(tk, tk.hh)
 	tanks.append(tk)
@@ -369,7 +386,7 @@ func ray_tanks(from: Vector3, to: Vector3, exclude: TankScript) -> Dictionary:
 		var W: float = tk.T.W
 		var parts := [
 			["hull", tk.hull_node.global_transform, Vector3(-L / 2, 0.35 * D.UPM, -W / 2), Vector3(L / 2, tk.hh, W / 2)],
-			["turret", tk.tur_node.global_transform, Vector3(-tk.tur_b, 0, -tk.tz), Vector3(tk.tur_f, tk.tur_h, tk.tz)],
+			["turret", tk.up_node.global_transform, tk.up_min, tk.up_max],
 		]
 		for part in parts:
 			var xf: Transform3D = part[1]
@@ -420,7 +437,7 @@ func armor_at(tk: TankScript, hitd: Dictionary) -> Array:
 	var zone := "side"
 	if n.x > 0.5:
 		thick = A[3] if turret else A[0]
-		var sl: float = 0.25 if turret else float(tk.T.slope)
+		var sl: float = float(tk.T.tslope) if turret else float(tk.T.slope)
 		nl = Vector3(cos(sl), sin(sl), 0)
 		zone = "front"
 	elif n.x < -0.5:
@@ -670,7 +687,9 @@ func separate() -> void:
 
 func _update_disp(tk: TankScript, dt: float) -> void:
 	var base: float = tk.T.disp
-	var floor_d := base + absf(tk.sp) / float(tk.T.speed) * 0.03 + absf(tk.yaw_rate) * 0.02 + tk.tur_rate * 0.018
+	# гиростабилизатор гасит раскачку орудия на ходу
+	var move := (absf(tk.sp) / float(tk.T.speed) * 0.03 + absf(tk.yaw_rate) * 0.02) * (1.0 - float(tk.T.stab))
+	var floor_d := base + move + tk.tur_rate * 0.018
 	if tk.disp > floor_d:
 		tk.disp = lerpf(tk.disp, floor_d, 1.0 - exp(-dt * 2.6 / float(tk.T.aim)))
 	else:
@@ -681,8 +700,16 @@ func _update_disp(tk: TankScript, dt: float) -> void:
 func _aim_at(tk: TankScript, target: Vector3, dt: float) -> void:
 	var before := tk.tur
 	var want := (Vector2(target.x, target.z) - tk.pos).angle()
+	if tk.casemate:
+		# в рубке орудие ходит только в узком секторе, дальше доворачивают корпусом
+		var lim: float = tk.T.trav
+		want = tk.hull + clampf(ang_diff(want, tk.hull), -lim, lim)
 	tk.tur = turn_toward(tk.tur, want, float(tk.T.tspd) * dt)
+	if tk.casemate:
+		tk.tur = tk.hull + clampf(ang_diff(tk.tur, tk.hull), -float(tk.T.trav), float(tk.T.trav))
 	tk.tur_rate = absf(ang_diff(tk.tur, before)) / maxf(dt, 0.001)
+	if tk.casemate:
+		tk.tur_rate = maxf(0.0, tk.tur_rate - absf(tk.yaw_rate))  # поворот вместе с корпусом не в счёт
 	var local := tk.tur_node.global_transform.affine_inverse() * target
 	var gp := tk.gun_pos0
 	var dx := Vector2(local.x - gp.x, local.z).length()
@@ -711,6 +738,7 @@ func shoot(tk: TankScript) -> void:
 	shells.append({"pos": p, "vel": dir * float(tk.T.shell_v), "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
 		"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "node": mi, "whiz": false})
 	tk.rl = float(tk.T.reload) * (1.0 if tk.is_player else 1.15)
+	tk.shots_fired += 1
 	tk.recoil = 1.0
 	tk.disp += 0.035
 	# отдача раскачивает корпус: сильнее у крупного калибра и лёгкой машины
@@ -784,6 +812,7 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		fx.hit_sparks(hp)
 		sfx.play3d("hit_nopen", hp, -4.0)
 		return
+	tk.hits_taken += 1
 	var arm := armor_at(tk, th)
 	var thick: float = arm[0]
 	var n: Vector3 = arm[1]
@@ -826,6 +855,7 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 			tk.lit = maxf(tk.lit, 2.0)
 		return
 	stat.pen += 1
+	tk.pens_taken += 1
 	var dmg := roundf(float(s.dmg) * randf_range(0.75, 1.25) * (0.5 if track_zone else 1.0))
 	fx.hit_sparks(hp)
 	fx.pen_fire(hp)
@@ -858,6 +888,7 @@ func _damage(tk: TankScript, amount: float, by: TankScript, tag: String) -> void
 		return
 	var real := minf(amount, ceilf(tk.hp))
 	tk.hp -= amount
+	by.dmg_dealt += real
 	if by.team == 0 and tk.team == 1:
 		tk.lit = maxf(tk.lit, 2.0)
 	if by.is_player:
@@ -995,6 +1026,12 @@ func _player(p: TankScript, dt: float) -> void:
 		cam_pitch = clampf(cam_pitch, -float(lim[1]) - tilt, -float(lim[0]) - tilt - 0.005)
 	var thr := -s.y if absf(s.y) > 0.2 else 0.0
 	var steer := s.x if absf(s.x) > 0.15 else 0.0
+	if p.casemate and steer == 0.0:
+		# САУ: если прицел ушёл за сектор наводки, корпус сам доворачивает за ним
+		var off := ang_diff((Vector2(aim_point.x, aim_point.z) - p.pos).angle(), p.hull)
+		if absf(off) > float(p.T.trav) * 0.9:
+			var rev := p.sp < -1.0 or thr < -0.05
+			steer = clampf(off / 0.25, -1.0, 1.0) * (-1.0 if rev else 1.0)
 	drive(p, dt, thr, steer)
 	# точка прицеливания: луч из камеры
 	var o := _cam_origin(p)
@@ -1020,6 +1057,9 @@ func _player(p: TankScript, dt: float) -> void:
 	_aim_at(p, aim_point, dt)
 	var lim2: Array = p.T.elev
 	gun_limited = absf(p.gun_target - float(lim2[0])) < 0.0005 or absf(p.gun_target - float(lim2[1])) < 0.0005
+	if p.casemate:
+		var off2 := ang_diff((Vector2(aim_point.x, aim_point.z) - p.pos).angle(), p.hull)
+		gun_limited = gun_limited or absf(off2) > float(p.T.trav) + 0.01
 	_update_disp(p, dt)
 	# куда на самом деле упадёт снаряд (по баллистике) и пробьёт ли
 	var tr := trace(p.muzzle(), p.gun_dir() * float(p.T.shell_v), p)
@@ -1121,6 +1161,8 @@ func _pick_goal(b: TankScript) -> void:
 func _bot(b: TankScript, dt: float) -> void:
 	var T := b.T
 	var mv := Vector2.ZERO
+	var facing := false
+	var face_off := 0.0
 	var tg := nearest_foe(b, 1e9, 0.0, 0.0)
 	b.b_st -= dt
 	if b.b_st <= 0:
@@ -1140,6 +1182,15 @@ func _bot(b: TankScript, dt: float) -> void:
 			strafe = 0.0  # перед выстрелом останавливается, чтобы свестись
 		if b.b_zone != null and in_zone(b, b.b_zone) and b.b_zone.side != b.team:
 			fwd = 0.0
+		if b.casemate or T.armored:
+			# САУ держит цель в секторе наводки, а танк с толстым лбом не подставляет борт:
+			# оба не кружат вокруг цели, а доворачивают корпус на месте
+			strafe = 0.0
+			var off := ang_diff(ang, b.hull)
+			var keep: float = float(T.trav) * 0.6 if b.casemate else 0.3
+			if fwd == 0.0 and absf(off) > keep:
+				facing = true
+				face_off = off
 		mv = Vector2.from_angle(ang) * fwd + Vector2.from_angle(ang + PI / 2) * b.b_strafe * strafe
 		var lp := lead_point(b, tg)
 		_aim_at(b, lp, dt)
@@ -1181,7 +1232,10 @@ func _bot(b: TankScript, dt: float) -> void:
 			b.b_av_dir *= -1.0
 		b.b_last = b.pos
 		b.b_pt = 1.5
-	_drive_vec(b, dt, mv)
+	if facing:
+		drive(b, dt, 0.0, clampf(face_off / 0.3, -1.0, 1.0))
+	else:
+		_drive_vec(b, dt, mv)
 	_update_disp(b, dt)
 
 

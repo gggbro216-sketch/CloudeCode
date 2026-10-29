@@ -8,7 +8,7 @@ const SAVE_PATH := "user://save.json"
 
 var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": 0,
-	"tank": "t34", "mode": "standard", "map": "random", "hq": true,
+	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true,
 }
 var hangar: Node
 var battle: Node
@@ -32,7 +32,7 @@ func _load() -> void:
 				save[k] = d[k]
 	# защита от устаревших значений
 	if not D.TYPES.has(save.tank):
-		save.tank = "t34"
+		save.tank = "t34_76"
 	if not D.MODES.has(save.mode):
 		save.mode = "standard"
 	if save.map != "random" and not D.MAPS.has(save.map):
@@ -64,10 +64,13 @@ func start_battle() -> void:
 		battle.queue_free()
 	var map_key: String = save.map
 	if map_key == "random":
-		var keys: Array = D.MAPS.keys()
+		# случайная из карт, где воевал выбранный танк
+		var keys: Array = D.maps_for(save.tank, save.history)
+		if keys.is_empty():
+			keys = D.MAPS.keys()
 		map_key = keys[randi() % keys.size()]
 	battle = BattleScript.new()
-	battle.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank})
+	battle.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history})
 	battle.ended.connect(_on_ended)
 	battle.leave.connect(_on_leave)
 	add_child(battle)

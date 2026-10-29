@@ -15,10 +15,17 @@ var root: Control
 var margin: MarginContainer
 var stats_row: HBoxContainer
 var tank_cls: Label
+var tank_info: Label
 var tank_bars: TankBars
 var mode_desc: Label
 var map_desc: Label
 var qual_btn: Button
+var hist_btn: Button
+var go_btn: Button
+var side_btns := {}
+var tank_grid: GridContainer
+var tank_btns := {}
+var map_btns := {}
 
 
 ## Полоски характеристик выбранного танка.
@@ -54,7 +61,8 @@ class TankBars extends Control:
 func _ready() -> void:
 	_build_scene()
 	_build_ui()
-	_select_tank(main.save.tank)
+	# если сохранённый танк на выбранной карте не воевал, берём первый подходящий той же стороны
+	_select_side(D.TYPES[main.save.tank].side, main.save.tank if _available(main.save.tank) else "")
 
 
 ## Интерьер ангара: бетонный пол, стены из профнастила, фермы перекрытия, лампы над танком.
@@ -208,29 +216,43 @@ func _build_ui() -> void:
 	body.add_theme_constant_override("separation", 16)
 	vb.add_child(body)
 
-	# слева: танки и характеристики
+	# слева: сторона, танки и характеристики
 	var left := PanelContainer.new()
-	left.custom_minimum_size = Vector2(300, 0)
+	left.custom_minimum_size = Vector2(330, 0)
 	body.add_child(left)
 	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 8)
+	lv.add_theme_constant_override("separation", 7)
 	left.add_child(lv)
-	lv.add_child(UI.label("ТАНК", 14, UI.DIM))
-	var tg := ButtonGroup.new()
-	for key in D.TYPES:
-		var T: Dictionary = D.TYPES[key]
+	lv.add_child(UI.label("СТОРОНА", 14, UI.DIM))
+	var sides := HBoxContainer.new()
+	sides.add_theme_constant_override("separation", 8)
+	lv.add_child(sides)
+	var sg := ButtonGroup.new()
+	for key in D.SIDES:
 		var b := Button.new()
-		b.text = "%s   %s" % [T.short, T.name]
-		b.add_theme_font_size_override("font_size", 18)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.text = String(D.SIDES[key].name).to_upper()
 		b.toggle_mode = true
-		b.button_group = tg
-		b.button_pressed = key == main.save.tank
+		b.button_group = sg
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size = Vector2(0, 42)
-		b.pressed.connect(_select_tank.bind(key))
-		lv.add_child(b)
+		b.add_theme_font_size_override("font_size", 17)
+		b.pressed.connect(_select_side.bind(key, ""))
+		sides.add_child(b)
+		side_btns[key] = b
+	lv.add_child(UI.label("ТАНК", 14, UI.DIM))
+	tank_grid = GridContainer.new()
+	tank_grid.columns = 2
+	tank_grid.add_theme_constant_override("h_separation", 8)
+	tank_grid.add_theme_constant_override("v_separation", 6)
+	lv.add_child(tank_grid)
 	tank_cls = UI.label("", 15, D.AMBER)
+	tank_cls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tank_cls.custom_minimum_size = Vector2(300, 0)
 	lv.add_child(tank_cls)
+	tank_info = UI.label("", 13, UI.DIM)
+	tank_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tank_info.custom_minimum_size = Vector2(300, 0)
+	lv.add_child(tank_info)
 	tank_bars = TankBars.new()
 	lv.add_child(tank_bars)
 	qual_btn = Button.new()
@@ -271,7 +293,7 @@ func _build_ui() -> void:
 		b.toggle_mode = true
 		b.button_group = mg
 		b.button_pressed = key == main.save.mode
-		b.custom_minimum_size = Vector2(0, 48)
+		b.custom_minimum_size = Vector2(0, 44)
 		b.pressed.connect(_select_mode.bind(key))
 		rv.add_child(b)
 	mode_desc = UI.label("", 14, UI.DIM)
@@ -293,22 +315,32 @@ func _build_ui() -> void:
 		b.button_group = pg
 		b.button_pressed = key == main.save.map
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 46)
+		b.custom_minimum_size = Vector2(0, 44)
 		b.pressed.connect(_select_map.bind(key))
 		grid.add_child(b)
+		map_btns[key] = b
 	map_desc = UI.label("", 14, UI.DIM)
+	map_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	map_desc.custom_minimum_size = Vector2(300, 0)
 	rv.add_child(map_desc)
+	hist_btn = Button.new()
+	hist_btn.add_theme_font_size_override("font_size", 16)
+	hist_btn.custom_minimum_size = Vector2(0, 40)
+	hist_btn.pressed.connect(func():
+		main.save.history = not main.save.history
+		main.persist()
+		_refresh())
+	rv.add_child(hist_btn)
 	var rs := Control.new()
 	rs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rv.add_child(rs)
-	var go := Button.new()
-	go.text = "В БОЙ"
-	go.custom_minimum_size = Vector2(0, 66)
-	UI.accent(go, 30)
-	go.pressed.connect(func(): main.start_battle())
-	rv.add_child(go)
+	go_btn = Button.new()
+	go_btn.text = "В БОЙ"
+	go_btn.custom_minimum_size = Vector2(0, 66)
+	UI.accent(go_btn, 30)
+	go_btn.pressed.connect(func(): main.start_battle())
+	rv.add_child(go_btn)
 	_select_mode(main.save.mode)
-	_select_map(main.save.map)
 
 
 func _fill_stats() -> void:
@@ -326,22 +358,102 @@ func _fill_stats() -> void:
 		stats_row.add_child(pc)
 
 
+## Сторона: в сетке остаются её машины; выбирается переданный танк или первый, воевавший на карте.
+func _select_side(side: String, want: String) -> void:
+	(side_btns[side] as Button).button_pressed = true
+	for c in tank_grid.get_children():
+		c.queue_free()
+	tank_btns.clear()
+	var tg := ButtonGroup.new()
+	for key in D.TYPES:
+		var T: Dictionary = D.TYPES[key]
+		if T.side != side:
+			continue
+		var b := Button.new()
+		b.text = "%s  %s" % [T.short, T.tag]
+		b.add_theme_font_size_override("font_size", 16)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.toggle_mode = true
+		b.button_group = tg
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 40)
+		b.pressed.connect(_select_tank.bind(key))
+		tank_grid.add_child(b)
+		tank_btns[key] = b
+	if want == "" or not tank_btns.has(want):
+		want = ""
+		for key in tank_btns:
+			if _available(key):
+				want = key
+				break
+		if want == "":
+			want = tank_btns.keys()[0]
+	_select_tank(want)
+
+
+## Воевал ли танк на выбранной карте (при свободных составах — всегда).
+func _available(key: String) -> bool:
+	if not main.save.history:
+		return true
+	var m: String = main.save.map
+	if m == "random":
+		return not D.maps_for(key, true).is_empty()
+	return D.MAPS[m].roster[D.TYPES[key].side].has(key)
+
+
 func _select_tank(key: String) -> void:
 	main.save.tank = key
 	main.persist()
+	(tank_btns[key] as Button).button_pressed = true
 	var T: Dictionary = D.TYPES[key]
-	tank_cls.text = ("%s · %s" % [T.cls, T.nation]).to_upper()
+	tank_cls.text = ("%s · %s · %d" % [T.cls, T.nation, int(T.year)]).to_upper()
 	tank_bars.T = T
 	tank_bars.queue_redraw()
+	_refresh()
+	_show_preview()
+
+
+func _show_preview() -> void:
 	if preview:
 		preview.queue_free()
+	var m: String = main.save.map
 	var tk: TankScript = TankScript.new()
 	add_child(tk)
-	tk.setup(key, 0, Vector2.ZERO, "", false, true)
+	tk.setup(main.save.tank, 0, Vector2.ZERO, "", false, true, D.MAPS[m].year if D.MAPS.has(m) else 1943)
 	tk.hull = 0.4
 	tk.tur = 0.4
 	tk.sync_node()
 	preview = tk
+
+
+## Подписи и доступность: где воевал танк, кто воюет на карте, можно ли в бой.
+func _refresh() -> void:
+	var key: String = main.save.tank
+	var T: Dictionary = D.TYPES[key]
+	var hist: bool = main.save.history
+	var maps := D.maps_for(key, true)
+	var names: Array = []
+	for m in maps:
+		names.append(D.MAPS[m].name)
+	var where := "Воевал: %s." % ", ".join(names) if not names.is_empty() else "В бою с %d г. — карт этого периода пока нет, доступен в свободных составах." % int(T.year)
+	tank_info.text = "Боевой вес %d. %s" % [int(T.pts), where]
+	for k in tank_btns:
+		(tank_btns[k] as Button).modulate.a = 1.0 if _available(k) else 0.45
+	for m in map_btns:
+		var ok: bool = m == "random" or not hist or D.MAPS[m].roster[T.side].has(key)
+		(map_btns[m] as Button).modulate.a = 1.0 if ok else 0.45
+	hist_btn.text = "Составы: исторические" if hist else "Составы: свободные"
+	var can := _available(key)
+	go_btn.disabled = not can
+	go_btn.text = "В БОЙ" if can else "НЕ ВОЕВАЛ ЗДЕСЬ"
+	UI.accent(go_btn, 30 if can else 22)
+	go_btn.modulate.a = 1.0 if can else 0.6
+	var m: String = main.save.map
+	if D.MAPS.has(m):
+		var M: Dictionary = D.MAPS[m]
+		map_desc.text = "%s · %s против %s. %s." % [M.date, M[T.side], M[D.foe_side(T.side) + "_g"], M.desc]
+	else:
+		map_desc.text = "Любая из карт, где воевал выбранный танк" if hist else "Любая из трёх карт"
 
 
 func _select_mode(key: String) -> void:
@@ -351,9 +463,11 @@ func _select_mode(key: String) -> void:
 
 
 func _select_map(key: String) -> void:
+	(map_btns[key] as Button).button_pressed = true
 	main.save.map = key
 	main.persist()
-	map_desc.text = D.MAPS[key].desc if D.MAPS.has(key) else "Любая из трёх"
+	_refresh()
+	_show_preview()
 
 
 func _update_qual() -> void:
