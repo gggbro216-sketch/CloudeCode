@@ -13,6 +13,7 @@ var h := PackedFloat32Array()
 var mask: Image  # R — дорога, G — гарь воронок, B — пахота/грязь
 var mask_tex: ImageTexture
 var ao_tex: ImageTexture  # затенение у подножия построек, остовов, кустов
+var noise_img: Image  # шум шейдера земли — по нему же пятна сырого грунта для физики
 
 
 func height(x: float, z: float) -> float:
@@ -24,6 +25,27 @@ func height(x: float, z: float) -> float:
 	var tz := fz - iz
 	var i := iz * (N + 1) + ix
 	return lerpf(lerpf(h[i], h[i + 1], tx), lerpf(h[i + N + 1], h[i + N + 2], tx), tz)
+
+
+## Пятна шейдера земли в точке (та же текстура шума): «damp» — сырые низины, «dry» — выгоревшие
+## проплешины. 0–1.
+func patch(p: Vector2, kind: String) -> float:
+	if noise_img == null:
+		return 0.0
+	var uv := p * 0.0041 + Vector2(0.6, 0.1) if kind == "damp" else p * 0.0023 + Vector2(0.31, 0.77)
+	var w := noise_img.get_width()
+	var fx := fposmod(uv.x * w - 0.5, float(w))
+	var fz := fposmod(uv.y * w - 0.5, float(w))
+	var ix := int(fx)
+	var iz := int(fz)
+	var tx := fx - ix
+	var tz := fz - iz
+	var a := noise_img.get_pixel(ix, iz).r
+	var b := noise_img.get_pixel((ix + 1) % w, iz).r
+	var c := noise_img.get_pixel(ix, (iz + 1) % w).r
+	var d := noise_img.get_pixel((ix + 1) % w, (iz + 1) % w).r
+	var v := lerpf(lerpf(a, b, tx), lerpf(c, d, tx), tz)
+	return smoothstep(0.6, 0.85, v) if kind == "damp" else smoothstep(0.55, 0.78, v)
 
 
 func normal(x: float, z: float, e := 6.0) -> Vector3:
@@ -362,6 +384,7 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	noise.frequency = 0.02
 	noise.fractal_octaves = 3
 	var nimg := noise.get_seamless_image(256, 256)
+	noise_img = nimg.duplicate()
 	nimg.generate_mipmaps()
 	var sh := Shader.new()
 	sh.code = SHADER

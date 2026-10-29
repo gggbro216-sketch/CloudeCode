@@ -17,14 +17,50 @@ const TankScript = preload("res://scripts/tank.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const FxScript = preload("res://scripts/fx.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
+const WeatherScript = preload("res://scripts/weather.gd")
 
-const TRK := 1600  # следов гусениц одновременно
+const TRK := 4000  # отрезков следов гусениц одновременно
 const SCORCH := 160  # пятен от разрывов
 const SENS_X := 0.0045  # поворот камеры, рад на точку свайпа
 const SENS_Y := 0.003
 const MASK_WORLD := 3  # рельеф + постройки
 const TRACK_REPAIR := 7.0  # сколько стоит танк с перебитой гусеницей, с
 const FIRE_TIME := 6.0  # сколько горит двигатель, с
+const MOD_MSG := {
+	"engine": ["ДВИГАТЕЛЬ ПОВРЕЖДЁН", "ДВИГАТЕЛЬ УНИЧТОЖЕН — ТАНК ОБЕЗДВИЖЕН"],
+	"gun": ["ОРУДИЕ ПОВРЕЖДЕНО", "ОРУДИЕ ВЫВЕДЕНО ИЗ СТРОЯ"],
+	"turret": ["ПОГОН БАШНИ ПОВРЕЖДЁН", "БАШНЮ ЗАКЛИНИЛО"],
+	"optics": ["ПРИБОРЫ НАБЛЮДЕНИЯ ПОВРЕЖДЕНЫ", "ПРИБОРЫ НАБЛЮДЕНИЯ РАЗБИТЫ"],
+	"ammo": ["БОЕУКЛАДКА ПОВРЕЖДЕНА", "БОЕУКЛАДКА РАЗБИТА"],
+	"fuel": ["ТОПЛИВНЫЕ БАКИ ПРОБИТЫ", "ТОПЛИВНЫЕ БАКИ РАЗБИТЫ"],
+}
+const CREW_MSG := {"commander": "КОМАНДИР РАНЕН", "gunner": "НАВОДЧИК РАНЕН", "loader": "ЗАРЯЖАЮЩИЙ РАНЕН",
+	"driver": "МЕХВОД РАНЕН"}
+const FIXED_MSG := {"gun": "ОРУДИЕ ВОССТАНОВЛЕНО", "turret": "ПОГОН БАШНИ ВОССТАНОВЛЕН",
+	"optics": "ПРИБОРЫ ВОССТАНОВЛЕНЫ", "ammo": "БОЕУКЛАДКА ВОССТАНОВЛЕНА"}
+# Следы гусениц: рисунок траков, глубже на мягком грунте; умножают цвет земли и медленно тают.
+const TRACK_SHADER := """
+shader_type spatial;
+render_mode blend_mul, unshaded, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
+
+uniform sampler2D tread : filter_linear_mipmap, repeat_enable;
+uniform vec3 tint : source_color = vec3(0.5, 0.45, 0.37);
+uniform float now = 0.0;
+uniform float life = 75.0;
+uniform float period = 1.6;
+varying vec4 cd;
+
+void vertex() {
+	cd = INSTANCE_CUSTOM;  // x — когда оставлен, y — глубина, z — путь вдоль следа, w — длина отрезка
+}
+
+void fragment() {
+	float fade = 1.0 - smoothstep(life * 0.45, life, now - cd.x);
+	float t = texture(tread, vec2(UV.y, (cd.z + UV.x * cd.w) / period)).r;
+	float edge = smoothstep(0.0, 0.12, UV.y) * smoothstep(1.0, 0.88, UV.y) * smoothstep(0.0, 0.05, UV.x) * smoothstep(1.0, 0.95, UV.x);
+	ALBEDO = mix(vec3(1.0), tint, t * edge * fade * cd.y);
+}
+"""
 
 var mode := "standard"
 var map_key := "prokhorovka"
@@ -52,7 +88,12 @@ var tanks: Array = []
 var shells: Array = []
 var texts: Array = []
 var bush_mat: ShaderMaterial
-var grip_base := 0.85
+var surf := "grass"
+var soft_base := 0.3  # мягкость грунта карты: 0 — плац, 1 — болото
+var mu_base := 0.78  # сцепление гусениц с грунтом (доля веса)
+var road_mu := 0.9
+var trk_mat: ShaderMaterial
+var weather: WeatherScript
 
 var player: TankScript
 var watch: TankScript
@@ -106,7 +147,11 @@ func setup(cfg: Dictionary) -> void:
 func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	grip_base = D.MAPS[map_key].grip
+	var M0: Dictionary = D.MAPS[map_key]
+	surf = M0.surf
+	soft_base = clampf(2.0 * (1.0 - float(M0.grip)), 0.0, 0.8)
+	mu_base = {"grass": 0.78, "sand": 0.62, "snow": 0.5, "urban": 0.85}.get(surf, 0.75)
+	road_mu = 0.5 if surf == "snow" else 0.9
 	year = D.MAPS[map_key].year
 	zones = MapGen.make_zones(mode)
 	var data := MapGen.generate(map_key, zones, rng)
@@ -136,7 +181,7 @@ func _ready() -> void:
 		fx.smoke_column(Vector3(p.x, terra.height(p.x, p.y), p.y), true)
 	sfx = SfxScript.new()
 	add_child(sfx)
-	trk_mm = _decal_mm(TRK, Vector2(3.2, 2.6), Color(0.48, 0.52, 0.56, 0.45) if map_key == "stalingrad" else Color(0.18, 0.15, 0.1, 0.4), false)
+	trk_mm = _track_mm()
 	scorch_mm = _decal_mm(SCORCH, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
 	shell_mesh = BoxMesh.new()
 	shell_mesh.size = Vector3(0.9, 0.9, 22)
@@ -148,6 +193,9 @@ func _ready() -> void:
 	cam.far = 4000.0
 	add_child(cam)
 	cam.current = true
+	weather = WeatherScript.new()
+	add_child(weather)
+	weather.setup(str(D.MAPS[map_key].get("weather", "")), self, hq)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	hud = HudScript.new()
@@ -271,6 +319,49 @@ func _decal_mm(count: int, size: Vector2, col: Color, soft: bool) -> MultiMesh:
 	return mm
 
 
+## Следы гусениц: отрезки-полосы с рисунком траков в одной MultiMesh.
+func _track_mm() -> MultiMesh:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_custom_data = true
+	var q := PlaneMesh.new()
+	q.size = Vector2(1, 1)
+	mm.mesh = q
+	mm.instance_count = TRK
+	for i in TRK:
+		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(0, -500, 0)))
+		mm.set_instance_custom_data(i, Color(-1000, 0, 0, 1))
+	# рисунок траков: грунтозацепы поперёк, канавка под гребни посередине
+	var img := Image.create(32, 32, false, Image.FORMAT_L8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	for y in 32:
+		for x in 32:
+			var v := 0.5
+			if y % 32 < 11:
+				v = 1.0
+			if x >= 14 and x <= 17:
+				v = 0.35
+			if x < 2 or x > 29:
+				v *= 0.7
+			img.set_pixel(x, y, Color(clampf(v + rng.randf_range(-0.08, 0.08), 0.0, 1.0), 0, 0))
+	img.generate_mipmaps()
+	var sh := Shader.new()
+	sh.code = TRACK_SHADER
+	trk_mat = ShaderMaterial.new()
+	trk_mat.shader = sh
+	trk_mat.set_shader_parameter("tread", ImageTexture.create_from_image(img))
+	var tints := {"grass": Color(0.4, 0.36, 0.28), "sand": Color(0.7, 0.62, 0.5), "snow": Color(0.62, 0.68, 0.78),
+		"urban": Color(0.8, 0.78, 0.75)}
+	trk_mat.set_shader_parameter("tint", tints.get(surf, Color(0.5, 0.45, 0.37)))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = trk_mat
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	return mm
+
+
 func _ground_basis(x: float, z: float) -> Basis:
 	return Basis(Quaternion(Vector3.UP, terra.normal(x, z)))
 
@@ -314,6 +405,16 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history))
 	tk.set_dust(Color(D.MAPS[map_key].dust), 0.75 if map_key == "alamein" else 0.55)
 	tk.smoke = fx.damage_smoke(tk, tk.hh)
+	match surf:
+		"snow":
+			tk.dust_fx = fx.trail("snow")
+		"sand":
+			tk.dust_fx = fx.trail("sand")
+		"urban":
+			tk.dust_fx = fx.trail("light")
+		_:
+			tk.dust_fx = fx.trail("light" if map_key == "normandy" else "dust")
+			tk.mud_fx = fx.trail("mud")
 	tanks.append(tk)
 	var engine := "engine_" + String(tk.T.engine)
 	loops[tk] = [sfx.attach_loop(tk, engine, 26.0 if is_player else 20.0, -2.0 if is_player else -6.0),
@@ -480,12 +581,34 @@ func armor_at(tk: TankScript, hitd: Dictionary) -> Array:
 	return [thick, (xf.basis * nl).normalized(), zone]
 
 
-func grip_at(p: Vector2) -> float:
+## Грунт под гусеницами: (сцепление — доля веса, мягкость 0–1). Дорога твёрдая; мягче пашня,
+## рыхлая земля воронок, сырые низины (на снегу — сугробы, в пустыне — сыпучий песок),
+## битый кирпич; выгоревшие проплешины твёрже. Пятна те же, что видны на земле.
+func ground_at(p: Vector2) -> Vector2:
 	var m := terra.mask
 	var px := clampi(int((p.x - Terrain.ORIGIN) / Terrain.SIZE * m.get_width()), 0, m.get_width() - 1)
 	var pz := clampi(int((p.y - Terrain.ORIGIN) / Terrain.SIZE * m.get_height()), 0, m.get_height() - 1)
 	var c := m.get_pixel(px, pz)
-	return lerpf(grip_base, 1.0, clampf(c.r * 1.2, 0.0, 1.0)) * (1.0 - c.g * 0.12)
+	var road := clampf(c.r * 1.2, 0.0, 1.0)
+	var wet := terra.patch(p, "damp")
+	var dry := terra.patch(p, "dry")
+	var soft := soft_base
+	var mu := mu_base
+	match surf:
+		"snow":
+			soft += wet * 0.4
+			mu -= wet * 0.08
+		"sand":
+			soft += wet * 0.38 - dry * 0.2
+		"urban":
+			soft += c.b * 0.3
+		_:
+			soft += wet * 0.36 + c.b * 0.14 - dry * 0.1
+			mu -= wet * 0.28
+	soft += c.g * 0.22
+	soft = lerpf(soft, 0.04, road)
+	mu = lerpf(mu, road_mu, road)
+	return Vector2(mu, clampf(soft, 0.0, 1.0))
 
 
 # ---------- Физика танка ----------
@@ -556,25 +679,37 @@ func _props_collide(tk: TankScript) -> void:
 
 
 ## Ходовая: газ/тормоз и поворот как у гусеничной машины, всё через импульс корпуса.
+## На мягком грунте медленнее разгон и поворот; тяга не больше сцепления — гусеницы буксуют,
+## а на склоне круче, чем держит сцепление, танк сползает.
 func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 	var T := tk.T
-	if tk.track_broken > 0.0:
+	if tk.track_broken > 0.0 or tk.immobile:
 		thr = 0.0
 		steer = 0.0
 	thr = clampf(thr, -1.0, 1.0)
 	steer = clampf(steer, -1.0, 1.0)
 	tk.throttle = thr
 	var g := D.GRAVITY
-	var grip := grip_at(tk.pos)
-	var vmax: float = float(T.speed) * grip
-	var vrev: float = float(T.rev_speed) * grip
+	var gnd := ground_at(tk.pos)
+	var mu: float = gnd.x
+	tk.soft = gnd.y
+	# узкие гусеницы тяжёлой машины вязнут сильнее
+	var soft := minf(1.0, gnd.y * pow(tk.press, 1.3))
+	var go := (1.0 - 0.5 * soft) * tk.speed_k
+	var vmax: float = float(T.speed) * go
+	var vrev: float = float(T.rev_speed) * go
 	var fwd := Vector2.from_angle(tk.hull)
 	var v_f := tk.vel.dot(fwd)
+	var v0 := v_f
 	# инерция поворота: угловая скорость набирается не мгновенно
 	var rev := v_f < -1.0 or thr < -0.05
-	var want_turn: float = float(T.turn) * steer * (-1.0 if rev else 1.0) * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0) * 0.3)
+	var turn: float = float(T.turn) * tk.turn_k * (1.0 - 0.3 * soft)
+	var want_turn: float = turn * steer * (-1.0 if rev else 1.0) * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0) * 0.3)
 	tk.yaw_rate = move_toward(tk.yaw_rate, want_turn, float(T.turn) * 3.0 * dt)
 	tk.hull = wrapf(tk.hull + tk.yaw_rate * dt, -PI, PI)
+	# башня стоит на корпусе: поворот корпуса уносит её с собой, а механизм поворота башни
+	# добавляет к этому свою скорость (в _aim_at)
+	tk.tur = wrapf(tk.tur + tk.yaw_rate * dt, -PI, PI)
 	# скорость остаётся в мировых осях — в повороте часть её становится боковой и гасится сцеплением
 	fwd = Vector2.from_angle(tk.hull)
 	var right := Vector2(-fwd.y, fwd.x)
@@ -585,24 +720,33 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 		terra.height(tk.pos.x, tk.pos.y + e) - terra.height(tk.pos.x, tk.pos.y - e)) / (2.0 * e)
 	var slope_f := grad.dot(fwd)
 	var slope_l := grad.dot(right)
+	var cos_f := 1.0 / sqrt(1.0 + slope_f * slope_f)
+	var traction := g * mu * cos_f
 	var a := 0.0
+	tk.slip = 0.0
 	if absf(thr) > 0.05:
 		var target := thr * (vmax if thr > 0 else vrev) * (1.0 - absf(steer) * 0.25)
-		var push: float = float(T.accel) * grip * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0) * 0.6)
+		var push: float = float(T.accel) * tk.accel_k * (1.0 - 0.55 * soft) * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0) * 0.6)
 		a = clampf((target - v_f) * 2.5, -push * 2.5, push)
 	else:
 		a = -signf(v_f) * minf(absf(v_f) * 3.0, 0.4 * g)  # торможение двигателем и фрикционами
-	a -= g * slope_f / sqrt(1.0 + slope_f * slope_f)  # составляющая веса вдоль корпуса
+	# тяга и торможение — не больше сцепления: лишнее уходит в пробуксовку гусениц
+	if absf(a) > traction:
+		if absf(thr) > 0.05:
+			tk.slip = clampf((absf(a) - traction) / absf(a), 0.0, 1.0)
+		a = signf(a) * traction
+	a -= g * slope_f * cos_f  # составляющая веса вдоль корпуса
 	v_f += a * dt
 	# сопротивление качению (на мягком грунте больше)
-	v_f = move_toward(v_f, 0.0, g * (0.03 + (1.0 - grip) * 0.08) * dt)
-	if absf(thr) <= 0.05 and absf(v_f) < 1.5 and absf(slope_f) < 0.55:
+	v_f = move_toward(v_f, 0.0, g * (0.03 + soft * 0.07) * dt)
+	# стоящий танк держат тормоза, пока склон не круче, чем позволяет сцепление
+	if absf(thr) <= 0.05 and absf(v_f) < 1.5 and absf(slope_f) < mu * 0.95:
 		v_f = 0.0
-	v_f = clampf(v_f, -vrev * 1.15, vmax * 1.15)
-	# поперёк гусеницы держат крепко, но на боковом склоне и в резком повороте корпус сносит
+	v_f = clampf(v_f, -vrev * 1.15 - 25.0, vmax * 1.15 + 25.0) if absf(slope_f) > mu * 0.95 else clampf(v_f, -vrev * 1.15, vmax * 1.15)
+	# поперёк гусеницы держит сцепление; на боковом склоне круче него корпус сползает
 	v_l -= g * slope_l / sqrt(1.0 + slope_l * slope_l) * dt
-	v_l = move_toward(v_l, 0.0, 0.85 * g * grip * dt)
-	tk.accel = a
+	v_l = move_toward(v_l, 0.0, mu * g * 1.1 * dt)
+	tk.accel = (v_f - v0) / maxf(dt, 0.001)
 	tk.vel = fwd * v_f + right * v_l
 	tk.sp = v_f
 	var old := tk.pos
@@ -617,32 +761,78 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 				sfx.play3d("impact_stone", tk.center(), -6.0)
 				if tk == watch:
 					shake = maxf(shake, clampf(-vn * 0.08, 2.0, 8.0))
-				tk.pitch_v -= signf(tk.vel.dot(fwd) + 0.01) * 0.6
+				tk.kick(-signf(tk.vel.dot(fwd) + 0.01) * 0.5, 0.0)
 	_props_collide(tk)
 	var moved := tk.pos.distance_to(old)
 	tk.dist_travel += moved
-	# путь гусениц: в повороте внешняя бежит быстрее
+	# путь гусениц: в повороте внешняя бежит быстрее, при пробуксовке обе крутятся быстрее хода
 	var half_w: float = float(T.W) * 0.5
-	tk.travel[0] += (v_f + tk.yaw_rate * half_w) * dt
-	tk.travel[1] += (v_f - tk.yaw_rate * half_w) * dt
-	if tk.dist_travel - tk.mark > 6.0 and (absf(v_f) > 6.0 or absf(tk.yaw_rate) > 0.25):
-		tk.mark = tk.dist_travel
-		var side := right * (float(T.W) * 0.39)
-		for s: float in [1.0, -1.0]:
-			var p := tk.pos + side * s
-			var b := _ground_basis(p.x, p.y) * Basis(Vector3.UP, -tk.hull) * Basis.from_scale(Vector3(1, 1, float(T.W) / 30.0))
-			trk_mm.set_instance_transform(trk_i, Transform3D(b, Vector3(p.x, terra.height(p.x, p.y) + 0.3, p.y)))
-			trk_i = (trk_i + 1) % TRK
-		if absf(v_f) > 35.0 and randf() < 0.5 and tk.pos.distance_to(watch.pos) < 900.0:
-			var back := tk.pos - fwd * float(T.L) * 0.5
-			fx.track_dust(Vector3(back.x, tk.ground + 2.0, back.y))
+	var spin := tk.slip * signf(thr) * vmax * 0.6
+	tk.travel[0] += (v_f + spin + tk.yaw_rate * half_w) * dt
+	tk.travel[1] += (v_f + spin - tk.yaw_rate * half_w) * dt
+	_track_marks(tk)
+	_trail(tk, fwd, v_f)
 	# выхлоп при резком разгоне
-	if thr > 0.6 and v_f < vmax * 0.5 and randf() < dt * 6.0 and tk.pos.distance_to(watch.pos) < 700.0:
+	if thr > 0.6 and v_f < vmax * 0.5 and randf() < dt * 6.0 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 700.0:
 		var ex := tk.pos - fwd * float(T.L) * 0.45
 		fx.exhaust(Vector3(ex.x, tk.ground + tk.hh + 1.0, ex.y), fwd)
 
 
-## Подвеска: корпус ложится по рельефу и раскачивается от разгона, поворота и выстрела.
+## Следы гусениц: от прошлой точки каждой гусеницы до текущей — отрезок с рисунком траков;
+## на мягком грунте глубже и темнее.
+func _track_marks(tk: TankScript) -> void:
+	var f := Vector2.from_angle(tk.hull)
+	var r := Vector2(-f.y, f.x)
+	# следы оставляют только видимые игроку машины недалеко от камеры (невидимого врага они бы выдали)
+	var shown: bool = (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 750.0
+	for s in 2:
+		var p := tk.pos + r * tk.track_z * (-1.0 if s == 0 else 1.0)
+		var last: Vector2 = tk.last_mark[s]
+		var d := p.distance_to(last)
+		if d > 40.0 or not shown:
+			tk.last_mark[s] = p
+			continue
+		if d < 5.0:
+			continue
+		var h0 := terra.height(last.x, last.y)
+		var h1 := terra.height(p.x, p.y)
+		var along := Vector3(p.x - last.x, h1 - h0, p.y - last.y)
+		var mid := (p + last) * 0.5
+		var n := terra.normal(mid.x, mid.y)
+		var across := n.cross(along).normalized()
+		var len := along.length() + 0.5
+		var b := Basis(along.normalized() * len, n, across * tk.track_w)
+		trk_mm.set_instance_transform(trk_i, Transform3D(b, Vector3(mid.x, (h0 + h1) * 0.5 + 0.3, mid.y)))
+		trk_mm.set_instance_custom_data(trk_i, Color(clock, clampf(0.45 + tk.soft * 0.9, 0.35, 1.0), tk.mark_v[s], len))
+		tk.mark_v[s] = fmod(float(tk.mark_v[s]) + d, 1600.0)
+		tk.last_mark[s] = p
+		trk_i = (trk_i + 1) % TRK
+
+
+## Шлейф за кормой на ходу: пыль, снег или комья грязи на мягком сыром грунте.
+func _trail(tk: TankScript, fwd: Vector2, v_f: float) -> void:
+	if tk.dust_fx == null:
+		return
+	var on: bool = (absf(v_f) > 10.0 or tk.slip > 0.3) and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 1100.0
+	var back := tk.pos - fwd * float(tk.T.L) * 0.45 * signf(v_f + 0.01)
+	var at := Vector3(back.x, tk.ground + 1.2, back.y)
+	var muddy := tk.mud_fx != null and tk.soft > 0.42
+	_fx_on(tk.dust_fx, on and not muddy, at)
+	if tk.mud_fx:
+		_fx_on(tk.mud_fx, on and muddy, at)
+		tk.mud_fx.direction = Vector3(-fwd.x * signf(v_f + 0.01), 1.4, -fwd.y * signf(v_f + 0.01)).normalized()
+
+
+func _fx_on(p: CPUParticles3D, on: bool, at: Vector3) -> void:
+	if on:
+		p.global_position = at
+	if p.emitting != on:
+		p.emitting = on
+
+
+## Подвеска: корпус ложится по рельефу, а на пружинах раскачивается — приседает при разгоне,
+## клюёт носом при торможении, кренится в повороте, качается от выстрела и попаданий.
+## Тяжёлая машина качается медленнее и меньше.
 func _suspend(tk: TankScript, dt: float) -> void:
 	var T := tk.T
 	var lx: float = float(T.L) * 0.42
@@ -654,8 +844,8 @@ func _suspend(tk: TankScript, dt: float) -> void:
 	var hr := terra.height(tk.pos.x + r.x * lz, tk.pos.y + r.y * lz)
 	var hl := terra.height(tk.pos.x - r.x * lz, tk.pos.y - r.y * lz)
 	tk.ground = maxf((hf + hb + hr + hl) * 0.25, terra.height(tk.pos.x, tk.pos.y) - 1.0)
-	var tp := atan2(hf - hb, 2.0 * lx) + clampf(tk.accel * 0.0006, -0.035, 0.035)
-	var tr := -atan2(hr - hl, 2.0 * lz) - clampf(tk.yaw_rate * tk.sp * 0.0004, -0.04, 0.04)
+	var tp := atan2(hf - hb, 2.0 * lx)
+	var tr := -atan2(hr - hl, 2.0 * lz)
 	if dt >= 1.0:
 		tk.pitch = tp
 		tk.roll = tr
@@ -664,6 +854,16 @@ func _suspend(tk: TankScript, dt: float) -> void:
 	tk.roll_v += ((tr - tk.roll) * 70.0 - tk.roll_v * 14.0) * dt
 	tk.pitch += tk.pitch_v * dt
 	tk.roll += tk.roll_v * dt
+	if not tk.alive:
+		tk.body_p = move_toward(tk.body_p, 0.0, dt * 0.2)
+		tk.body_r = move_toward(tk.body_r, 0.0, dt * 0.2)
+		return
+	var bp_t := clampf(tk.accel * 0.0013, -0.065, 0.065)
+	var br_t := clampf(-tk.yaw_rate * tk.sp * 0.0007, -0.06, 0.06)
+	tk.body_pv += ((bp_t - tk.body_p) * tk.spring_k - tk.body_pv * tk.spring_c) * dt
+	tk.body_rv += ((br_t - tk.body_r) * tk.spring_k - tk.body_rv * tk.spring_c) * dt
+	tk.body_p = clampf(tk.body_p + tk.body_pv * dt, -0.14, 0.14)
+	tk.body_r = clampf(tk.body_r + tk.body_rv * dt, -0.12, 0.12)
 
 
 ## Столкновения танков: упругий обмен импульсом по массам; на скорости — урон тараном.
@@ -709,12 +909,12 @@ func separate() -> void:
 # ---------- Стрельба и броня ----------
 
 func _update_disp(tk: TankScript, dt: float) -> void:
-	var base: float = tk.T.disp
+	var base: float = float(tk.T.disp) * tk.disp_k
 	# гиростабилизатор гасит раскачку орудия на ходу
 	var move := (absf(tk.sp) / float(tk.T.speed) * 0.03 + absf(tk.yaw_rate) * 0.02) * (1.0 - float(tk.T.stab))
 	var floor_d := base + move + tk.tur_rate * 0.018
 	if tk.disp > floor_d:
-		tk.disp = lerpf(tk.disp, floor_d, 1.0 - exp(-dt * 2.6 / float(tk.T.aim)))
+		tk.disp = lerpf(tk.disp, floor_d, 1.0 - exp(-dt * 2.6 / (float(tk.T.aim) * tk.aim_k)))
 	else:
 		tk.disp = floor_d
 
@@ -727,12 +927,11 @@ func _aim_at(tk: TankScript, target: Vector3, dt: float) -> void:
 		# в рубке орудие ходит только в узком секторе, дальше доворачивают корпусом
 		var lim: float = tk.T.trav
 		want = tk.hull + clampf(ang_diff(want, tk.hull), -lim, lim)
-	tk.tur = turn_toward(tk.tur, want, float(tk.T.tspd) * dt)
+	# скорость поворота — относительно корпуса (before уже учитывает поворот корпуса)
+	tk.tur = turn_toward(tk.tur, want, float(tk.T.tspd) * tk.tspd_k * dt)
 	if tk.casemate:
 		tk.tur = tk.hull + clampf(ang_diff(tk.tur, tk.hull), -float(tk.T.trav), float(tk.T.trav))
 	tk.tur_rate = absf(ang_diff(tk.tur, before)) / maxf(dt, 0.001)
-	if tk.casemate:
-		tk.tur_rate = maxf(0.0, tk.tur_rate - absf(tk.yaw_rate))  # поворот вместе с корпусом не в счёт
 	var local := tk.tur_node.global_transform.affine_inverse() * target
 	var gp := tk.gun_pos0
 	var dx := Vector2(local.x - gp.x, local.z).length()
@@ -760,15 +959,15 @@ func shoot(tk: TankScript) -> void:
 	mi.global_transform = Transform3D(Basis.looking_at(dir), p)
 	shells.append({"pos": p, "vel": dir * float(tk.T.shell_v), "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
 		"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "node": mi, "whiz": false})
-	tk.rl = float(tk.T.reload) * (1.0 if tk.is_player else 1.15)
+	tk.rl_max = tk.reload_time()
+	tk.rl = tk.rl_max
 	tk.shots_fired += 1
 	tk.recoil = 1.0
 	tk.disp += 0.035
 	# отдача раскачивает корпус: сильнее у крупного калибра и лёгкой машины
 	var kick: float = float(tk.T.caliber) / 85.0 * 30.0 / float(tk.T.mass)
 	var rel := ang_diff(tk.tur, tk.hull)
-	tk.pitch_v += cos(rel) * 0.5 * kick
-	tk.roll_v -= sin(rel) * 0.5 * kick
+	tk.kick(cos(rel) * 0.4 * kick, -sin(rel) * 0.4 * kick)
 	tk.vel -= Vector2.from_angle(tk.tur) * kick * 2.0
 	if tk.team == 1:
 		tk.lit = maxf(tk.lit, 2.0)
@@ -840,11 +1039,13 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 	var thick: float = arm[0]
 	var n: Vector3 = arm[1]
 	var zone: String = arm[2]
+	var cal: float = s.cal
 	var cos_a := clampf(-dir.dot(n), 0.0, 1.0)
 	var ang := maxf(0.0, acos(cos_a) - deg_to_rad(5.0))  # нормализация
 	# бронепробиваемость падает с дистанцией
 	var pen: float = float(s.pen) * (1.0 - 0.18 * clampf(float(s.dist) / D.RANGE, 0.0, 1.0)) * randf_range(0.8, 1.2)
-	var overmatch: bool = float(s.cal) > thick * 3.0
+	var overmatch: bool = cal > thick * 3.0
+	_hit_kick(tk, dir, cal, 0.12)
 	if ang > deg_to_rad(70.0) and not overmatch and s.rico == 0:
 		# рикошет: снаряд отражается и летит дальше
 		s.dead = false
@@ -856,6 +1057,7 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		fx.hit_sparks(hp)
 		_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)
 		sfx.play3d("ricochet", hp)
+		_mark_hit(tk, hp, dir, 0, cal)
 		return
 	var eff := thick / maxf(cos(ang), 0.12)
 	# попадание в ходовую: гусеница принимает удар на себя и может слететь
@@ -866,6 +1068,8 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 			stat.track += 1
 			_popup(tk, "ГУСЕНИЦА СБИТА", Color("ffd37a"), by)
 			sfx.play3d("track_break", hp)
+			if tk.is_player:
+				hud.alert("ГУСЕНИЦА СБИТА", Color(D.AMBER))
 		tk.track_broken = TRACK_REPAIR
 		tk.vel *= 0.3
 	if pen < eff:
@@ -876,6 +1080,8 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		sfx.play3d("hit_nopen", hp)
 		if by.team == 0 and tk.team == 1:
 			tk.lit = maxf(tk.lit, 2.0)
+		_mark_hit(tk, hp, dir, 1, cal)
+		_outer_damage(tk, by, th.part, local, zone, float(s.dmg))
 		return
 	stat.pen += 1
 	tk.pens_taken += 1
@@ -885,20 +1091,147 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 	if by.is_player:
 		hits += 1
 	sfx.play3d("hit_pen", hp)
-	# пожар от попадания в моторное отделение, редкая детонация боеукладки
-	if zone == "rear" and th.part == "hull" and randf() < 0.3 and tk.fire <= 0.0:
-		stat.fire += 1
-		tk.fire = FIRE_TIME
-		tk.set_meta("fire_by", by)
-		if tk.fire_fx == null:
-			tk.fire_fx = fx.deck_fire(tk, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
-		tk.fire_fx.emitting = true
-		_popup(tk, "ПОЖАР", Color("ff9a4a"), by)
-	if (zone == "side" or zone == "rear") and not track_zone and randf() < 0.035:
+	_mark_hit(tk, hp, dir, 2, cal)
+	_hit_kick(tk, dir, cal, 0.2)
+	# за бронёй: модули и экипаж на пути снаряда, осколки
+	if _internal_damage(tk, by, hp, dir, float(s.dmg) * (0.5 if track_zone else 1.0), th.part):
 		stat.ammo += 1
 		_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 		dmg = tk.hp + 1.0
 	_damage(tk, dmg, by, "")
+	if tk.alive and tk.crew_left() == 0:
+		_popup(tk, "ЭКИПАЖ ВЫБЫЛ", Color("ff6a4a"), by)
+		_damage(tk, tk.hp + 1.0, by, "")
+
+
+## Толчок от попадания: корпус качается от удара (крупный калибр и лёгкая машина — сильнее).
+func _hit_kick(tk: TankScript, dir: Vector3, cal: float, k: float) -> void:
+	var l := tk.hull_node.global_transform.basis.inverse() * dir
+	var m := cal / 85.0 * k * 30.0 / float(tk.T.mass)
+	tk.kick(-l.x * m, l.z * m)
+
+
+## След попадания точно на поверхности модели: луч вдоль полёта снаряда по коллизиям танка.
+func _mark_hit(tk: TankScript, hp: Vector3, dir: Vector3, kind: int, cal: float) -> void:
+	var q := PhysicsRayQueryParameters3D.create(hp - dir * 3.0 * D.UPM, hp + dir * 4.0 * D.UPM, 8)
+	q.collide_with_areas = true
+	q.collide_with_bodies = false
+	var r := get_world_3d().direct_space_state.intersect_ray(q)
+	if r.is_empty():
+		return
+	var col := r.collider as Node
+	if col == null or col.get_meta("tank", null) != tk:
+		return
+	var rad := (0.42 if kind == 2 else 0.32) * D.UPM * clampf(cal / 85.0, 0.7, 1.5)
+	tk.add_mark(String(col.get_meta("part")), r.position, dir, rad, kind)
+
+
+## За бронёй снаряд летит ещё ~3 м и задевает модули и экипаж на своём пути (каждый следующий
+## слабее); осколки брони иногда ранят соседей по отделению. true — взорвалась боеукладка.
+func _internal_damage(tk: TankScript, by: TankScript, hp: Vector3, dir: Vector3, dmg: float, part: String) -> bool:
+	var seg := dir * 3.0 * D.UPM
+	var inv_h := tk.hull_node.global_transform.affine_inverse()
+	var inv_t := tk.up_node.global_transform.affine_inverse()
+	var on_path: Array = []
+	for it: Dictionary in tk.layout:
+		var inv: Transform3D = inv_h if it.part == "hull" else inv_t
+		var o := inv * hp
+		var d := inv.basis * seg
+		var t := -1.0
+		if it.has("r"):
+			var cl := Geometry3D.get_closest_point_to_segment(it.c, o, o + d)
+			if cl.distance_to(it.c) < float(it.r):
+				t = o.distance_to(cl) / d.length()
+		else:
+			var hit := slab(o, d, it.c - it.h, it.c + it.h)
+			if not hit.is_empty():
+				t = hit[0]
+		if t >= 0.0:
+			on_path.append([t, it.name])
+	on_path.sort_custom(func(x, y): return x[0] < y[0])
+	var boom := false
+	var energy := 1.0
+	var hurt := {}
+	for e in on_path:
+		var name: String = e[1]
+		if TankScript.CREW.has(name):
+			if randf() < 0.75:
+				hurt[name] = true
+		else:
+			if _module_hit(tk, by, name, dmg * 0.42 * energy * randf_range(0.8, 1.2)):
+				boom = true
+			energy *= 0.75
+	var comp := "top" if part == "turret" else "hull"
+	for it: Dictionary in tk.layout:
+		if it.has("r") and it.part == comp and not hurt.has(it.name) and randf() < 0.06:
+			hurt[it.name] = true
+	for name in hurt:
+		_crew_hit(tk, by, name)
+	return boom
+
+
+## Непробитие тоже калечит то, что снаружи: орудие у маски, погон под башней, приборы на крыше.
+func _outer_damage(tk: TankScript, by: TankScript, part: String, local: Vector3, zone: String, dmg: float) -> void:
+	if part != "turret":
+		return
+	var h := tk.up_max.y
+	var gp: Vector3 = tk.gun_pos0 if not tk.casemate else tk.tur_node.position - tk.up_node.position
+	if zone == "front" and absf(local.z - gp.z) < 0.5 * D.UPM and absf(local.y - gp.y) < 0.45 * D.UPM:
+		if randf() < 0.4:
+			_module_hit(tk, by, "gun", dmg * 0.25 * randf_range(0.8, 1.2))
+	elif not tk.casemate and local.y < 0.18 * h:
+		if randf() < 0.3:
+			_module_hit(tk, by, "turret", dmg * 0.22 * randf_range(0.8, 1.2))
+	elif local.y > 0.8 * h and randf() < 0.2:
+		_module_hit(tk, by, "optics", dmg * 0.3 * randf_range(0.8, 1.2))
+
+
+## Урон модулю и его последствия: пожар от двигателя и баков, обездвиживание, сообщения.
+## true — боеукладка взорвалась.
+func _module_hit(tk: TankScript, by: TankScript, name: String, amount: float) -> bool:
+	var st: Array = tk.hit_module(name, amount)
+	var was: int = st[0]
+	var now: int = st[1]
+	if name == "engine" and randf() < (0.15 if now > 0 else 0.3):
+		_start_fire(tk, by)
+	elif name == "fuel" and randf() < 0.35:
+		_start_fire(tk, by)
+	if now == was:
+		return false
+	if name == "ammo" and now == 0 and randf() < 0.6:
+		return true
+	if name == "engine" and now == 0:
+		tk.vel *= 0.4
+		if tk.engine_fx == null:
+			tk.engine_fx = fx.engine_smoke(tk.hull_node, Vector3(-float(tk.T.L) * 0.33, tk.hh + 0.5, 0))
+	if tk.is_player:
+		hud.alert(MOD_MSG[name][0 if now == 1 else 1], Color(D.AMBER) if now == 1 else Color("ff6a4a"))
+	if by.is_player:
+		_popup(tk, TankScript.NAMES[name], Color("ffb04a"), by)
+	return false
+
+
+func _crew_hit(tk: TankScript, by: TankScript, role_name: String) -> void:
+	if not tk.wound(role_name):
+		return
+	if tk.is_player:
+		hud.alert(CREW_MSG[role_name], Color("ff6a4a"))
+	if by.is_player:
+		_popup(tk, TankScript.NAMES[role_name], Color("ff8a6a"), by)
+
+
+func _start_fire(tk: TankScript, by: TankScript) -> void:
+	if tk.fire > 0.0:
+		return
+	stat.fire += 1
+	tk.fire = FIRE_TIME
+	tk.set_meta("fire_by", by)
+	if tk.fire_fx == null:
+		tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
+	tk.fire_fx.emitting = true
+	_popup(tk, "ПОЖАР", Color("ff9a4a"), by)
+	if tk.is_player:
+		hud.alert("ПОЖАР!", Color("ff9a4a"))
 
 
 func _popup(tk: TankScript, text: String, col: Color, by: TankScript) -> void:
@@ -1008,7 +1341,7 @@ func _update_spotting() -> void:
 					if not o.alive or o.team != team:
 						continue
 					var d := o.pos.distance_to(e.pos)
-					if d > (110.0 if bush else float(o.T.spot)):
+					if d > (110.0 if bush else float(o.T.spot) * o.spot_k):
 						continue
 					var eye := o.top() + Vector3(0, 2, 0)
 					if clear_line(eye, e.top()) or clear_line(eye, e.center()):
@@ -1112,7 +1445,7 @@ func _player(p: TankScript, dt: float) -> void:
 				pen_hint = 1
 			else:
 				pen_hint = 0
-	if (hud.fire_req or hud.fire_held()) and p.rl <= 0:
+	if (hud.fire_req or hud.fire_held()) and p.rl <= 0 and p.can_fire():
 		shoot(p)
 	hud.fire_req = false
 	# звук досылания снаряда перед готовностью
@@ -1225,7 +1558,7 @@ func _bot(b: TankScript, dt: float) -> void:
 		var lp := lead_point(b, tg)
 		_aim_at(b, lp, dt)
 		var aligned := absf(ang_diff((Vector2(lp.x, lp.z) - b.pos).angle(), b.tur)) < 0.03 and absf(b.gun_pitch - b.gun_target) < 0.015
-		if b.rl <= 0 and d < D.RANGE * 0.85 and aligned and b.b_los and b.disp < float(T.disp) * 3.0:
+		if b.rl <= 0 and d < D.RANGE * 0.85 and aligned and b.b_los and b.disp < float(T.disp) * 3.0 and b.can_fire():
 			shoot(b)
 	else:
 		b.b_gt -= dt
@@ -1372,6 +1705,9 @@ func _update(dt: float) -> void:
 		tk.lit = maxf(0.0, tk.lit - dt)
 		tk.recoil = maxf(0.0, tk.recoil - dt * 3.0)
 		tk.track_broken = maxf(0.0, tk.track_broken - dt)
+		for name in tk.update_repairs(dt):
+			if tk.is_player:
+				hud.alert(FIXED_MSG[name], Color("9ad07a"))
 		if tk.fire > 0.0:
 			tk.fire -= dt
 			var by: TankScript = tk.get_meta("fire_by", tk)
@@ -1573,6 +1909,7 @@ func _sync(dt: float) -> void:
 	for tk: TankScript in tanks:
 		tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
 		_sync_sound(tk)
+	trk_mat.set_shader_parameter("now", clock)
 	bush_mat.set_shader_parameter("fade_a", w.center())
 	bush_mat.set_shader_parameter("fade_b", cam.global_position)
 	for z in zones:

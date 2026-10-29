@@ -4,6 +4,7 @@ extends Control
 
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
+const TankScript = preload("res://scripts/tank.gd")
 const SR := 90.0  # радиус джойстика
 
 var battle  # battle.gd (без типа, чтобы не было циклической загрузки)
@@ -35,6 +36,7 @@ var zoom_c := Vector2.ZERO
 
 var feed: Array = []
 var radio_lines: Array = []  # {cs, text, tr, t}
+var alerts: Array = []  # сообщения о повреждениях своего танка: {text, col, t}
 var col_ally := Color(D.ALLY)
 var col_foe := Color(D.FOE)
 var col_amber := Color(D.AMBER)
@@ -70,6 +72,17 @@ func add_feed(parts: Array) -> void:
 	feed.append({"parts": parts, "t": 4.5})
 	while feed.size() > 4:
 		feed.pop_front()
+
+
+## Сообщение о своём танке («ДВИГАТЕЛЬ ПОВРЕЖДЁН») над полосой прочности.
+func alert(text: String, col: Color) -> void:
+	for a in alerts:
+		if a.text == text:
+			a.t = 2.8
+			return
+	alerts.append({"text": text, "col": col, "t": 2.8})
+	while alerts.size() > 3:
+		alerts.pop_front()
 
 
 ## Переговоры: позывной, фраза на языке стороны и перевод (пустой для русского).
@@ -180,6 +193,9 @@ func _process(delta: float) -> void:
 	for rl in radio_lines:
 		rl.t -= delta
 	radio_lines = radio_lines.filter(func(x): return x.t > 0)
+	for a in alerts:
+		a.t -= delta
+	alerts = alerts.filter(func(x): return x.t > 0)
 	queue_redraw()
 
 
@@ -293,7 +309,7 @@ func _draw_crosshair() -> void:
 	draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
 	draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
 	if w.rl > 0:
-		var k: float = 1.0 - w.rl / float(w.T.reload)
+		var k: float = 1.0 - w.rl / maxf(float(w.rl_max), 0.01)
 		draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
 		draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
@@ -470,16 +486,85 @@ func _draw_hp() -> void:
 	# скорость и состояние модулей
 	var kmh := absf(p.sp) / D.UPM * 3.6
 	_text(Vector2(cx - 200, y + 18), "%d км/ч" % int(round(kmh)), 18, col_text, true, 3)
-	var tags: Array = []
+	_draw_damage(p, cx, y - 62)
+	var ay := y - 84
+	for i in range(alerts.size() - 1, -1, -1):
+		var a = alerts[i]
+		var ac: Color = a.col
+		ac.a = clampf(float(a.t) * 1.5, 0.0, 1.0)
+		_text(Vector2(cx, ay), a.text, 19, ac, true, 5)
+		ay -= 26
+
+
+## Панель повреждений: только то, что не в порядке. Жёлтое — повреждено, красное — уничтожено
+## или ранен; кольцо — полевой ремонт.
+func _draw_damage(p, cx: float, y: float) -> void:
+	var items: Array = []
+	for m in TankScript.MODS:
+		var st: int = p.mod_state(m)
+		if st == 2:
+			continue
+		var fr := -1.0
+		if p.mod_fix.has(m):
+			fr = 1.0 - float(p.mod_fix[m]) / float(TankScript.REPAIR[m])
+		items.append([m, TankScript.NAMES[m], col_foe if st == 0 else col_amber, fr])
 	if p.track_broken > 0.0:
-		tags.append(["ГУСЕНИЦА %.0f" % ceil(p.track_broken), col_amber])
+		items.append(["track", "ГУСЕНИЦА", col_amber, 1.0 - p.track_broken / 7.0])
 	if p.fire > 0.0:
-		tags.append(["ПОЖАР", col_foe])
-	var tx := cx + 200
-	for t in tags:
-		_text(Vector2(tx, y + 18), t[0], 16, t[1], true, 3)
-		tx += 0.0
-		y -= 22
+		items.append(["fire", "ПОЖАР", Color("ff7a3a"), -1.0])
+	for cr in TankScript.CREW:
+		if not p.crew_ok[cr]:
+			items.append(["crew", TankScript.NAMES[cr], col_foe, -1.0])
+	if items.is_empty():
+		return
+	var step := 58.0
+	var x := cx - step * (items.size() - 1) / 2.0
+	for it in items:
+		var c := Vector2(x, y)
+		var col: Color = it[2]
+		draw_style_box(UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
+		_icon(it[0], c, col)
+		if it[3] >= 0.0:
+			draw_arc(c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0, true)
+		_text(c + Vector2(0, 38), it[1], 10, col, true, 3)
+		x += step
+
+
+## Значки повреждений, нарисованные примитивами.
+func _icon(kind: String, c: Vector2, col: Color) -> void:
+	match kind:
+		"engine":
+			draw_rect(Rect2(c + Vector2(-12, -3), Vector2(24, 13)), col)
+			for i in 3:
+				draw_rect(Rect2(c + Vector2(-11 + i * 8, -11), Vector2(6, 7)), col)
+		"gun":
+			draw_rect(Rect2(c + Vector2(-14, -2), Vector2(21, 4)), col)
+			draw_rect(Rect2(c + Vector2(5, -7), Vector2(9, 14)), col)
+		"turret":
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 8), c + Vector2(-10, -3), c + Vector2(3, -7),
+				c + Vector2(10, -1), c + Vector2(10, 8)]), col)
+			draw_rect(Rect2(c + Vector2(8, -3), Vector2(8, 3)), col)
+		"optics":
+			draw_arc(c, 11, 0, TAU, 24, col, 2.5, true)
+			draw_circle(c, 4.5, col)
+		"ammo":
+			draw_rect(Rect2(c + Vector2(-4, -3), Vector2(8, 14)), col)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-4, -3), c + Vector2(4, -3), c + Vector2(0, -12)]), col)
+		"fuel":
+			draw_rect(Rect2(c + Vector2(-8, -7), Vector2(16, 18)), col)
+			draw_line(c + Vector2(-3, -11), c + Vector2(5, -11), col, 3.0)
+		"track":
+			draw_arc(c + Vector2(-7, 2), 5, 0, TAU, 16, col, 2.0, true)
+			draw_arc(c + Vector2(7, 2), 5, 0, TAU, 16, col, 2.0, true)
+			draw_line(c + Vector2(-7, -5), c + Vector2(7, -5), col, 2.5)
+			draw_line(c + Vector2(-7, 9), c + Vector2(7, 9), col, 2.5)
+		"fire":
+			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -13), c + Vector2(8, 0), c + Vector2(6, 10),
+				c + Vector2(-6, 10), c + Vector2(-8, 0), c + Vector2(-3, -4)]), col)
+		_:
+			draw_circle(c + Vector2(0, -6), 5.5, col)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 11), c + Vector2(-7, 1), c + Vector2(7, 1),
+				c + Vector2(10, 11)]), col)
 
 
 func _draw_controls() -> void:
@@ -499,13 +584,13 @@ func _draw_controls() -> void:
 	else:
 		_text(Vector2(140 + margins.x, size.y - 30 - margins.w), "◀ ДВИЖЕНИЕ ▶", 13, Color(1, 1, 1, 0.35), true, 0)
 	# огонь с кольцом перезарядки
-	var ready: bool = p.rl <= 0
+	var ready: bool = p.rl <= 0 and p.can_fire()
 	draw_circle(fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
-	if not ready:
-		var k: float = 1.0 - p.rl / float(p.T.reload)
+	if not ready and p.rl > 0:
+		var k: float = 1.0 - p.rl / maxf(float(p.rl_max), 0.01)
 		draw_arc(fire_c, fire_r - 4, -PI / 2, -PI / 2 + TAU * k, 64, col_amber, 8.0, true)
 	draw_circle(fire_c, fire_r - 10, col_amber if ready else Color("6c5a2a"))
-	var label := "ОГОНЬ" if ready else "%.1f" % p.rl
+	var label := "ОГОНЬ" if ready else ("%.1f" % p.rl if p.rl > 0 else "РЕМОНТ")
 	_text(fire_c + Vector2(0, 9), label, 24, Color("1b1405") if ready else col_text, true, 0)
 	# автоприцел
 	var ac := col_amber if auto_aim else col_dim

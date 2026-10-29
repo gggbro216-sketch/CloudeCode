@@ -542,19 +542,59 @@ def closest_on_tri(p, a, b, c):
     return bc, np.linalg.norm(p - cp, axis=-1)
 
 
+def ambient_occlusion(P, N, occ, rays=14, radius=0.9, seed=1):
+    """Затенение окружением: для каждой точки — доля лучей полусферы (по косинусу), упёршихся
+    в соседние детали ближе radius (м). Попадание в изнанку грани у самой поверхности не в счёт:
+    упрощённая сетка местами проходит чуть внутри исходной."""
+    from embreex import rtcore_scene as rtcs
+    from embreex.mesh_construction import TriangleMesh
+    sc = rtcs.EmbreeScene()
+    TriangleMesh(sc, np.ascontiguousarray(occ, np.float32))
+    rng = np.random.default_rng(seed)
+    k = int(np.ceil(np.sqrt(rays)))
+    cells = [((i + 0.5) / k, (j + 0.5) / k) for i in range(k) for j in range(k)][:rays]
+    ao = np.ones(len(P))
+    for c0 in range(0, len(P), 40000):
+        p = P[c0:c0 + 40000].astype(np.float64)
+        n = N[c0:c0 + 40000].astype(np.float64)
+        t = np.cross(n, np.array([0.0, 1.0, 0.0]))
+        bad = np.linalg.norm(t, axis=1) < 0.2
+        t[bad] = np.cross(n[bad], np.array([1.0, 0.0, 0.0]))
+        t /= np.linalg.norm(t, axis=1, keepdims=True) + 1e-12
+        b = np.cross(n, t)
+        rot = rng.random(len(p)) * 2 * np.pi
+        o = (p + n * 0.03).astype(np.float32)
+        far = np.full(len(p), radius, np.float32)
+        occl = np.zeros(len(p))
+        for u1, u2 in cells:
+            r = np.sqrt(u1)
+            phi = 2 * np.pi * u2 + rot
+            d = t * (r * np.cos(phi))[:, None] + b * (r * np.sin(phi))[:, None] + n * np.sqrt(1 - u1)
+            res = sc.run(o, d.astype(np.float32), dists=far.copy(), query="INTERSECT", output=1)
+            hit = res["primID"] >= 0
+            front = (res["Ng"] * d).sum(1) < 0
+            ok = hit & (front | (res["tfar"] > 0.08))
+            occl += ok * (1.0 - (np.minimum(res["tfar"], radius) / radius) ** 2)
+        ao[c0:c0 + 40000] = 1.0 - occl / len(cells)
+    return ao
+
+
 def bake(meshes, S, parts, size=ATLAS):
     """Цвет исходной модели на новую развёртку: для каждого текселя — ближайшая исходная грань
-    той же части танка (с учётом направления нормали), из её текстуры берётся цвет."""
+    той же части танка (с учётом направления нормали), из её текстуры берётся цвет.
+    Плюс затенение окружением от соседних деталей (occ — их треугольники в той же системе)."""
     from scipy.spatial import cKDTree
     from PIL import Image
     img = np.zeros((size, size, 3))
+    aoi = np.ones((size, size))
     mask = np.zeros((size, size), bool)
     texcache = {}
-    for v, f, uv, src in meshes:
+    for v, f, uv, src, occ in meshes:
         fi, bc, xs, ys = raster(uv, f, size)
         P = (v[f[fi]][:, :, :3] * bc[:, :, None]).sum(1)
         N = (v[f[fi]][:, :, 3:6] * bc[:, :, None]).sum(1)
         N /= np.linalg.norm(N, axis=1, keepdims=True) + 1e-9
+        aoi[ys, xs] = ambient_occlusion(P, N, occ)
         ST = S["P"][src]
         SN = np.cross(ST[:, 1] - ST[:, 0], ST[:, 2] - ST[:, 0])
         SN /= np.linalg.norm(SN, axis=1, keepdims=True) + 1e-12
@@ -605,17 +645,24 @@ def bake(meshes, S, parts, size=ATLAS):
         img[grow] = acc[grow] / cnt[grow][:, None]
         filled |= grow
     img[~filled] = img[filled].mean(0)
-    # мелкая светотень: яркость к местному среднему (крупные пятна камуфляжа не мешают перекраске)
+    # мелкая светотень: яркость к местному среднему (крупные пятна камуфляжа не мешают перекраске);
+    # светлые надписи и номера исходника срезаются сверху, тени и стыки листов остаются
     lum = img @ np.array([0.299, 0.587, 0.114])
     from scipy.ndimage import gaussian_filter
 
-    def blur(a):
-        return gaussian_filter(a, 7.0, mode="nearest")
+    def blur(a, s=7.0):
+        return gaussian_filter(a, s, mode="nearest")
     mloc = blur(mask.astype(np.float64))
     lb = blur(lum * mask) / (mloc + 1e-4)
     lb = np.where(mloc > 0.01, lb, lum)
-    detail = np.clip(lum / (lb + 0.04) * 0.5, 0, 1)
-    rgba = np.concatenate([img, detail[..., None]], -1)
+    detail = 1.0 + (np.clip(lum / (lb + 0.04), 0.45, 1.1) - 1.0) * 0.85
+    # затенение: шум лучей сглаживается в пределах островов развёртки
+    m1 = blur(mask.astype(np.float64), 1.2)
+    ao = np.where(m1 > 0.05, blur(aoi * mask, 1.2) / (m1 + 1e-6), 1.0)
+    ao = np.clip(ao, 0.0, 1.0) ** 1.1
+    img = img * (1.0 - 0.75 * (1.0 - ao))[..., None]
+    alpha = detail * (1.0 - 0.85 * (1.0 - ao)) * 0.5
+    rgba = np.concatenate([img, alpha[..., None]], -1)
     return Image.fromarray((np.clip(rgba, 0, 1) * 255 + 0.5).astype(np.uint8), "RGBA")
 
 
@@ -889,7 +936,17 @@ def process(key, folder, dbg=None):
         names.append(name)
         tris[name] = len(f)
     unwrapped = unwrap(groups)
-    atlas = bake([(v, f, uv, src) for (v, f, uv), src in zip(unwrapped, srcs)], S, parts)
+    # заслоняющие детали для затенения — в системе каждой части (башня и орудие — со своим смещением)
+    cls_tris = lambda c: S["P"][keep & (S["cls"] == c)] if c != TRACK else S["P"][S["cls"] == TRACK]
+    hull_occ = np.concatenate([cls_tris(HULL), cls_tris(WHEEL), cls_tris(TRACK)])
+    if casemate:
+        gun_occ = np.concatenate([cls_tris(GUN), hull_occ - trunnion])
+        tur_occ = None
+    else:
+        gun_occ = np.concatenate([cls_tris(GUN), cls_tris(TURRET) + (ring - trunnion)])
+        tur_occ = np.concatenate([cls_tris(TURRET), cls_tris(GUN) + (trunnion - ring)])
+    occ_of = {"hull": hull_occ, "wheel": hull_occ, "turret": tur_occ, "gun": gun_occ}
+    atlas = bake([(v, f, uv, src, occ_of[nm]) for (v, f, uv), src, nm in zip(unwrapped, srcs, names)], S, parts)
     built = {}
     for name, (v, f, uv) in zip(names, unwrapped):
         # столбцы: позиция, нормаль, UV, (окраска, 0), центр катка, (1/радиус, борт)

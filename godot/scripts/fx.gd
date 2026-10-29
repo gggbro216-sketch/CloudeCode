@@ -27,6 +27,9 @@ func _ready() -> void:
 	ramps["smoke"] = _ramp([Color(0.42, 0.42, 0.4, 0.55), Color(0.3, 0.3, 0.29, 0)])
 	ramps["dark"] = _ramp([Color(0.12, 0.12, 0.11, 0.75), Color(0.1, 0.1, 0.1, 0)])
 	ramps["exhaust"] = _ramp([Color(0.32, 0.33, 0.36, 0.5), Color(0.4, 0.41, 0.44, 0)])
+	ramps["snow"] = _ramp([Color(0.94, 0.95, 0.98, 0.62), Color(0.94, 0.95, 0.98, 0)])
+	ramps["mud"] = _ramp([Color(0.2, 0.16, 0.11, 1), Color(0.18, 0.14, 0.1, 1), Color(0.18, 0.14, 0.1, 0)])
+	ramps["engine"] = _ramp([Color(0.16, 0.16, 0.15, 0.6), Color(0.22, 0.22, 0.21, 0)])
 	set_dust(Color(0.55, 0.5, 0.4))
 	grow_curve.add_point(Vector2(0, 0.35))
 	grow_curve.add_point(Vector2(1, 1))
@@ -126,10 +129,10 @@ func exhaust(at: Vector3, fwd: Vector2) -> void:
 	emit(at, 5, 1.6, "exhaust", 6, 18, Vector3(-fwd.x, 0.8, -fwd.y).normalized(), 25, 4, 9, false, true, 1.5)
 
 
-## Пожар в моторном отделении: пламя и чёрный дым, привязанные к танку.
-func deck_fire(tank: Node3D, local: Vector3) -> CPUParticles3D:
-	var p := emit(local, 18, 0.7, "fire", 8, 25, Vector3.UP, 20, 12, 7, true, false, 0, false, tank)
-	var s := emit(local + Vector3(0, 3, 0), 10, 2.2, "dark", 10, 22, Vector3.UP, 15, 4, 16, false, true, 0, false, tank)
+## Пожар в моторном отделении: пламя и чёрный дым, привязанные к корпусу.
+func deck_fire(hull: Node3D, local: Vector3) -> CPUParticles3D:
+	var p := emit(local, 18, 0.7, "fire", 8, 25, Vector3.UP, 20, 12, 7, true, false, 0, false, hull)
+	var s := emit(local + Vector3(0, 3, 0), 10, 2.2, "dark", 10, 22, Vector3.UP, 15, 4, 16, false, true, 0, false, hull)
 	p.emitting = false
 	s.reparent(p)
 	return p
@@ -162,8 +165,27 @@ func shot_dust(at: Vector3) -> void:
 	emit(at, 6, 1.0, "dust", 25, 60, Vector3.UP, 85, 0, 28, false, true, 3)
 
 
-func track_dust(at: Vector3) -> void:
-	emit(at, 2, 1.1, "dust", 4, 12, Vector3.UP, 40, 3, 14, false, true, 1.5)
+## Шлейф за танком (включается на ходу): пыль, песок, снежная пыль или комья грязи.
+func trail(kind: String) -> CPUParticles3D:
+	var p: CPUParticles3D
+	match kind:
+		"snow":
+			p = emit(Vector3.ZERO, 16, 1.5, "snow", 6, 18, Vector3.UP, 55, -4, 15, false, true, 1.5, false)
+		"sand":
+			p = emit(Vector3.ZERO, 16, 2.6, "dust", 6, 18, Vector3.UP, 60, 3, 26, false, true, 1.2, false)
+		"mud":
+			p = emit(Vector3.ZERO, 12, 0.9, "mud", 20, 40, Vector3.UP, 30, -170, 2.2, false, false, 0.4, false)
+		"light":
+			p = emit(Vector3.ZERO, 8, 1.4, "dust", 4, 12, Vector3.UP, 50, 3, 14, false, true, 1.5, false)
+		_:
+			p = emit(Vector3.ZERO, 12, 1.9, "dust", 5, 14, Vector3.UP, 55, 3, 19, false, true, 1.5, false)
+	p.emitting = false
+	return p
+
+
+## Дым разбитого моторного отделения (танк обездвижен).
+func engine_smoke(hull: Node3D, local: Vector3) -> CPUParticles3D:
+	return emit(local, 10, 2.4, "engine", 8, 18, Vector3.UP, 18, 4, 15, false, true, 0.5, false, hull)
 
 
 ## Пробитие: короткий огненный выброс.

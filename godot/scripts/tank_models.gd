@@ -31,6 +31,8 @@ uniform float tank_h = 20.0;
 uniform float burnt = 0.0;
 uniform float travel_l = 0.0;
 uniform float travel_r = 0.0;
+uniform vec4 marks[8];  // следы попаданий: xyz — место в координатах сетки, w — радиус (0 — нет)
+uniform vec4 mark_k[8];  // x — вид (0 рикошет, 1 непробитие, 2 пробитие), yzw — направление снаряда
 varying vec3 opos;
 varying vec3 onrm;
 varying float wy;
@@ -68,10 +70,44 @@ void fragment() {
 	float dirt = smoothstep(0.5, 0.06, h + (g - 0.5) * 0.3) * dust_amount;
 	dirt += smoothstep(0.7, 1.0, onrm.y) * 0.18 * dust_amount;
 	c = mix(c, dust_color.rgb * (0.78 + 0.35 * g), clamp(dirt, 0.0, 0.85));
+	// следы попаданий: копоть, ободранный до металла край, пробоина
+	float soot = 0.0;
+	float steel = 0.0;
+	float hole = 0.0;
+	for (int i = 0; i < 8; i++) {
+		vec4 mk = marks[i];
+		if (mk.w <= 0.0) {
+			continue;
+		}
+		vec4 kd = mark_k[i];
+		vec3 off = (opos - mk.xyz) / mk.w;
+		if (kd.x < 0.5) {
+			// рикошет: борозда, вытянутая вдоль полёта снаряда
+			off -= kd.yzw * dot(off, kd.yzw) * 0.65;
+		}
+		float d = length(off);
+		if (d > 1.0) {
+			continue;
+		}
+		float edge = d + (g - 0.5) * 0.35;
+		if (kd.x > 1.5) {
+			soot = max(soot, (1.0 - smoothstep(0.3, 1.0, edge)) * 0.9);
+			hole = max(hole, 1.0 - smoothstep(0.1, 0.14, d));
+			steel = max(steel, 1.0 - smoothstep(0.14, 0.26, edge));
+		} else {
+			soot = max(soot, (1.0 - smoothstep(0.25, 1.0, edge)) * 0.55);
+			steel = max(steel, (1.0 - smoothstep(0.06, 0.3, edge)) * 0.85);
+		}
+	}
+	steel *= 1.0 - hole;
+	c = mix(c, vec3(0.045, 0.04, 0.035), soot);
+	c = mix(c, vec3(0.5, 0.48, 0.45), steel);
+	c = mix(c, vec3(0.008), hole);
 	// обгоревший корпус
 	c = mix(c, vec3(0.06, 0.055, 0.05) * (0.5 + g), burnt);
 	ALBEDO = c;
-	ROUGHNESS = mix(0.68, 0.95, clamp(dirt + burnt, 0.0, 1.0)) - (1.0 - COLOR.a) * 0.15;
+	ROUGHNESS = mix(mix(0.68, 0.95, clamp(dirt + burnt, 0.0, 1.0)) - (1.0 - COLOR.a) * 0.15, 0.35, steel * (1.0 - burnt));
+	METALLIC = steel * 0.7 * (1.0 - burnt);
 	SPECULAR = 0.3;
 }
 """
@@ -97,6 +133,8 @@ uniform float tank_h = 20.0;
 uniform float burnt = 0.0;
 uniform float travel_l = 0.0;
 uniform float travel_r = 0.0;
+uniform vec4 marks[8];  // следы попаданий: xyz — место в координатах сетки, w — радиус (0 — нет)
+uniform vec4 mark_k[8];  // x — вид (0 рикошет, 1 непробитие, 2 пробитие), yzw — направление снаряда
 varying vec3 opos;
 varying vec3 onrm;
 varying float wy;
@@ -128,18 +166,50 @@ void fragment() {
 	vec4 t = texture(albedo, UV);
 	vec3 camo_c = tri3(camo, opos * tex_scale, onrm);
 	float g = tri3(grime, opos * tex_scale * 2.7, onrm).r;
-	// перекраска: камуфляж × светотень исходной текстуры; светлые надписи и номера исходника
-	// срезаются сверху, тени и стыки листов остаются
-	float det = clamp(t.a * 2.0, 0.45, 1.1);
-	vec3 paint_c = camo_c * mix(1.0, det, 0.85) * (0.86 + 0.26 * g);
+	// перекраска: камуфляж × светотень исходной текстуры и затенение окружением (запечены в A)
+	vec3 paint_c = camo_c * (t.a * 2.0) * (0.86 + 0.26 * g);
 	vec3 c = mix(t.rgb, paint_c, painted * paint_mix);
 	float h = clamp((wy - ground_y) / tank_h, 0.0, 1.0);
 	float dirt = smoothstep(0.5, 0.06, h + (g - 0.5) * 0.3) * dust_amount;
 	dirt += smoothstep(0.7, 1.0, onrm.y) * 0.18 * dust_amount;
 	c = mix(c, dust_color.rgb * (0.78 + 0.35 * g), clamp(dirt, 0.0, 0.85));
+	// следы попаданий: копоть, ободранный до металла край, пробоина
+	float soot = 0.0;
+	float steel = 0.0;
+	float hole = 0.0;
+	for (int i = 0; i < 8; i++) {
+		vec4 mk = marks[i];
+		if (mk.w <= 0.0) {
+			continue;
+		}
+		vec4 kd = mark_k[i];
+		vec3 off = (opos - mk.xyz) / mk.w;
+		if (kd.x < 0.5) {
+			// рикошет: борозда, вытянутая вдоль полёта снаряда
+			off -= kd.yzw * dot(off, kd.yzw) * 0.65;
+		}
+		float d = length(off);
+		if (d > 1.0) {
+			continue;
+		}
+		float edge = d + (g - 0.5) * 0.35;
+		if (kd.x > 1.5) {
+			soot = max(soot, (1.0 - smoothstep(0.3, 1.0, edge)) * 0.9);
+			hole = max(hole, 1.0 - smoothstep(0.1, 0.14, d));
+			steel = max(steel, 1.0 - smoothstep(0.14, 0.26, edge));
+		} else {
+			soot = max(soot, (1.0 - smoothstep(0.25, 1.0, edge)) * 0.55);
+			steel = max(steel, (1.0 - smoothstep(0.06, 0.3, edge)) * 0.85);
+		}
+	}
+	steel *= 1.0 - hole;
+	c = mix(c, vec3(0.045, 0.04, 0.035), soot);
+	c = mix(c, vec3(0.5, 0.48, 0.45), steel);
+	c = mix(c, vec3(0.008), hole);
 	c = mix(c, vec3(0.06, 0.055, 0.05) * (0.5 + g), burnt);
 	ALBEDO = c;
-	ROUGHNESS = mix(0.66, 0.95, clamp(dirt + burnt, 0.0, 1.0)) - (1.0 - painted) * 0.12;
+	ROUGHNESS = mix(mix(0.66, 0.95, clamp(dirt + burnt, 0.0, 1.0)) - (1.0 - painted) * 0.12, 0.35, steel * (1.0 - burnt));
+	METALLIC = steel * 0.7 * (1.0 - burnt);
 	SPECULAR = 0.3;
 }
 """
@@ -558,6 +628,8 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var th: float = S.th
 	var skirts: bool = S.has("skirts") and year >= int(S.skirts)
 	var paint := paint_material(paint_cfg.get("camo", S.camo))
+	var paint_t: ShaderMaterial = paint.duplicate()  # у каждой части свои следы попаданий
+	var paint_g: ShaderMaterial = paint.duplicate()
 	var hull := Node3D.new()
 	root.add_child(hull)
 	var hb := Builder.new(paint)
@@ -643,7 +715,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 
 	# --- детали корпуса
 	_hull_details(hb, key, S, roof, skirts, year)
-	hb.g.commit(hull, shadows)
+	var hull_mis := hb.g.commit(hull, shadows)
 
 	# опознавательные знаки на бортах корпуса (Германия, США): на экранах, если они есть,
 	# иначе на борту, повторяя его наклон
@@ -684,7 +756,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var top := Node3D.new()  # верх: вращается (башня) или неподвижен (рубка)
 	top.position = Vector3(float(S.tur_x), roof - 0.02, 0) * U
 	hull.add_child(top)
-	var tb := Builder.new(paint)
+	var tb := Builder.new(paint_t)
 	tb.put(Geo.frustum(tpoly, tur_h, S.tur_top, 0.0, S.smooth), T3(Vector3.ZERO), "paint", not S.smooth)
 	_turret_details(tb, key, S, front, tur_h, skirts, year)
 	if paint_cfg.get("band", false) and not S.get("casemate", false):
@@ -701,19 +773,20 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		tb.put(Geo.box(Vector3(0.16, 0.02, rw * 2.0)), T3(Vector3(-0.15, tur_h + 0.012, 0)), "white", true)
 	var tur := top
 	var trunnion := Vector3(front * 0.9, gun_y, 0)
+	var top_mis: Array = []
 	if casemate:
 		# рубка на корпусе, а маска с орудием качается в амбразуре лобового листа
-		tb.g.commit(top, shadows)
+		top_mis = tb.g.commit(top, shadows)
 		tur = Node3D.new()
 		tur.position = top.position + Vector3(front * float(S.tur_top) * 0.98, gun_y, 0) * U
 		hull.add_child(tur)
-		var mb := Builder.new(paint)
+		var mb := Builder.new(paint_g)
 		_mantlet(mb, S, 0.0, 0.0)
 		mb.g.commit(tur, shadows)
 		trunnion = Vector3(0.05, 0, 0)
 	else:
 		_mantlet(tb, S, front, gun_y)
-		tb.g.commit(top, shadows)
+		top_mis = tb.g.commit(top, shadows)
 	if em_turret:
 		var tilt := atan2(hw * (1.0 - float(S.tur_top)), tur_h)
 		_emblems(top, emblem, Vector3(-0.2, tur_h * 0.5, hw * (1.0 + float(S.tur_top)) / 2.0 + 0.06), 0.55, tilt)
@@ -722,7 +795,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var gun := Node3D.new()
 	gun.position = trunnion * U
 	tur.add_child(gun)
-	var gb := Builder.new(paint)
+	var gb := Builder.new(paint_g)
 	var glen: float = S.gun_len
 	var gr: Array = S.gun_r
 	var c := _cyl_x(gr[1], gr[0], glen, 14)
@@ -747,13 +820,39 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var hole := _cyl_x(float(gr[1]) * 0.55, float(gr[1]) * 0.55, 0.02, 10)
 	var tip := glen + (0.5 if S.brake.begins_with("double") else 0.0)
 	gb.put(hole[0], T3(Vector3(tip + 0.005, 0, 0), hole[1]), "slit")
-	gb.g.commit(gun, shadows)
+	var gun_mis := gb.g.commit(gun, shadows)
 
+	# коллизии частей для уточнения места попаданий (одни на все танки этого типа и года)
+	var ck := "pcol_%s_%d" % [key, year]
+	if not _cache.has(ck):
+		_cache[ck] = [_shape_of(hull_mis, 1.0), _shape_of(top_mis, 1.0), _shape_of(gun_mis, 1.0)]
+	var cols: Array = _cache[ck]
 	var back: float = S.tpoly[2]
-	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paint": paint, "tracks": [trk_l, trk_r],
+	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paints": [paint, paint_t, paint_g],
+		"tracks": [trk_l, trk_r], "track_w": tw * U, "track_z": tz * U,
+		"parts": [{"part": "hull", "mat": paint, "node": hull, "shape": cols[0], "node_col": hull},
+			{"part": "top", "mat": paint_t, "node": top, "shape": cols[1], "node_col": top},
+			{"part": "gun", "mat": paint_g, "node": gun, "shape": cols[2], "node_col": gun}],
 		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
 		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
 		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
+
+
+## Форма для лучей из сеток частей (вершины домножаются на scale).
+static func _shape_of(mis: Array, scale: float) -> ConcavePolygonShape3D:
+	var faces := PackedVector3Array()
+	for mi in mis:
+		var mesh: Mesh = mi.mesh if mi is MeshInstance3D else mi
+		var f := mesh.get_faces()
+		if scale != 1.0:
+			for i in f.size():
+				f[i] *= scale
+		faces.append_array(f)
+	if faces.is_empty():
+		return null
+	var sh := ConcavePolygonShape3D.new()
+	sh.set_faces(faces)
+	return sh
 
 
 # ---------- Готовые модели (assets/models, см. tools/import_models.py) ----------
@@ -822,9 +921,17 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 	var W: float = S.W
 	var th: float = S.th
 	var paint := model_material(info, paint_cfg.get("camo", S.camo))
+	var paint_t: ShaderMaterial = paint.duplicate()  # у каждой части свои следы попаданий
+	var paint_g: ShaderMaterial = paint.duplicate()
+	if not info.has("shapes"):
+		info["shapes"] = {"hull": _shape_of([info.mesh_hull], U),
+			"top": _shape_of([info.mesh_turret], U) if info.has("mesh_turret") else null,
+			"gun": _shape_of([info.mesh_gun], U) if info.has("mesh_gun") else null}
+	var shapes: Dictionary = info.shapes
 	var hull := Node3D.new()
 	root.add_child(hull)
-	_model_part(hull, info.mesh_hull, paint, shadows)
+	var hull_mi := _model_part(hull, info.mesh_hull, paint, shadows)
+	var parts: Array = [{"part": "hull", "mat": paint, "node": hull_mi, "shape": shapes.hull, "node_col": hull}]
 
 	# гусеницы — своя лента по контуру гусениц модели, текстура бежит с ходом танка
 	var trk: Dictionary = info.track
@@ -866,7 +973,8 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 	var top := Node3D.new()
 	var tur: Node3D
 	var gun := Node3D.new()
-	var out := {"hull": hull, "paint": paint, "tracks": [trk_l, trk_r], "th": th * U, "barrel": float(info.barrel) * U}
+	var out := {"hull": hull, "paints": [paint, paint_t, paint_g], "tracks": [trk_l, trk_r], "th": th * U,
+		"barrel": float(info.barrel) * U, "track_w": tw * U, "track_z": tz * U, "parts": parts}
 	if casemate:
 		# рубка — часть корпуса; качается установка орудия; размеры рубки — по SPECS
 		var roof := 0.0
@@ -889,7 +997,8 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 		top.position = ring * U
 		hull.add_child(top)
 		tur = top
-		_model_part(top, info.mesh_turret, paint, shadows)
+		var tur_mi := _model_part(top, info.mesh_turret, paint_t, shadows)
+		parts.append({"part": "top", "mat": paint_t, "node": tur_mi, "shape": shapes.top, "node_col": top})
 		gun.position = _v3(info.trunnion) * U
 		# коробка попаданий башни — основной объём модели без мелочей, в пределах разумного
 		# отклонения от исторических размеров (на них настроен баланс)
@@ -909,7 +1018,8 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 			_berlin_band(top, info, shadows)
 	tur.add_child(gun)
 	if info.has("mesh_gun"):
-		_model_part(gun, info.mesh_gun, paint, shadows)
+		var gun_mi := _model_part(gun, info.mesh_gun, paint_g, shadows)
+		parts.append({"part": "gun", "mat": paint_g, "node": gun_mi, "shape": shapes.gun, "node_col": gun})
 	out.merge({"tur": tur, "gun": gun, "sup": top})
 	return out
 
