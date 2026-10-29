@@ -1664,7 +1664,7 @@ func _bot(b: TankScript, dt: float) -> void:
 			fwd = 0.0
 		# танк еле жив или без толстой брони с долгой перезарядкой: прячется за холм или дом
 		# и выезжает к выстрелу (бронированные машины и САУ держат позицию лбом к противнику)
-		var hide := b.b_los and d < 900.0 and b.rl > 1.4 and not b.immobile and (low or (float(T.reload) >= 3.5 and not T.armored and not b.casemate))
+		var hide: bool = b.b_los and d < 900.0 and b.rl > 1.4 and not b.immobile and (low or (float(T.reload) >= 3.5 and not T.armored and not b.casemate))
 		b.b_cover_t -= dt
 		if hide and (b.b_cover == null or b.b_cover_t <= 0.0):
 			b.b_cover = _find_cover(b, tg)
