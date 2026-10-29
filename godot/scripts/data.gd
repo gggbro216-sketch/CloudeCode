@@ -30,7 +30,7 @@ const AMBER := "f0b73a"
 # variants — модификации по годам: {год: поля, которые меняются}.
 const TYPES := {
 	"t34_76": {"short": "СТ", "name": "Т-34 обр. 1943", "tag": "Т-34/76", "nation": "СССР", "cls": "Средний танк",
-		"tier": 5, "side": "allies", "year": 1942, "pts": 7, "freq": 3.0,
+		"tier": 5, "side": "allies", "year": 1942, "pts": 8, "freq": 3.0,
 		"hp": 860.0, "dmg": 125.0, "pen": 86.0, "caliber": 76.2, "reload": 2.7, "shell": 662.0,
 		"kmh": 54.0, "rev": 18.0, "turn": 44.0, "tspd": 34.0, "power": 500.0, "mass": 30.9,
 		"disp": 0.47, "aim": 2.0, "armor": [45, 45, 40, 52, 52, 52], "slope": 60.0, "side_slope": 40.0,
@@ -78,13 +78,13 @@ const TYPES := {
 		"disp": 0.42, "aim": 1.7, "armor": [25, 25, 19, 38, 25, 25], "slope": 60.0, "side_slope": 0.0,
 		"elev": [-10.0, 15.0], "spot": 72.0, "engine": "petrol", "len": 5.03, "wid": 2.95, "pref": 320.0},
 	"crusader": {"short": "СТ", "name": "Crusader Mk III", "tag": "Crusader", "nation": "Великобритания", "cls": "Крейсерский танк",
-		"tier": 4, "side": "allies", "year": 1942, "pts": 6, "freq": 2.0,
+		"tier": 4, "side": "allies", "year": 1942, "pts": 7, "freq": 2.0,
 		"hp": 760.0, "dmg": 95.0, "pen": 95.0, "caliber": 57.0, "reload": 2.2, "shell": 853.0,
 		"kmh": 44.0, "rev": 16.0, "turn": 44.0, "tspd": 36.0, "power": 340.0, "mass": 20.1,
 		"disp": 0.38, "aim": 1.8, "armor": [51, 28, 28, 51, 32, 23], "slope": 25.0, "side_slope": 0.0,
 		"tslope": 30.0, "elev": [-12.0, 20.0], "spot": 66.0, "engine": "petrol", "len": 5.97, "wid": 2.77, "pref": 330.0},
 	"pz3": {"short": "СТ", "name": "Pz.Kpfw. III Ausf. L", "tag": "Pz III L", "nation": "Германия", "cls": "Средний танк",
-		"tier": 4, "side": "axis", "year": 1942, "pts": 5, "freq": 2.5,
+		"tier": 4, "side": "axis", "year": 1942, "pts": 4, "freq": 2.5,
 		"hp": 780.0, "dmg": 90.0, "pen": 82.0, "caliber": 50.0, "reload": 2.2, "shell": 835.0,
 		"kmh": 40.0, "rev": 16.0, "turn": 40.0, "tspd": 30.0, "power": 300.0, "mass": 21.5,
 		"disp": 0.36, "aim": 1.8, "armor": [70, 30, 50, 57, 30, 30], "slope": 9.0, "side_slope": 0.0,
@@ -98,7 +98,7 @@ const TYPES := {
 		"disp": 0.36, "aim": 1.9, "armor": [80, 30, 20, 50, 30, 30], "slope": 12.0, "side_slope": 0.0,
 		"elev": [-8.0, 20.0], "spot": 65.0, "engine": "petrol", "len": 5.89, "wid": 2.88, "pref": 430.0},
 	"stug": {"short": "САУ", "name": "StuG III Ausf. G", "tag": "StuG III", "nation": "Германия", "cls": "Штурмовое орудие",
-		"tier": 5, "side": "axis", "year": 1942, "pts": 7, "freq": 2.0, "variants": {1944: {"pts": 6}},
+		"tier": 5, "side": "axis", "year": 1942, "pts": 6, "freq": 2.0, "variants": {1944: {"pts": 5}},
 		"hp": 850.0, "dmg": 120.0, "pen": 132.0, "caliber": 75.0, "reload": 2.9, "shell": 790.0,
 		"kmh": 40.0, "rev": 14.0, "turn": 38.0, "tspd": 14.0, "power": 300.0, "mass": 23.9,
 		"disp": 0.34, "aim": 1.9, "armor": [80, 30, 50, 80, 30, 30], "slope": 21.0, "side_slope": 0.0,
@@ -114,7 +114,7 @@ const TYPES := {
 		"disp": 0.3, "aim": 2.3, "armor": [80, 40, 40, 100, 45, 45], "slope": 55.0, "side_slope": 40.0,
 		"tslope": 12.0, "elev": [-8.0, 18.0], "spot": 66.0, "engine": "petrol", "len": 6.87, "wid": 3.27, "pref": 460.0},
 	"tiger2": {"short": "ТТ", "name": "Pz.Kpfw. Tiger Ausf. B", "tag": "Tiger II", "nation": "Германия", "cls": "Тяжёлый танк",
-		"tier": 8, "side": "axis", "year": 1944, "pts": 15, "freq": 0.4,
+		"tier": 8, "side": "axis", "year": 1944, "pts": 13, "freq": 0.4,
 		"hp": 1800.0, "dmg": 240.0, "pen": 230.0, "caliber": 88.0, "reload": 5.0, "shell": 1000.0,
 		"kmh": 38.0, "rev": 12.0, "turn": 24.0, "tspd": 18.0, "power": 700.0, "mass": 69.8,
 		"disp": 0.28, "aim": 2.5, "armor": [150, 80, 80, 180, 80, 80], "slope": 50.0, "side_slope": 25.0,
@@ -132,14 +132,14 @@ const TYPES := {
 		"disp": 0.45, "aim": 2.0, "armor": [30, 25, 25, 40, 25, 25], "slope": 20.0, "side_slope": 0.0,
 		"tslope": 15.0, "elev": [-10.0, 20.0], "spot": 58.0, "engine": "diesel", "len": 4.92, "wid": 2.2, "pref": 300.0},
 	"jagdpanther": {"short": "ПТ", "name": "Jagdpanther", "tag": "Jagdpanther", "nation": "Германия", "cls": "Истребитель танков",
-		"tier": 7, "side": "axis", "year": 1944, "pts": 11, "freq": 0.6,
+		"tier": 7, "side": "axis", "year": 1944, "pts": 9, "freq": 0.6,
 		"hp": 1350.0, "dmg": 240.0, "pen": 230.0, "caliber": 88.0, "reload": 5.2, "shell": 1000.0,
 		"kmh": 46.0, "rev": 12.0, "turn": 30.0, "tspd": 14.0, "power": 700.0, "mass": 45.5,
 		"disp": 0.29, "aim": 2.3, "armor": [80, 50, 40, 80, 50, 40], "slope": 55.0, "side_slope": 30.0,
 		"tslope": 55.0, "traverse": 11.0, "elev": [-8.0, 14.0], "spot": 60.0, "engine": "petrol",
 		"len": 6.87, "wid": 3.27, "pref": 520.0},
 	"su100": {"short": "ПТ", "name": "СУ-100", "tag": "СУ-100", "nation": "СССР", "cls": "Самоходная установка",
-		"tier": 7, "side": "allies", "year": 1944, "pts": 10, "freq": 1.0,
+		"tier": 7, "side": "allies", "year": 1944, "pts": 9, "freq": 1.0,
 		"hp": 1150.0, "dmg": 250.0, "pen": 175.0, "caliber": 100.0, "reload": 6.0, "shell": 895.0,
 		"kmh": 48.0, "rev": 15.0, "turn": 38.0, "tspd": 14.0, "power": 500.0, "mass": 31.6,
 		"disp": 0.42, "aim": 2.4, "armor": [75, 45, 40, 75, 45, 40], "slope": 50.0, "side_slope": 20.0,
@@ -206,7 +206,8 @@ const MODULES := {
 		"engine": ["Maybach HL 230 P30 ранний", "Maybach HL 230 P30", {"power": 650.0}], "susp": ["Tiger II ранний", "Tiger II"]},
 }
 
-# Снаряжение: многоразовое в бою, с перезарядкой; серебро списывается, если использовали.
+# Снаряжение: многоразовое в бою, с перезарядкой; серебро списывается, если использовали
+# (price — для V уровня, на других — пропорционально уровню).
 const CONSUMABLES := {
 	"repair": {"name": "Ремкомплект", "desc": "Чинит гусеницу и модули (уничтоженные — до «повреждён», двигатель тоже)",
 		"cd": 90.0, "price": 1500},
@@ -525,6 +526,11 @@ static func random_mods(key: String, rng: RandomNumberGenerator) -> Dictionary:
 	for slot in MODULES.get(key, {}):
 		out[slot] = rng.randf() < 0.65
 	return out
+
+
+## Цена снаряжения для танка данного уровня.
+static func cons_price(name: String, tier: int) -> int:
+	return roundi(float(CONSUMABLES[name].price) * tier / 5.0 / 100.0) * 100
 
 
 static func tier(key: String) -> int:

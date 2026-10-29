@@ -790,7 +790,7 @@ func _update_cons(last: String) -> void:
 	var C: Dictionary = D.CONSUMABLES[c]
 	var on: bool = main.save.cons.has(c)
 	cons_desc.text = "%s: %s. Перезарядка %d с, %s серебра за бой, если пригодится.%s" % [C.name, C.desc, int(C.cd),
-		_num(C.price), "" if on else " Не берётся."]
+		_num(D.cons_price(c, D.tier(main.save.tank))), "" if on else " Не берётся."]
 
 
 ## Карта, по которой показываем танк: выбранная или (для случайной) первая, где он воевал.
@@ -827,6 +827,7 @@ func _select_tank(key: String) -> void:
 		(cards[k] as TankCard).selected = k == key
 		(cards[k] as TankCard).queue_redraw()
 	_show_tank_info()
+	_update_cons("")
 	_refresh()
 	_show_preview()
 

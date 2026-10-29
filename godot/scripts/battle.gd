@@ -2093,7 +2093,7 @@ func rewards() -> Dictionary:
 	var repair := roundi((1.0 - clampf(player.hp / player.max_hp, 0.0, 1.0)) * float(D.REPAIR_FULL[tier]))
 	var cons_cost := 0
 	for c in player.cons_used:
-		cons_cost += int(D.CONSUMABLES[c].price)
+		cons_cost += D.cons_price(c, tier)
 	return {"lines": shown, "mult": mult, "tier_mult": tk_mult, "xp": int(xp), "free_xp": roundi(xp * D.FREE_XP_SHARE),
 		"silver_gross": int(silver), "repair": repair, "cons_cost": cons_cost, "silver": int(silver) - repair - cons_cost}
 
