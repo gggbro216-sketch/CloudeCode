@@ -20,6 +20,14 @@ func _ready() -> void:
 		_autotest(args)
 		return
 	show_menu()
+	if "--menushot" in args:
+		# снимок меню для проверки вёрстки: -- --menushot файл.png [--setup]
+		if "--setup" in args:
+			menu._setup_page()
+		for i in 10:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png(_arg(args, "--menushot", "menu.png"))
+		get_tree().quit()
 
 
 func show_menu() -> void:
@@ -90,7 +98,7 @@ func _arg(args: PackedStringArray, key: String, def: String) -> String:
 func _autotest(args: PackedStringArray) -> void:
 	test = {"runs": int(_arg(args, "--runs", "1")), "sc": int(_arg(args, "--scenario", "-1")),
 		"time": float(_arg(args, "--time", "0")), "shot": _arg(args, "--shot", ""), "at": float(_arg(args, "--at", "60")),
-		"speed": float(_arg(args, "--speed", "6")), "n": 0, "results": [], "seed": int(_arg(args, "--seed", "0"))}
+		"speed": float(_arg(args, "--speed", "6")), "zoom": float(_arg(args, "--zoom", "0")), "n": 0, "results": [], "seed": int(_arg(args, "--seed", "0"))}
 	_next_test()
 
 
@@ -100,6 +108,7 @@ func _next_test() -> void:
 		for r in test.results:
 			w[r.winner + 1] += 1
 		print("AUTOTEST DONE: runs=%d  side0=%d side1=%d draw=%d" % [test.runs, w[1], w[2], w[0]])
+		print("  by faction: ", test.get("fw", {}))
 		get_tree().quit()
 		return
 	var si: int = test.sc if test.sc >= 0 else test.n % Data.SCENARIOS.size()
@@ -107,6 +116,10 @@ func _next_test() -> void:
 	var fs := ["us", "su", "de"]
 	var f: String = fs[test.n % 3]
 	var ef := Data.enemy_of(f)
+	if test.n % 2 == 1 and f != "de":
+		# через раз меняем стороны, чтобы отделить силу фракции от положения на карте
+		ef = f
+		f = "de"
 	var cfg := {"scenario": sc, "faction": f, "enemy_faction": ef,
 		"army": Data.auto_army(f, sc.budget, sc.get("armor", false)),
 		"enemy_army": Data.auto_army(ef, int(sc.budget * float(sc.enemy)), sc.get("armor", false)),
@@ -129,6 +142,22 @@ func _process(_dt: float) -> void:
 		test.shot_done = true
 		battle.speed = 0.0
 		battle.paused = true
+		if test.zoom > 0.0:
+			# крупный план: ближайший к противнику живой отряд стороны 0
+			var best = null
+			var bd := INF
+			for u in battle.units:
+				if u.side != 0 or not u.alive:
+					continue
+				for e in battle.units:
+					if e.side == 1 and e.alive and u.position.distance_to(e.position) < bd:
+						bd = u.position.distance_to(e.position)
+						best = u
+			if best != null:
+				battle.zoom = test.zoom
+				battle.cam.zoom = Vector2(test.zoom, test.zoom)
+				battle.center_on(best.position)
+				battle.select_only(best)
 		await get_tree().process_frame
 		await get_tree().process_frame
 		var img := get_viewport().get_texture().get_image()
@@ -143,6 +172,10 @@ func _process(_dt: float) -> void:
 			r.winner, r.reason, r.score[0], r.score[1], r.flags[0], r.flags[1], L[0].men, L[1].men, L[0].veh, L[1].veh,
 			r.time, (Time.get_ticks_msec() - test.t0) / 1000.0])
 		test.results.append(r)
+		var fw: Dictionary = test.get("fw", {})
+		var key: String = "draw" if r.winner < 0 else battle.factions[r.winner]
+		fw[key] = int(fw.get(key, 0)) + 1
+		test["fw"] = fw
 		battle.queue_free()
 		battle = null
 		_next_test.call_deferred()

@@ -787,7 +787,7 @@ func _draw_men() -> void:
 		var wl := 1.1
 		var ww := 0.14
 		match m.w:
-			"lmg", "hmg", "mg42", "mg50":
+			"lmg", "hmg", "mg42", "mg42l", "mg50":
 				wl = 1.4
 				ww = 0.2
 			"smg":

@@ -813,11 +813,14 @@ func _build_ground() -> void:
 			out[o + 2] = clampi(int(base[2] * m), 0, 255)
 			k += 1
 	var img := Image.create_from_data(w, h, false, Image.FORMAT_RGB8, out)
+	# сглаживание ступенек сетки при увеличении
+	img.resize(w * 2, h * 2, Image.INTERPOLATE_CUBIC)
 	if ground == null:
 		ground = Sprite2D.new()
 		ground.centered = false
 		ground.show_behind_parent = true
 		ground.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		ground.scale = Vector2(0.5, 0.5)
 		add_child(ground)
 	ground.texture = ImageTexture.create_from_image(img)
 

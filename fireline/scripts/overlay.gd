@@ -12,7 +12,7 @@ var pings: Array = []
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
@@ -38,7 +38,7 @@ func _draw() -> void:
 		return
 	var font := get_theme_default_font()
 	var z: float = b.zoom
-	var vs := size
+	var vs := get_viewport_rect().size
 	var me: int = b.player_side
 	# зона расстановки
 	if b.phase == "deploy":

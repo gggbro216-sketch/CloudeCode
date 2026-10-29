@@ -48,6 +48,7 @@ var vis_pass := 0
 var flag_t := 0.0
 var end_t := 1.0
 var hold_all := [0.0, 0.0]
+var broken := [0.0, 0.0]
 var player_side := 0
 var autoplay := false
 var result := {}
@@ -118,7 +119,7 @@ func start(c: Dictionary) -> void:
 	if autoplay:
 		ais.append(AiT.new(self, 0, sc.mode))
 	var vp := get_viewport().get_visible_rect().size
-	zoom = clampf(vp.y / 200.0, 2.2, 6.0)
+	zoom = clampf(vp.y / 130.0, 3.0, 8.0)
 	cam.zoom = Vector2(zoom, zoom)
 	var z: Rect2 = map.zones[0]
 	cam.position = Vector2(minf(z.end.x - 40.0, map.W * 0.3), map.H * 0.5)
@@ -767,10 +768,13 @@ func _check_end() -> void:
 			alive_n[u.side] += 1
 			if u.state != UnitT.ST_ROUT:
 				eff[u.side] += 1
-	if alive_n[1] == 0 or (eff[1] == 0 and sim_time > 30.0):
+	# сторона разбита, если все её отряды погибли или 20 с подряд никто не держит строй
+	for s in 2:
+		broken[s] = broken[s] + 1.0 if eff[s] == 0 else 0.0
+	if alive_n[1] == 0 or broken[1] >= 20.0:
 		_end(0, "Противник разгромлен")
 		return
-	if alive_n[0] == 0 or (eff[0] == 0 and sim_time > 30.0):
+	if alive_n[0] == 0 or broken[0] >= 20.0:
 		_end(1, "Ваши силы разгромлены")
 		return
 	for s in 2:
@@ -973,8 +977,12 @@ func to_screen(wp: Vector2) -> Vector2:
 
 
 func _clamp_cam() -> void:
-	cam.position.x = clampf(cam.position.x, 0.0, map.W)
-	cam.position.y = clampf(cam.position.y, 0.0, map.H)
+	# край карты не уезжает внутрь экрана; если карта меньше экрана — центрируем
+	var half := vp_size() * 0.5 / zoom
+	for ax in 2:
+		var m: float = map.W if ax == 0 else map.H
+		var h: float = half[ax]
+		cam.position[ax] = m * 0.5 if h * 2.0 >= m else clampf(cam.position[ax], h, m - h)
 
 
 func zoom_limits() -> Vector2:

@@ -24,7 +24,7 @@ var start_btn: Button
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = UI.make_theme()
 	if main != null:
 		faction = main.settings.get("faction", "us")
@@ -57,7 +57,7 @@ func _clear() -> void:
 	if page != null:
 		page.queue_free()
 	page = MarginContainer.new()
-	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var m := UI.safe(self)
 	page.add_theme_constant_override("margin_left", int(maxf(m.x, 24.0)))
 	page.add_theme_constant_override("margin_right", int(maxf(m.z, 24.0)))
