@@ -214,7 +214,11 @@ func _proj(p3: Vector3):
 	var cam: Camera3D = battle.cam
 	if cam.is_position_behind(p3):
 		return null
-	return cam.unproject_position(p3)
+	var s := cam.unproject_position(p3)
+	# у самой плоскости камеры проекция улетает далеко за экран — рисовать там нечего
+	if not Rect2(Vector2(-400, -400), size + Vector2(800, 800)).has_point(s):
+		return null
+	return s
 
 
 func _draw() -> void:
