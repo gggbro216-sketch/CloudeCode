@@ -209,6 +209,12 @@ func _build_ui() -> void:
 	stats_row.add_theme_constant_override("separation", 6)
 	head.add_child(stats_row)
 	_fill_stats()
+	var cr := Button.new()
+	cr.text = "АВТОРЫ"
+	cr.add_theme_font_size_override("font_size", 14)
+	cr.custom_minimum_size = Vector2(0, 44)
+	cr.pressed.connect(_show_credits)
+	head.add_child(cr)
 
 	var body := HBoxContainer.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -356,6 +362,42 @@ func _fill_stats() -> void:
 		col.add_child(UI.label(String(item[0]).to_upper(), 11, UI.DIM))
 		pc.add_child(col)
 		stats_row.add_child(pc)
+
+
+## Окно с авторами звуков (CC-BY требует указывать их).
+func _show_credits() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(dim)
+	var pc := PanelContainer.new()
+	pc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pc.offset_left = 40
+	pc.offset_right = -40
+	pc.offset_top = 30
+	pc.offset_bottom = -30
+	dim.add_child(pc)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	pc.add_child(v)
+	v.add_child(UI.label("АВТОРЫ ЗВУКОВ", 22, D.AMBER))
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var txt := "Игра и модели: процедурная генерация.\n\n"
+	var f := FileAccess.open("res://assets/sfx/CREDITS.txt", FileAccess.READ)
+	if f:
+		txt += f.get_as_text()
+	var l := UI.label(txt, 13)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(l)
+	var ok := Button.new()
+	ok.text = "ЗАКРЫТЬ"
+	ok.custom_minimum_size = Vector2(0, 48)
+	ok.pressed.connect(dim.queue_free)
+	v.add_child(ok)
 
 
 ## Сторона: в сетке остаются её машины; выбирается переданный танк или первый, воевавший на карте.
