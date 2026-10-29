@@ -91,7 +91,11 @@ var reload_k := 1.0  # множитель времени перезарядки
 var aim_k := 1.0  # множитель времени сведения
 var disp_k := 1.0
 var spot_k := 1.0
-var immobile := false  # двигатель уничтожен: танк стоит до конца боя
+var immobile := false  # двигатель уничтожен: танк стоит до конца боя (если нет ремкомплекта)
+
+# снаряжение: что взято в бой → секунд до готовности; что пускали в ход
+var cons := {}
+var cons_used := {}
 
 # состояние бота
 var role := "atk"
@@ -106,6 +110,12 @@ var b_last := Vector2.ZERO
 var b_pt := 1.0
 var b_los := false
 var b_los_t := 0.0
+var b_cons_t := {}  # снаряжение → через сколько секунд бот его применит
+var b_tg = null  # цель бота (танк)
+var b_tg_t := 0.0
+var b_cover = null  # Vector2 — укрытие на время перезарядки
+var b_cover_t := 0.0
+var b_side := 1.0  # фланг (и в какую сторону ставить ромб): -1 левый, 1 правый
 
 # модель
 var hull_node: Node3D
@@ -144,9 +154,11 @@ var pop_spin := Vector2.ZERO
 
 
 ## year — год сражения (модификация и бортовые экраны), paint — окраска и знаки стороны.
-func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944, paint_cfg := {}) -> void:
+## top — какие модули стоят исследованные ({слот: true/false}, без слота — исследованный).
+func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944, paint_cfg := {},
+		top := {}) -> void:
 	type_key = key
-	T = D.spec(key, year)
+	T = D.spec(key, year, top)
 	T.merge(D.derived(T), true)
 	team = tm
 	pos = p
@@ -440,6 +452,58 @@ func recalc() -> void:
 		speed_k *= 0.85
 		accel_k *= 0.6
 		turn_k *= 0.7
+
+
+## Снаряжение. Ремкомплект: гусеница сразу, уничтоженные модули — до «повреждён» (двигатель тоже),
+## повреждённые — полностью; аптечка: экипаж снова в строю; огнетушитель: пожар потушен.
+## false — нечего применять, снаряжения нет или оно ещё не готово.
+func use_cons(name: String) -> bool:
+	if not cons.has(name) or float(cons[name]) > 0.0 or not alive:
+		return false
+	match name:
+		"repair":
+			var any := track_broken > 0.0
+			for m in MODS:
+				if float(mod_hp[m]) < 100.0:
+					any = true
+					mod_hp[m] = 30.0 if float(mod_hp[m]) <= 0.0 else 100.0
+			if not any:
+				return false
+			track_broken = 0.0
+			mod_fix.clear()
+			if engine_fx:
+				engine_fx.emitting = false
+		"medkit":
+			if crew_left() == CREW.size():
+				return false
+			for c in CREW:
+				crew_ok[c] = true
+		"ext":
+			if fire <= 0.0:
+				return false
+			fire = 0.0
+			if fire_fx:
+				fire_fx.emitting = false
+	cons[name] = D.CONSUMABLES[name].cd
+	cons_used[name] = true
+	recalc()
+	return true
+
+
+## Нужен ли сейчас предмет снаряжения (для подсветки кнопки и для ботов).
+func cons_needed(name: String) -> bool:
+	match name:
+		"repair":
+			if track_broken > 0.0:
+				return true
+			for m in MODS:
+				if mod_state(m) < 2:
+					return true
+		"medkit":
+			return crew_left() < CREW.size()
+		"ext":
+			return fire > 0.0
+	return false
 
 
 ## Уничтоженное орудие не стреляет до ремонта.

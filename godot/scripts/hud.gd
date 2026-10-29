@@ -33,6 +33,7 @@ var fire_r := 76.0
 var auto_rect := Rect2()
 var pause_c := Vector2.ZERO
 var zoom_c := Vector2.ZERO
+var cons_c := {}  # снаряжение → центр кнопки
 
 var feed: Array = []
 var radio_lines: Array = []  # {cs, text, tr, t}
@@ -52,6 +53,7 @@ var result_box: Control
 var res_title: Label
 var res_reason: Label
 var res_stats: HBoxContainer
+var res_table: GridContainer
 
 
 func _ready() -> void:
@@ -150,6 +152,10 @@ func _input(event: InputEvent) -> void:
 		if p.distance_to(zoom_c) < 50.0:
 			battle.toggle_sniper()
 			return
+		for c in cons_c:
+			if p.distance_to(cons_c[c]) < 36.0:
+				battle.use_cons(c)
+				return
 		if p.x < size.x * 0.5:
 			if move_idx == -1:
 				move_idx = e.index
@@ -162,6 +168,11 @@ func _input(event: InputEvent) -> void:
 			aim_start = p
 			aim_t0 = Time.get_ticks_msec()
 			aim_moved = 0.0
+	elif event is InputEventKey:
+		var k := event as InputEventKey
+		var keys := {KEY_1: "repair", KEY_2: "medkit", KEY_3: "ext"}
+		if k.pressed and not k.echo and keys.has(k.keycode):
+			battle.use_cons(keys[k.keycode])
 	elif event is InputEventScreenDrag:
 		var e := event as InputEventScreenDrag
 		if e.index == move_idx:
@@ -187,6 +198,13 @@ func _process(delta: float) -> void:
 	fire_c = Vector2(s.x - r - 96.0, s.y - bt - 104.0)
 	auto_rect = Rect2(fire_c.x - 60.0, fire_c.y - fire_r - 62.0, 120.0, 44.0)
 	zoom_c = Vector2(fire_c.x - fire_r - 64.0, fire_c.y + 26.0)
+	cons_c.clear()
+	if battle and battle.player:
+		var x := zoom_c.x - 84.0
+		for c in ["ext", "medkit", "repair"]:
+			if battle.player.cons.has(c):
+				cons_c[c] = Vector2(x, s.y - bt - 36.0)
+				x -= 66.0
 	for f in feed:
 		f.t -= delta
 	feed = feed.filter(func(x): return x.t > 0)
@@ -608,6 +626,41 @@ func _draw_controls() -> void:
 	draw_arc(zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5, true)
 	draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
+	_draw_cons(p)
+
+
+## Кнопки снаряжения: жёлтая рамка — пора применить, кольцо и секунды — перезарядка.
+func _draw_cons(p) -> void:
+	for c in cons_c:
+		var cc: Vector2 = cons_c[c]
+		var cd: float = p.cons[c]
+		var need: bool = cd <= 0.0 and p.cons_needed(c)
+		draw_circle(cc, 30, Color(0.04, 0.05, 0.03, 0.62))
+		draw_arc(cc, 30, 0, TAU, 40, col_amber if need else Color(UI.LINE), 3.0 if need else 2.0, true)
+		var col := col_text if cd <= 0.0 else col_dim
+		_cons_icon(c, cc, col)
+		if cd > 0.0:
+			var k: float = 1.0 - cd / float(D.CONSUMABLES[c].cd)
+			draw_arc(cc, 26, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
+			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
+		else:
+			_text(cc + Vector2(0, 46), ["1", "2", "3"][["repair", "medkit", "ext"].find(c)], 11, col_dim, true, 3)
+
+
+func _cons_icon(kind: String, c: Vector2, col: Color) -> void:
+	match kind:
+		"repair":
+			# гаечный ключ
+			draw_line(c + Vector2(-9, 9), c + Vector2(6, -6), col, 5.0, true)
+			draw_arc(c + Vector2(8, -8), 6, PI * 0.9, PI * 2.4, 16, col, 3.5, true)
+		"medkit":
+			draw_rect(Rect2(c + Vector2(-4, -12), Vector2(8, 24)), col)
+			draw_rect(Rect2(c + Vector2(-12, -4), Vector2(24, 8)), col)
+		"ext":
+			# огнетушитель
+			draw_rect(Rect2(c + Vector2(-6, -6), Vector2(12, 18)), col)
+			draw_rect(Rect2(c + Vector2(-3, -11), Vector2(6, 5)), col)
+			draw_line(c + Vector2(3, -9), c + Vector2(11, -12), col, 2.5, true)
 
 
 static func _fmt_t(s: float) -> String:
@@ -743,6 +796,11 @@ func _build_result() -> void:
 	res_stats = HBoxContainer.new()
 	res_stats.add_theme_constant_override("separation", 8)
 	vb.add_child(res_stats)
+	res_table = GridContainer.new()
+	res_table.columns = 3
+	res_table.add_theme_constant_override("h_separation", 26)
+	res_table.add_theme_constant_override("v_separation", 2)
+	vb.add_child(res_table)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.add_child(_button("ЕЩЁ БОЙ", true, func(): battle.leave.emit(true)))
@@ -766,12 +824,46 @@ func show_result(st: Dictionary) -> void:
 	res_reason.text = "%s. %s, карта «%s»." % [st.reason, st.mode, st.map]
 	for c in res_stats.get_children():
 		c.queue_free()
-	for item in [["Уничтожено", str(st.kills)], ["Урон", str(st.dmg)], ["Точность", "%d%%" % st.acc], ["Время", _fmt_t(st.time)], ["Серебро", "+%d" % st.silver]]:
+	for item in [["Уничтожено", str(st.kills)], ["Урон", str(st.dmg)], ["Точность", "%d%%" % st.acc], ["Время", _fmt_t(st.time)]]:
 		var pc := PanelContainer.new()
 		pc.custom_minimum_size = Vector2(118, 0)
 		var col := VBoxContainer.new()
-		col.add_child(UI.label(item[1], 26))
+		col.add_child(UI.label(item[1], 24))
 		col.add_child(UI.label(String(item[0]).to_upper(), 12, UI.DIM))
 		pc.add_child(col)
 		res_stats.add_child(pc)
+	# за что сколько опыта и серебра
+	for c in res_table.get_children():
+		c.queue_free()
+	var row := func(a: String, b: String, c: String, col: String, fs := 15) -> void:
+		res_table.add_child(UI.label(a, fs, col))
+		var lb := UI.label(b, fs, col)
+		lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		res_table.add_child(lb)
+		var lc := UI.label(c, fs, col)
+		lc.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		res_table.add_child(lc)
+	row.call("", "ОПЫТ", "СЕРЕБРО", UI.DIM, 12)
+	for ln in st.lines:
+		row.call(ln[0], _num(ln[1]), _num(ln[2]), UI.TEXT)
+	if float(st.mult) > 1.0:
+		row.call("Победа" if st.result == "win" else "Ничья", "×%s" % String.num(st.mult, 1).replace(".", ","),
+			"×%s" % String.num(st.mult, 1).replace(".", ","), "7bc65a")
+	if int(st.repair) > 0:
+		row.call("Ремонт", "", "−" + _num(st.repair), "e2563c")
+	if int(st.cons_cost) > 0:
+		row.call("Снаряжение", "", "−" + _num(st.cons_cost), "e2563c")
+	row.call("ИТОГО (+%s свободного опыта)" % _num(st.free_xp), "+" + _num(st.xp),
+		("+" if int(st.silver) >= 0 else "−") + _num(absi(int(st.silver))), D.AMBER, 18)
 	result_box.visible = true
+
+
+## Число с пробелами между разрядами: 12 345.
+static func _num(v) -> String:
+	var n := absi(int(v))
+	var t := str(n)
+	var out := ""
+	while t.length() > 3:
+		out = " " + t.right(3) + out
+		t = t.left(t.length() - 3)
+	return ("-" if int(v) < 0 else "") + t + out

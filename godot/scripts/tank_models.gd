@@ -343,6 +343,29 @@ const SPECS := {
 		"tur_x": 0.25, "tpoly": ["horseshoe", 0.95, 1.25, 1.12], "tur_h": 0.94, "tur_top": 0.98, "smooth": false,
 		"mant": "plate", "gun_len": 4.75, "gun_r": [0.1, 0.075], "brake": "double",
 		"cupola": [-0.72, -0.56, 0.37, 0.3]},
+	"m13_40": {
+		"L": 4.92, "W": 2.2, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
+		"hull": [[-2.46, 0.45], [-2.46, 1.5], [1.2, 1.62], [2.1, 1.3], [2.46, 1.0], [2.3, 0.45]],
+		"wheels": [1.35, 1.05, 0.75, 0.45, -0.65, -0.95, -1.25, -1.55], "wr": 0.15, "wheel": "vvss", "bogies": [0.9, -1.1],
+		"spr": [2.0, 0.72, 0.4], "idl": [-2.1, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
+		"tur_x": 0.19, "tpoly": ["hex", 0.84, 0.8, 0.78], "tur_h": 0.55, "tur_top": 0.8, "smooth": false,
+		"mant": "box", "gun_len": 1.54, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [], "hatch": false},
+	"jagdpanther": {
+		"L": 6.87, "W": 3.27, "tw": 0.66, "th": 1.02, "up_w": 3.2, "camo": "german44", "emblem": "germany",
+		"hull": [[-3.1, 0.52], [-3.32, 1.75], [2.4, 1.75], [3.43, 1.0], [2.98, 0.45], [-2.95, 0.45]],
+		"wheels": [2.2, 1.58, 0.96, 0.34, -0.28, -0.9, -1.52, -2.14], "wr": 0.43, "wheel": "interleaved",
+		"spr": [2.96, 0.9, 0.42], "idl": [-2.98, 0.84, 0.34], "rollers": [],
+		"tur_x": -0.4, "tpoly": ["stug", 2.5, 2.2, 1.5], "tur_h": 0.95, "tur_top": 0.9, "smooth": false,
+		"mant": "saukopf", "gun_len": 6.3, "gun_r": [0.1, 0.07], "brake": "double", "cupola": [], "hatch": false,
+		"skirts": 1944, "skirt_y": 0.86, "casemate": true},
+	"su100": {
+		"L": 6.1, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
+		"hull": [[-3.05, 0.62], [-2.76, 1.44], [1.6, 1.5], [3.05, 0.76], [2.88, 0.42], [-2.85, 0.42]],
+		"wheels": [1.85, 0.88, -0.14, -1.12, -2.08], "wr": 0.415, "wheel": "spoked",
+		"spr": [-2.74, 0.6, 0.36], "idl": [2.62, 0.58, 0.33], "rollers": [],
+		"tur_x": 1.0, "tpoly": ["stug", 1.6, 1.4, 1.3], "tur_h": 0.75, "tur_top": 0.9, "smooth": false,
+		"mant": "cast", "gun_len": 5.4, "gun_r": [0.09, 0.07], "brake": "none", "cupola": [-0.6, -0.6, 0.3, 0.25],
+		"hatch": false, "casemate": true},
 }
 
 static var _cache := {}
@@ -374,7 +397,7 @@ static func camo_texture(kind: String) -> ImageTexture:
 	var g := n3.get_seamless_image(S, S)
 	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
 	var bases := {"olive": "464a2f", "german": "a8956a", "desert": "c4b38a", "german44": "ad9a68", "dak": "9c8358",
-		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b"}
+		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b", "italy": "b9a170"}
 	var base := Color(bases.get(kind, "3f4c2b"))
 	for y in S:
 		for x in S:
@@ -401,6 +424,10 @@ static func camo_texture(kind: String) -> ImageTexture:
 				c = c.lerp(Color("6a3a24"), s2 * 0.9)
 				var dots := smoothstep(0.78, 0.82, vg) * maxf(s1, s2)
 				c = c.lerp(Color("b8a470"), dots * 0.9)
+			elif kind == "italy":
+				# «каки сахариано»: ровная песочная краска, выгоревшая пятнами
+				c = c.lightened(clampf((va - 0.55) * 0.35, 0.0, 0.1))
+				c = c.darkened(clampf((0.45 - vb) * 0.3, 0.0, 0.08))
 			elif kind == "dak":
 				# «Африканский корпус»: жёлто-коричневый с серо-зелёными пятнами
 				c = c.lerp(Color("6b6a52"), smoothstep(0.62, 0.66, vb) * 0.85)
@@ -476,6 +503,11 @@ static func emblem_texture(kind: String) -> ImageTexture:
 		img.fill_rect(Rect2i(28, 38, 24, 52), Color("ece8dc"))
 		img.fill_rect(Rect2i(52, 38, 24, 52), Color("a8231b"))
 		img.fill_rect(Rect2i(76, 38, 24, 52), Color("ece8dc"))
+	elif kind == "italy":
+		# тактический знак итальянских танков: красный прямоугольник роты с белой полосой взвода
+		img.fill_rect(Rect2i(14, 34, 100, 60), Color("ece8dc"))
+		img.fill_rect(Rect2i(18, 38, 92, 52), Color("a8231b"))
+		img.fill_rect(Rect2i(58, 38, 12, 52), Color("ece8dc"))
 	elif kind == "germany":
 		img.fill_rect(Rect2i(46, 6, 36, 116), Color("ece8dc"))
 		img.fill_rect(Rect2i(6, 46, 116, 36), Color("ece8dc"))

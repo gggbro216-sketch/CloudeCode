@@ -66,6 +66,8 @@ var mode := "standard"
 var map_key := "prokhorovka"
 var hq := true
 var player_type := "t34_76"
+var player_mods := {}  # модули танка игрока: {слот: true — исследованный}
+var player_cons: Array = ["repair", "medkit", "ext"]  # снаряжение, взятое в бой
 var history := true  # только машины, воевавшие на этой карте
 var side := "allies"  # сторона игрока; команда 0 — его сторона, команда 1 — противник
 var year := 1943
@@ -113,6 +115,7 @@ var over := false
 var over_t := 0.0
 var result_shown := false
 var speed := 1
+var autopilot := false  # танком игрока управляет бот (для проверок)
 var result := ""
 var reason := ""
 var score := [0.0, 0.0]
@@ -121,6 +124,13 @@ var dmg_done := 0.0
 var hits := 0
 var shots := 0
 var stat := {"pen": 0, "nopen": 0, "rico": 0, "miss": 0, "ram": 0, "track": 0, "fire": 0, "ammo": 0}
+# заслуги игрока для опыта и серебра
+var spot_dmg := 0.0  # урон союзников по врагам, которых засветил игрок
+var spotted_n := 0  # сколько врагов засветил первым
+var blocked := 0.0  # урон, принятый бронёй без пробития
+var cap_pts := 0.0  # очки захвата
+var def_pts := 0.0  # сбитый захват своей базы
+var spotter := {}  # враг → танк, засветивший его первым
 
 var hud: HudScript
 var fx: FxScript
@@ -140,6 +150,8 @@ func setup(cfg: Dictionary) -> void:
 	map_key = cfg.map
 	hq = cfg.hq
 	player_type = cfg.tank
+	player_mods = cfg.get("mods", {})
+	player_cons = cfg.get("cons", player_cons)
 	history = cfg.get("history", true)
 	side = D.TYPES[player_type].side
 
@@ -370,9 +382,11 @@ func _spawn() -> void:
 	var ws := D.WS
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	# команды равного боевого веса из машин, воевавших здесь (или из всех машин стороны)
-	var mine := D.roster(map_key, side, history)
-	var theirs := D.roster(map_key, D.foe_side(side), history)
+	# команды равного боевого веса из машин, воевавших здесь (или из всех машин стороны),
+	# уровнем не дальше ±1 от танка игрока
+	var tier := D.tier(player_type)
+	var mine := D.pool(map_key, side, history, tier)
+	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	teams = D.match_teams(mine, theirs, player_type, rng, year)
 	# позывные — по армии, которая ведёт машину
 	var names := {}
@@ -397,12 +411,26 @@ func _spawn() -> void:
 				watch = tk
 			elif (team == 0 and i == 1) or (team == 1 and i == 0):
 				tk.role = "def"
+			tk.b_side = -1.0 if p.x < ws / 2 else 1.0
+		# самый быстрый танк команды (не тяжёлый) идёт в обход по флангу
+		var fast: TankScript = null
+		for tk: TankScript in tanks:
+			if tk.team == team and not tk.is_player and tk.role == "atk" and float(tk.T.kmh) >= 44.0 and float(tk.T.mass) < 40.0:
+				if fast == null or float(tk.T.kmh) > float(fast.T.kmh):
+					fast = tk
+		if fast:
+			fast.role = "flank"
 
 
 func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) -> TankScript:
 	var tk: TankScript = TankScript.new()
 	add_child(tk)
-	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history))
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var top: Dictionary = player_mods if is_player else D.random_mods(key, rng)
+	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history), top)
+	for c in (player_cons if is_player else D.CONSUMABLES.keys()):
+		tk.cons[c] = 0.0
 	tk.set_dust(Color(D.MAPS[map_key].dust), 0.75 if map_key == "alamein" else 0.55)
 	tk.smoke = fx.damage_smoke(tk, tk.hh)
 	match surf:
@@ -1054,6 +1082,8 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		s.vel = (v - 2.0 * v.dot(n) * n) * 0.7
 		s.dist = D.RANGE - 250.0
 		stat.rico += 1
+		if tk.is_player:
+			blocked += float(s.dmg)
 		fx.hit_sparks(hp)
 		_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)
 		sfx.play3d("ricochet", hp)
@@ -1074,6 +1104,8 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		tk.vel *= 0.3
 	if pen < eff:
 		stat.nopen += 1
+		if tk.is_player:
+			blocked += float(s.dmg)
 		fx.hit_sparks(hp)
 		if not track_zone:
 			_popup(tk, "НЕ ПРОБИЛ", Color("cfd3d8"), by)
@@ -1204,6 +1236,7 @@ func _module_hit(tk: TankScript, by: TankScript, name: String, amount: float) ->
 		tk.vel *= 0.4
 		if tk.engine_fx == null:
 			tk.engine_fx = fx.engine_smoke(tk.hull_node, Vector3(-float(tk.T.L) * 0.33, tk.hh + 0.5, 0))
+		tk.engine_fx.emitting = true
 	if tk.is_player:
 		hud.alert(MOD_MSG[name][0 if now == 1 else 1], Color(D.AMBER) if now == 1 else Color("ff6a4a"))
 	if by.is_player:
@@ -1249,9 +1282,13 @@ func _damage(tk: TankScript, amount: float, by: TankScript, tag: String) -> void
 		tk.lit = maxf(tk.lit, 2.0)
 	if by.is_player:
 		dmg_done += real
+	elif by.team == 0 and tk.team == 1 and spotter.get(tk) == player:
+		spot_dmg += real
 	if tag != "fire":
 		for z in zones:
 			if in_zone(tk, z) and z.prog[tk.team] > 0:
+				if by.is_player and z.side == 0:
+					def_pts += minf(z.prog[tk.team], 40.0)
 				z.prog[tk.team] = maxf(0.0, z.prog[tk.team] - 40.0)
 		var col := Color("ff8a6a") if tk.is_player else Color.WHITE
 		var label := ("%s -%d" % [tag, int(amount)]) if tag != "" else "-%d" % int(amount)
@@ -1346,6 +1383,10 @@ func _update_spotting() -> void:
 					var eye := o.top() + Vector3(0, 2, 0)
 					if clear_line(eye, e.top()) or clear_line(eye, e.center()):
 						seen = true
+						if team == 0 and not spotter.has(e):
+							spotter[e] = o
+							if o == player:
+								spotted_n += 1
 						break
 			e.vis[team] = seen
 			if team == 0 and seen and not reported.has(e) and clock > 3.0:
@@ -1474,7 +1515,12 @@ func _cam_origin(w: TankScript) -> Vector3:
 func _roam(b: TankScript) -> void:
 	b.b_zone = null
 	var lo := 380.0 if b.team == 0 else D.WS - 1000.0
-	b.b_goal = Vector2(randf_range(260.0, D.WS - 260.0), randf_range(lo, lo + 620.0))
+	var x := randf_range(260.0, D.WS - 260.0)
+	if b.role == "flank" and clock < 140.0:
+		# быстрый танк в начале боя обходит по своему флангу
+		x = randf_range(220.0, 520.0) if b.b_side < 0.0 else randf_range(D.WS - 520.0, D.WS - 220.0)
+		lo = 500.0 if b.team == 0 else D.WS - 1100.0
+	b.b_goal = Vector2(x, randf_range(lo, lo + 620.0))
 	b.b_gt = randf_range(10.0, 18.0)
 
 
@@ -1490,7 +1536,9 @@ func _pick_goal(b: TankScript) -> void:
 	if mode == "standard":
 		var own = zones[0] if zones[0].side == my else zones[1]
 		var foe = zones[1] if own == zones[0] else zones[0]
-		if own.prog[en] > 0 and (b.role == "def" or b.pos.distance_to(own.pos) < 900):
+		var d_own: float = b.pos.distance_to(own.pos)
+		# захват своей базы сбивают ближние, а при сильном захвате — все, кто успеет
+		if own.prog[en] > 0 and (b.role == "def" or d_own < 900.0 or (own.prog[en] > 35.0 and d_own < 1700.0)):
 			_go_zone(b, own)
 			return
 		if b.role == "def" and clock < 150:
@@ -1521,12 +1569,80 @@ func _pick_goal(b: TankScript) -> void:
 		_roam(b)
 
 
+## Приведённая толщина брони цели со стороны стрелка: лоб или борт — по тому, как цель к нему стоит.
+static func _armor_toward(tg: TankScript, from: Vector2) -> float:
+	var A: Array = tg.T.armor
+	var off := absf(ang_diff((from - tg.pos).angle(), tg.hull))
+	if off < 0.9:
+		return float(A[0]) / cos(float(tg.T.slope)) / maxf(cos(off), 0.3)
+	if off > PI - 0.9:
+		return float(A[2])
+	return float(A[1]) / cos(float(tg.T.side_slope)) / maxf(sin(off), 0.5)
+
+
+## Выбор цели: ближе, слабее бронёй, меньше прочности; по тому, кого уже обстреливают свои, —
+## охотнее (фокус огня); текущую цель бот не бросает без причины.
+func _choose_target(b: TankScript) -> TankScript:
+	var best: TankScript = null
+	var bs := 1e9
+	var pen: float = b.T.pen
+	for o: TankScript in tanks:
+		if not o.alive or o.team == b.team or not o.vis[b.team]:
+			continue
+		var d := o.pos.distance_to(b.pos)
+		var sc := d / float(b.T.pref)
+		if pen * 0.95 < _armor_toward(o, b.pos):
+			sc += 1.6
+		sc += o.hp / o.max_hp * 0.8
+		for a: TankScript in tanks:
+			if a != b and a.alive and a.team == b.team and a.b_tg == o:
+				sc -= 0.3
+		if o == b.b_tg:
+			sc -= 0.4
+		if sc < bs:
+			bs = sc
+			best = o
+	return best
+
+
+## Укрытие от цели поблизости: место, куда можно проехать и где холм или дом закрывают танк
+## от её глаз целиком. null — укрыться негде.
+func _find_cover(b: TankScript, tg: TankScript):
+	var away := (b.pos - tg.pos).angle()
+	var eye := tg.top() + Vector3(0, 2, 0)
+	var r := radius(b)
+	var best = null
+	var bd := 1e9
+	for i in 10:
+		var a := away + (float(i) - 4.5) * 0.42
+		var p := b.pos + Vector2.from_angle(a) * (45.0 + float(i % 3) * 45.0)
+		if p.x < 150.0 or p.y < 150.0 or p.x > D.WS - 150.0 or p.y > D.WS - 150.0 or blocked_at(p, r):
+			continue
+		var top := Vector3(p.x, terra.height(p.x, p.y) + b.height * 0.85, p.y)
+		if clear_line(eye, top):
+			continue
+		var d := b.pos.distance_to(p)
+		if d < bd:
+			bd = d
+			best = p
+	return best
+
+
 func _bot(b: TankScript, dt: float) -> void:
 	var T := b.T
+	_bot_cons(b, dt)
 	var mv := Vector2.ZERO
 	var facing := false
 	var face_off := 0.0
-	var tg := nearest_foe(b, 1e9, 0.0, 0.0)
+	b.b_tg_t -= dt
+	if b.b_tg_t <= 0.0 or b.b_tg == null or not b.b_tg.alive or not b.b_tg.vis[b.team]:
+		var nt := _choose_target(b)
+		if nt != b.b_tg:
+			b.b_los_t = 0.0
+			b.b_cover = null
+		b.b_tg = nt
+		b.b_tg_t = randf_range(0.8, 1.4)
+	var tg: TankScript = b.b_tg
 	b.b_st -= dt
 	if b.b_st <= 0:
 		b.b_strafe *= -1.0
@@ -1535,7 +1651,8 @@ func _bot(b: TankScript, dt: float) -> void:
 	if tg:
 		var d := b.pos.distance_to(tg.pos)
 		var ang := (tg.pos - b.pos).angle()
-		var pref: float = T.pref
+		var low := b.hp < b.max_hp * 0.3
+		var pref: float = float(T.pref) + (180.0 if low else 0.0)
 		if b.b_los_t <= 0:
 			b.b_los = clear_line(b.muzzle(), tg.center())
 			b.b_los_t = 0.3
@@ -1545,17 +1662,34 @@ func _bot(b: TankScript, dt: float) -> void:
 			strafe = 0.0  # перед выстрелом останавливается, чтобы свестись
 		if b.b_zone != null and in_zone(b, b.b_zone) and b.b_zone.side != b.team:
 			fwd = 0.0
-		if b.casemate or T.armored:
-			# САУ держит цель в секторе наводки, а танк с толстым лбом не подставляет борт:
-			# оба не кружат вокруг цели, а доворачивают корпус на месте
-			strafe = 0.0
-			var off := ang_diff(ang, b.hull)
-			var keep: float = float(T.trav) * 0.6 if b.casemate else 0.3
-			if fwd == 0.0 and absf(off) > keep:
-				facing = true
-				face_off = off
-		mv = Vector2.from_angle(ang) * fwd + Vector2.from_angle(ang + PI / 2) * b.b_strafe * strafe
+		# перезарядка долгая или танк еле жив: прячется за холм или дом и выезжает к выстрелу
+		var hide := b.b_los and d < 900.0 and b.rl > 1.4 and (float(T.reload) >= 3.5 or low) and not b.immobile
+		b.b_cover_t -= dt
+		if hide and (b.b_cover == null or b.b_cover_t <= 0.0):
+			b.b_cover = _find_cover(b, tg)
+			b.b_cover_t = 2.5
+		if hide and b.b_cover != null and b.track_broken <= 0.0:
+			var cv: Vector2 = b.b_cover
+			var dv := cv - b.pos
+			mv = dv / maxf(dv.length(), 1.0) if dv.length() > 12.0 else Vector2.ZERO
+		else:
+			if b.casemate or T.armored:
+				# САУ держит цель в секторе наводки, а танк с толстым лбом не подставляет борт
+				# и встаёт ромбом — лоб под углом к противнику
+				strafe = 0.0
+				var off := ang_diff(ang, b.hull)
+				var keep: float = float(T.trav) * 0.6 if b.casemate else 0.3
+				if not b.casemate and b.b_los:
+					off = ang_diff(ang + b.b_side * 0.42, b.hull)
+					keep = 0.12
+				if fwd == 0.0 and absf(off) > keep:
+					facing = true
+					face_off = off
+			mv = Vector2.from_angle(ang) * fwd + Vector2.from_angle(ang + PI / 2) * b.b_strafe * strafe
+		# цель не пробить в лоб — бьёт по гусеницам, чтобы обездвижить
 		var lp := lead_point(b, tg)
+		if float(T.pen) * 1.1 < _armor_toward(tg, b.pos):
+			lp.y = tg.ground + tg.th * 0.55
 		_aim_at(b, lp, dt)
 		var aligned := absf(ang_diff((Vector2(lp.x, lp.z) - b.pos).angle(), b.tur)) < 0.03 and absf(b.gun_pitch - b.gun_target) < 0.015
 		if b.rl <= 0 and d < D.RANGE * 0.85 and aligned and b.b_los and b.disp < float(T.disp) * 3.0 and b.can_fire():
@@ -1602,6 +1736,36 @@ func _bot(b: TankScript, dt: float) -> void:
 	_update_disp(b, dt)
 
 
+## Бот применяет снаряжение не сразу, а как экипаж сообразит: через 1–3 с после беды.
+## Ремкомплект — на гусеницу и уничтоженный двигатель или орудие, аптечку — на наводчика,
+## заряжающего и мехвода, огнетушитель — сразу на пожар.
+func _bot_cons(b: TankScript, dt: float) -> void:
+	for c in b.cons:
+		var need := float(b.cons[c]) <= 0.0 and b.cons_needed(c)
+		if need and c == "repair":
+			need = b.track_broken > 0.0 or b.mod_state("engine") == 0 or b.mod_state("gun") == 0
+		elif need and c == "medkit":
+			need = not (b.crew_ok.gunner and b.crew_ok.loader and b.crew_ok.driver)
+		if not need:
+			b.b_cons_t.erase(c)
+			continue
+		if not b.b_cons_t.has(c):
+			b.b_cons_t[c] = randf_range(0.6, 1.5) if c == "ext" else randf_range(1.0, 3.0)
+		b.b_cons_t[c] -= dt
+		if b.b_cons_t[c] <= 0.0:
+			b.b_cons_t.erase(c)
+			b.use_cons(c)
+
+
+## Игрок применяет снаряжение (кнопка на экране или клавиши 1–3).
+func use_cons(name: String) -> void:
+	if over or not player.alive or not player.use_cons(name):
+		return
+	var msg := {"repair": "МОДУЛИ ОТРЕМОНТИРОВАНЫ", "medkit": "ЭКИПАЖ В СТРОЮ", "ext": "ПОЖАР ПОТУШЕН"}
+	hud.alert(msg[name], Color("9ad07a"))
+	sfx.play2d("reload", -10.0)
+
+
 func _drive_vec(tk: TankScript, dt: float, mv: Vector2) -> void:
 	var m := minf(1.0, mv.length())
 	if m < 0.12:
@@ -1633,6 +1797,8 @@ func _zones_update(dt: float) -> void:
 			var other := 1 - side
 			if z.side != side and z.n[side] > 0 and z.n[other] == 0:
 				z.prog[side] = minf(100.0, z.prog[side] + dt * D.CAP_RATE * mini(3, z.n[side]))
+				if side == 0 and player.alive and in_zone(player, z):
+					cap_pts += dt * D.CAP_RATE
 			elif z.n[side] == 0:
 				z.prog[side] = maxf(0.0, z.prog[side] - dt * 3.0)
 			if z.prog[side] >= 100.0:
@@ -1705,6 +1871,8 @@ func _update(dt: float) -> void:
 		tk.lit = maxf(0.0, tk.lit - dt)
 		tk.recoil = maxf(0.0, tk.recoil - dt * 3.0)
 		tk.track_broken = maxf(0.0, tk.track_broken - dt)
+		for c in tk.cons:
+			tk.cons[c] = maxf(0.0, float(tk.cons[c]) - dt)
 		for name in tk.update_repairs(dt):
 			if tk.is_player:
 				hud.alert(FIXED_MSG[name], Color("9ad07a"))
@@ -1718,7 +1886,7 @@ func _update(dt: float) -> void:
 				continue
 		if over:
 			drive(tk, dt, 0.0, 0.0)
-		elif tk.is_player:
+		elif tk.is_player and not autopilot:
 			_player(tk, dt)
 		else:
 			_bot(tk, dt)
@@ -1884,14 +2052,47 @@ func toggle_sniper() -> void:
 
 func _show_result() -> void:
 	result_shown = true
-	var silver := roundi(dmg_done * 0.8 + kills * 150 + (500 if result == "win" else (150 if result == "draw" else 0)))
 	var stats := {
 		"result": result, "reason": reason, "kills": kills, "dmg": roundi(dmg_done),
-		"acc": roundi(100.0 * hits / shots) if shots > 0 else 0, "time": clock, "silver": silver,
-		"mode": D.MODES[mode].name, "map": D.MAPS[map_key].name,
+		"acc": roundi(100.0 * hits / shots) if shots > 0 else 0, "time": clock,
+		"mode": D.MODES[mode].name, "map": D.MAPS[map_key].name, "tank": player_type,
 	}
+	stats.merge(rewards())
 	ended.emit(stats)
 	hud.show_result(stats)
+
+
+## Опыт и серебро за бой: урон, урон по засвету, принятый бронёй урон, уничтоженные, засвеченные,
+## захват и защита базы, участие. Победа — ×1,5. Ремонт и снаряжение списываются с серебра.
+func rewards() -> Dictionary:
+	var tier := D.tier(player_type)
+	var lines: Array = [
+		["Урон", dmg_done * 0.5, dmg_done * 8.0],
+		["Урон по вашему засвету", spot_dmg * 0.25, spot_dmg * 4.0],
+		["Заблокировано бронёй", blocked * 0.1, blocked * 1.5],
+		["Уничтожено", kills * 40.0, kills * 900.0],
+		["Засвечено первым", spotted_n * 15.0, spotted_n * 300.0],
+		["Захват базы", cap_pts, cap_pts * 30.0],
+		["Защита базы", def_pts * 1.5, def_pts * 30.0],
+		["Участие в бою", 20.0 + (30.0 if player.alive else 0.0), 1000.0 + tier * 400.0],
+	]
+	var xp := 0.0
+	var silver := 0.0
+	var shown: Array = []
+	for ln in lines:
+		xp += float(ln[1])
+		silver += float(ln[2])
+		if float(ln[1]) >= 1.0 or float(ln[2]) >= 1.0:
+			shown.append([ln[0], roundi(ln[1]), roundi(ln[2])])
+	var mult: float = {"win": 1.5, "draw": 1.1}.get(result, 1.0)
+	xp = roundf(xp * mult)
+	silver = roundf(silver * mult)
+	var repair := roundi((1.0 - clampf(player.hp / player.max_hp, 0.0, 1.0)) * float(D.REPAIR_FULL[tier]))
+	var cons_cost := 0
+	for c in player.cons_used:
+		cons_cost += int(D.CONSUMABLES[c].price)
+	return {"lines": shown, "mult": mult, "xp": int(xp), "free_xp": roundi(xp * D.FREE_XP_SHARE),
+		"silver_gross": int(silver), "repair": repair, "cons_cost": cons_cost, "silver": int(silver) - repair - cons_cost}
 
 
 # ---------- Отображение ----------

@@ -32,7 +32,8 @@ SIZES = {
     "is2": (6.77, 3.07, 0.65, 0.86), "sherman": (5.84, 2.62, 0.42, 0.98), "firefly": (6.05, 2.62, 0.42, 0.98),
     "cromwell": (6.35, 2.91, 0.36, 1.0), "chaffee": (5.03, 2.95, 0.41, 0.88), "pz3": (5.52, 2.95, 0.4, 0.85),
     "pz4": (5.89, 2.88, 0.4, 0.82), "stug": (5.4, 2.95, 0.4, 0.85), "panther": (6.87, 3.27, 0.66, 1.02),
-    "tiger": (6.32, 3.56, 0.725, 0.98), "tiger2": (7.38, 3.75, 0.8, 1.08),
+    "tiger": (6.32, 3.56, 0.725, 0.98), "tiger2": (7.38, 3.75, 0.8, 1.08), "m13_40": (4.92, 2.2, 0.26, 1.1),
+    "jagdpanther": (6.87, 3.27, 0.66, 1.02), "su100": (6.1, 3.0, 0.5, 0.92),
 }
 
 # Модели и правила разметки. Правило — (класс, поле, регулярное выражение) по пути узлов («path»)
@@ -42,7 +43,9 @@ SIZES = {
 #   wheels_from — в каких классах ещё искать катки (круглые детали внизу у бортов);
 #   gun_from — из какого класса вырезать ствол, если он не отдельный (turret или hull у САУ);
 #   gun_ymin — ниже этой высоты ствол не ищется (у САУ, чтобы не задеть нос корпуса);
-#   clip_y — всё выше этой высоты (м) — мусор вроде антенн и случайных вершин.
+#   clip_y — всё выше этой высоты (м) — мусор вроде антенн и случайных вершин;
+#   rot — поворот модели до разметки (строки матрицы 3×3), если у неё вверх не +Y;
+#   gun_xmin — части орудия позади этой точки (казённик внутри рубки) выбрасываются: цапфы — у маски.
 STAFFORD = [("drop", "path", r"Area|Camera|Light"), ("track", "path", r"[LR]\.Truck"),
             ("wheel", "path", r"[LR]\.[Ww]heel|Wheel")]
 MODELS = {
@@ -78,6 +81,14 @@ MODELS = {
               "rules": [("track", "mat", r"^chassis$"), ("turret", "mat", r"^turret$")]},
     "tiger2": {"uid": "f3fe1d22f3bb4528af3b152917daa65b", "bare": r"Truck",
                "rules": STAFFORD + [("gun", "path", r"Gun Tiger"), ("turret", "path", r"Head Tiger")]},
+    "m13_40": {"uid": "6f458ef189744e80be4f430fcffa959b", "bare": r"Track|TireBlack", "gun_from": "turret", "clip_y": 2.45,
+               "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Wheel_GP"), ("turret", "path", r"Model_GP/polySurface9/")]},
+    "jagdpanther": {"uid": "69fdbb9fe1e44870996f0dad90f0983e", "rot": [[1, 0, 0], [0, 0, -1], [0, 1, 0]], "bare": r"^tracks",
+                    "wheels_from": ["hull"], "casemate": True, "clip_y": 3.0, "gun_xmin": 1.55,
+                    "rules": [("drop", "mat", r"Decal|GLOW"), ("track", "mat", r"^tracks$"), ("gun", "mat", r"^material_2$")]},
+    "su100": {"uid": "b31f0902aa554702bb265700ce655b25", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
+              "clip_y": 2.6, "casemate": True,
+              "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
 }
 
 CLASSES = ["hull", "turret", "gun", "wheel", "track", "drop"]
@@ -803,6 +814,11 @@ def process(key, folder, dbg=None):
     L, W, tw, th = size
     glb, info = fetch(key, folder)
     parts = load(glb)
+    if "rot" in cfg:
+        R = np.array(cfg["rot"], np.float64)
+        for p in parts:
+            p["V"] = p["V"] @ R.T
+            p["N"] = p["N"] @ R.T
     classify(parts, cfg)
     scale, width = orient(parts, cfg, size)
     S = explode(parts)
@@ -810,6 +826,8 @@ def process(key, folder, dbg=None):
     S["cls"][S["cls"] == DROP] = DROP
     if "clip_y" in cfg:
         S["cls"][S["P"][:, :, 1].max(1) > cfg["clip_y"]] = DROP
+    if "gun_xmin" in cfg:
+        S["cls"][(S["cls"] == GUN) & (cen[:, 0] < cfg["gun_xmin"])] = DROP
     # детали в материале гусениц, но не на ней (запасные траки, буксирные крюки) — к корпусу
     tr = S["cls"] == TRACK
     S["cls"][tr & ((np.abs(cen[:, 2]) < W / 2 - tw * 1.15) | (cen[:, 1] > th + 0.3))] = HULL
