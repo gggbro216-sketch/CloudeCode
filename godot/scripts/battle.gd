@@ -34,6 +34,13 @@ var history := true  # только машины, воевавшие на это
 var side := "allies"  # сторона игрока; команда 0 — его сторона, команда 1 — противник
 var year := 1943
 var teams: Array = [[], []]  # типы машин команд
+var briefing := true  # бой стоит, пока игрок читает брифинг
+var lang := "ru"  # язык переговоров своей стороны
+var radio_last := -100.0
+var radio_cd := {}
+var radio_start := -1.0  # когда прозвучит команда «вперёд»
+var reported := {}  # о каких врагах уже доложили
+var said := {}
 
 var terra: Terrain
 var obst: Array = []
@@ -122,7 +129,8 @@ func _ready() -> void:
 	fx.set_dust(Color(D.MAPS[map_key].dust))
 	for s in built.smokes:
 		fx.smoke_column(s, false)
-	for i in 3:
+	# дальние пожары; над Берлином весной 1945-го дымов больше
+	for i in (8 if map_key == "berlin" else 3):
 		var a := randf() * TAU
 		var p := Vector2(D.WS / 2, D.WS / 2) + Vector2.from_angle(a) * randf_range(1300.0, 1500.0)
 		fx.smoke_column(Vector3(p.x, terra.height(p.x, p.y), p.y), true)
@@ -148,6 +156,7 @@ func _ready() -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	hud.add_feed([["%s · %s" % [D.MODES[mode].name, M.name], Color(D.AMBER)]])
 	hud.add_feed([["%s: %s против %s" % [M.date, M[side], M[D.foe_side(side) + "_g"]], Color("cfd3c0")]])
+	hud.show_brief(_brief_info())
 	for tk: TankScript in tanks:
 		_suspend(tk, 1.0)
 		tk.sync_node()
@@ -203,7 +212,7 @@ func _make_env() -> void:
 	var cimg := cn.get_seamless_image(512, 512)
 	cimg.generate_mipmaps()
 	sky_mat.set_shader_parameter("clouds", ImageTexture.create_from_image(cimg))
-	sky_mat.set_shader_parameter("cover", {"prokhorovka": 0.5, "alamein": 0.22, "stalingrad": 0.88}[map_key])
+	sky_mat.set_shader_parameter("cover", M.cover)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -215,14 +224,14 @@ func _make_env() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color(M.fog)
-	env.fog_depth_begin = 380.0 if map_key == "stalingrad" else 520.0
-	env.fog_depth_end = 1500.0 if map_key == "stalingrad" else 1900.0
+	env.fog_depth_begin = M.fog_near
+	env.fog_depth_end = M.fog_far
 	env.fog_sky_affect = 0.35
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-36, -42, 0) if map_key != "stalingrad" else Vector3(-48, 20, 0)
+	sun.rotation_degrees = Vector3(M.sun_rot[0], M.sun_rot[1], 0)
 	sun.light_color = Color(M.sun)
 	sun.light_energy = M.sun_e
 	sun.shadow_enabled = hq
@@ -266,9 +275,14 @@ func _spawn() -> void:
 	# команды равного боевого веса из машин, воевавших здесь (или из всех машин стороны)
 	var mine := D.roster(map_key, side, history)
 	var theirs := D.roster(map_key, D.foe_side(side), history)
-	teams = D.match_teams(mine, theirs, player_type, rng)
-	var names: Array = D.NAMES.duplicate()
-	names.shuffle()
+	teams = D.match_teams(mine, theirs, player_type, rng, year)
+	# позывные — по армии, которая ведёт машину
+	var names := {}
+	for nat in D.CALLSIGNS:
+		var list: Array = D.CALLSIGNS[nat].duplicate()
+		list.shuffle()
+		names[nat] = list
+	lang = D.LANG[D.operator(player_type, map_key, history)]
 	for team in 2:
 		var list: Array = teams[team]
 		var y := ws - 300.0 if team == 0 else 300.0
@@ -277,7 +291,9 @@ func _spawn() -> void:
 			var slot := (i + 1) / 2 * (1 if i % 2 == 1 else -1)
 			var p := Vector2(ws / 2 + slot * 150.0, y + (-30.0 if team == 0 else 30.0) * (i % 2))
 			var me := team == 0 and i == 0
-			var tk := _add_tank(list[i], team, p, "Вы" if me else names.pop_back(), me)
+			var nat := D.operator(list[i], map_key, history)
+			var tk := _add_tank(list[i], team, p, "Вы" if me else names[nat].pop_back(), me)
+			tk.nation = nat
 			if me:
 				player = tk
 				watch = tk
@@ -288,7 +304,7 @@ func _spawn() -> void:
 func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) -> TankScript:
 	var tk: TankScript = TankScript.new()
 	add_child(tk)
-	tk.setup(key, team, p, nm, is_player, hq, year)
+	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history))
 	tk.set_dust(Color(D.MAPS[map_key].dust), 0.75 if map_key == "alamein" else 0.55)
 	tk.smoke = fx.damage_smoke(tk, tk.hh)
 	tanks.append(tk)
@@ -937,6 +953,10 @@ func kill(tk: TankScript, by: TankScript) -> void:
 	if tk == watch:
 		shake = 20.0
 	hud.add_feed([[by.callsign, hud.team_color(by.team)], ["  ▸  ", Color("cfd3c0")], [tk.callsign, hud.team_color(tk.team)]])
+	if tk.team == 0 and not tk.is_player:
+		say("ally_down", tk.callsign)
+	elif tk.team == 1 and by.team == 0 and not by.is_player:
+		say("enemy_down")
 	if tk.is_player:
 		sniper = false
 		hud.show_dead(true)
@@ -988,6 +1008,9 @@ func _update_spotting() -> void:
 						seen = true
 						break
 			e.vis[team] = seen
+			if team == 0 and seen and not reported.has(e) and clock > 3.0:
+				reported[e] = true
+				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", _clock_of(watch, e.pos))
 
 
 # ---------- Игрок ----------
@@ -1294,6 +1317,21 @@ func _zones_update(dt: float) -> void:
 				finish("lose", "Противник набрал 600 очков")
 
 
+## Команда «вперёд» после брифинга, «нас мало», тревога о захвате базы.
+func _radio_events() -> void:
+	if radio_start >= 0.0 and clock >= radio_start:
+		radio_start = -1.0
+		say("start")
+	if not said.has("last") and teams[0].size() >= 4 and alive_count(0) == 2 and alive_count(1) > 2:
+		said["last"] = true
+		say("last")
+	for z in zones:
+		if z.side == 0 and z.prog[1] > 6.0:
+			say("our_base")
+		elif z.side != 0 and z.prog[0] > 6.0:
+			say("their_base")
+
+
 func finish(res: String, why: String) -> void:
 	over = true
 	result = res
@@ -1368,6 +1406,7 @@ func _update(dt: float) -> void:
 		cam_yaw = turn_toward(cam_yaw, watch.tur, 2.0 * dt)
 		cam_pitch = move_toward(cam_pitch, 0.07, dt)
 	shake = maxf(0.0, shake - dt * 30.0)
+	_radio_events()
 	if not over:
 		var a := alive_count(0)
 		var e := alive_count(1)
@@ -1390,7 +1429,7 @@ func _update(dt: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if paused:
+	if paused or briefing:
 		return
 	var dt := minf(delta, 0.05)
 	for i in speed:
@@ -1401,6 +1440,74 @@ func _physics_process(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_sync(minf(delta, 0.05))
+
+
+## Брифинг закрыт — бой начинается, через секунду командир даёт команду по рации.
+func begin() -> void:
+	briefing = false
+	radio_start = clock + 1.0
+
+
+## Текст брифинга: сражение, стороны, составы команд и задача режима.
+func _brief_info() -> Dictionary:
+	var M: Dictionary = D.MAPS[map_key]
+	var teams_info: Array = []
+	for team in 2:
+		var s: String = side if team == 0 else D.foe_side(side)
+		var counts := {}
+		var order: Array = []
+		for k in teams[team]:
+			var tag: String = D.spec(k, year).tag
+			if not counts.has(tag):
+				order.append(tag)
+			counts[tag] = counts.get(tag, 0) + 1
+		var parts: Array = []
+		for tag in order:
+			parts.append("%s ×%d" % [tag, counts[tag]] if counts[tag] > 1 else tag)
+		var head := "%s · %s" % [String(D.SIDES[s].name).to_upper(), M[s]]
+		head += "  (ваша команда)" if team == 0 else "  (противник)"
+		teams_info.append({"head": head, "list": "%s — боевой вес %d" % [", ".join(parts), D.team_pts(teams[team], year)], "ours": team == 0})
+	var tasks := {
+		"standard": "Задача: уничтожить противника или захватить его базу, не отдав свою.",
+		"encounter": "Задача: захватить нейтральную базу в центре карты или уничтожить противника.",
+		"supremacy": "Задача: держать точки A, B, C — каждая приносит очки. Победа — 600 очков или уничтожение противника.",
+	}
+	return {"title": "%s · %s" % [M.name, M.date], "sub": "%s против %s" % [M[side], M[D.foe_side(side) + "_g"]],
+		"text": M.brief, "teams": teams_info, "task": tasks[mode]}
+
+
+## Переговоры своей стороны: фраза случайного живого союзника на языке его армии.
+## subject — позывной, о ком речь; h — направление «по часам».
+func say(event: String, subject := "", h := 12) -> void:
+	if over or hud == null:
+		return
+	var gap := {"start": 0.0, "spot": 9.0, "spot_tiger": 9.0, "ally_down": 3.0, "enemy_down": 5.0,
+		"our_base": 25.0, "their_base": 25.0, "last": 999.0}
+	if clock - radio_last < 2.2 or clock - float(radio_cd.get(event, -999.0)) < float(gap.get(event, 6.0)):
+		return
+	var who: Array = []
+	for tk: TankScript in tanks:
+		if tk.alive and tk.team == 0 and not tk.is_player:
+			who.append(tk)
+	if who.is_empty():
+		return
+	var sp: TankScript = who[randi() % who.size()]
+	var lines: Array = D.RADIO[event][lang]
+	var ln: Array = lines[randi() % lines.size()]
+	var clock_ru := "%d %s" % [h, "час" if h == 1 else ("часа" if h <= 4 else "часов")]
+	var fill := func(t: String) -> String:
+		return t.replace("{cs}", subject if subject != "" else sp.callsign).replace("{h}", str(h)).replace("{clock}", clock_ru)
+	hud.add_radio(sp.callsign, fill.call(ln[0]), fill.call(ln[1]) if ln[1] != "" else "")
+	sfx.play2d("radio_%d" % (1 + randi() % 3), -9.0)
+	radio_last = clock
+	radio_cd[event] = clock
+
+
+## Направление на точку «по часам» относительно корпуса наблюдателя (12 — прямо).
+func _clock_of(from: TankScript, p: Vector2) -> int:
+	var d := ang_diff((p - from.pos).angle(), from.hull)
+	var h := posmod(int(roundf(d / (PI / 6.0))), 12)
+	return 12 if h == 0 else h
 
 
 ## Прогон симуляции без отрисовки (для проверок).

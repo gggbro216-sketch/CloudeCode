@@ -1,6 +1,6 @@
 extends Control
-## HUD боя: мультитач-управление, прицел, таблички над танками, миникарта,
-## счёт и режим, а также окна паузы, гибели и итогов боя.
+## HUD боя: мультитач-управление, прицел, таблички над танками, миникарта, переговоры по рации,
+## счёт и режим, а также окна брифинга, паузы, гибели и итогов боя.
 
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
@@ -34,6 +34,7 @@ var pause_c := Vector2.ZERO
 var zoom_c := Vector2.ZERO
 
 var feed: Array = []
+var radio_lines: Array = []  # {cs, text, tr, t}
 var col_ally := Color(D.ALLY)
 var col_foe := Color(D.FOE)
 var col_amber := Color(D.AMBER)
@@ -41,6 +42,7 @@ var col_text := Color(UI.TEXT)
 var col_dim := Color(UI.DIM)
 var sb_panel := UI.box("0a0c08", UI.LINE, 1, 8, 0.62, 0.0)
 
+var brief_box: Control
 var dead_box: Control
 var ffwd_btn: Button
 var pause_box: Control
@@ -68,6 +70,13 @@ func add_feed(parts: Array) -> void:
 	feed.append({"parts": parts, "t": 4.5})
 	while feed.size() > 4:
 		feed.pop_front()
+
+
+## Переговоры: позывной, фраза на языке стороны и перевод (пустой для русского).
+func add_radio(cs: String, text: String, tr: String) -> void:
+	radio_lines.append({"cs": cs, "text": text, "tr": tr, "t": 7.0})
+	while radio_lines.size() > 3:
+		radio_lines.pop_front()
 
 
 func take_cam_delta() -> Vector2:
@@ -168,6 +177,9 @@ func _process(delta: float) -> void:
 	for f in feed:
 		f.t -= delta
 	feed = feed.filter(func(x): return x.t > 0)
+	for rl in radio_lines:
+		rl.t -= delta
+	radio_lines = radio_lines.filter(func(x): return x.t > 0)
 	queue_redraw()
 
 
@@ -197,6 +209,7 @@ func _draw() -> void:
 	_draw_top()
 	_draw_feed()
 	_draw_minimap()
+	_draw_radio()
 	_draw_hp()
 	_draw_controls()
 
@@ -386,10 +399,11 @@ func _draw_minimap() -> void:
 	var bg := Color(M.mini)
 	bg.a = 0.85
 	draw_rect(Rect2(o, Vector2(sz, sz)), bg)
-	var oc := Color(0.12, 0.12, 0.1, 0.8) if battle.map_key != "winter" else Color(0.28, 0.31, 0.35, 0.95)
+	var oc := Color(0.12, 0.12, 0.1, 0.8) if battle.map_key != "stalingrad" else Color(0.28, 0.31, 0.35, 0.95)
+	var hedge := Color(0.13, 0.24, 0.1, 0.95)
 	for ob in battle.obst:
 		var r: Rect2 = ob.r
-		draw_rect(Rect2(o + r.position * k, (r.size * k).max(Vector2(2, 2))), oc)
+		draw_rect(Rect2(o + r.position * k, (r.size * k).max(Vector2(2, 2))), hedge if ob.kind == "hedgerow" else oc)
 	for b in battle.bushes:
 		draw_circle(o + b.pos * k, float(b.r) * k, Color(0.15, 0.3, 0.12, 0.85))
 	for z in battle.zones:
@@ -413,6 +427,26 @@ func _draw_minimap() -> void:
 		else:
 			draw_circle(tp, 4.5, c)
 	draw_rect(Rect2(o, Vector2(sz, sz)), Color(UI.LINE), false, 2.0)
+
+
+## Последние переговоры под миникартой: позывной и фраза, под ней перевод.
+func _draw_radio() -> void:
+	var x := 14.0 + margins.x
+	var y := 12.0 + margins.y + 170.0 + 10.0
+	for r in radio_lines:
+		var a := clampf(float(r.t), 0.0, 1.0)
+		var head := "%s: " % r.cs
+		var hw := font.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var tw := font.get_string_size(r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var trw := font.get_string_size(r.tr, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x if r.tr != "" else 0.0
+		var h := 44.0 if r.tr != "" else 26.0
+		draw_rect(Rect2(x, y, maxf(hw + tw, trw) + 16, h), Color(0.04, 0.05, 0.03, 0.62 * a))
+		draw_rect(Rect2(x, y, 3, h), Color(col_ally, a))
+		draw_string(font, Vector2(x + 9, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_ally, a))
+		draw_string(font, Vector2(x + 9 + hw, y + 18), r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_text, a))
+		if r.tr != "":
+			draw_string(font, Vector2(x + 9, y + 37), r.tr, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(col_dim, a))
+		y += h + 4.0
 
 
 func _draw_hp() -> void:
@@ -526,6 +560,40 @@ func _button(text: String, accent: bool, cb: Callable) -> Button:
 		b.add_theme_font_size_override("font_size", 22)
 	b.pressed.connect(cb)
 	return b
+
+
+## Брифинг перед боем: что за сражение, кто с кем воюет, составы команд и задача.
+func show_brief(info: Dictionary) -> void:
+	brief_box = _overlay(0.88)
+	var vb: VBoxContainer = brief_box.get_meta("box")
+	vb.add_theme_constant_override("separation", 10)
+	var t := UI.label(String(info.title).to_upper(), 30, D.AMBER)
+	vb.add_child(t)
+	vb.add_child(UI.label(info.sub, 17, UI.TEXT))
+	var txt := UI.label(info.text, 15, UI.DIM)
+	txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	txt.custom_minimum_size = Vector2(minf(860.0, get_viewport_rect().size.x - 140.0), 0)
+	vb.add_child(txt)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	vb.add_child(row)
+	for side in info.teams:
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(UI.label(side.head, 15, UI.TEXT))
+		var lst := UI.label(side.list, 15, "7bc65a" if side.ours else "e2563c")
+		lst.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(lst)
+		row.add_child(col)
+	var task := UI.label(info.task, 15, UI.TEXT)
+	task.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	task.custom_minimum_size = Vector2(minf(860.0, get_viewport_rect().size.x - 140.0), 0)
+	vb.add_child(task)
+	var go := _button("В БОЙ", true, func():
+		brief_box.visible = false
+		battle.begin())
+	vb.add_child(go)
+	brief_box.visible = true
 
 
 func _build_dead() -> void:

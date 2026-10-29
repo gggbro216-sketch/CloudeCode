@@ -17,6 +17,7 @@ var rl := 0.0  # до перезарядки, с
 var alive := true
 var is_player := false
 var callsign := ""
+var nation := ""  # чья армия ведёт танк в этом бою
 var lit := 0.0  # засвечен выстрелом/попаданием, с
 var vis := [true, true]  # виден ли команде 0 / 1
 var recoil := 0.0
@@ -96,10 +97,11 @@ var pop_v := Vector2.ZERO
 var pop_spin := Vector2.ZERO
 
 
-func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944) -> void:
+## year — год сражения (модификация и бортовые экраны), paint — окраска и знаки стороны.
+func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944, paint_cfg := {}) -> void:
 	type_key = key
-	T = D.TYPES[key].duplicate()
-	T.merge(D.derived(D.TYPES[key]), true)
+	T = D.spec(key, year)
+	T.merge(D.derived(T), true)
 	team = tm
 	pos = p
 	b_last = p
@@ -113,7 +115,7 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 	b_strafe = 1.0 if randf() < 0.5 else -1.0
 	b_st = randf_range(1.0, 3.0)
 	disp = float(T.disp) * 4.0
-	var m := Models.build(self, key, shadows, year)
+	var m := Models.build(self, key, shadows, year, paint_cfg)
 	hull_node = m.hull
 	tur_node = m.tur
 	gun_node = m.gun

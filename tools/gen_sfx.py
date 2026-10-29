@@ -404,6 +404,43 @@ def capture():
     return fade(norm(filt(tone * 0.8 + static, "bp", (300, 3000))), 0.005, 0.05)
 
 
+def radio(seed):
+    """Переговоры по рации: щелчок тангенты, шипение эфира и неразборчивая речь в полосе 300–3000 Гц.
+    Речь — импульсы голосовых связок (~115 Гц) через подвижные форманты, слоги 4–6 в секунду."""
+    r = np.random.default_rng(seed)
+    total = 1.5
+    n = int(SR * total)
+    t = t_axis(total)
+    f0 = 115 + 18 * np.sin(2 * np.pi * 0.7 * t + r.uniform(0, 6)) + r.uniform(-10, 10)
+    phase = np.cumsum(f0) / SR
+    pulses = (np.mod(phase, 1.0) < 0.08).astype(float) - 0.08
+    # слоги: огибающая с паузами
+    env = np.zeros(n)
+    pos = 0.12
+    while pos < 1.25:
+        ln = r.uniform(0.09, 0.2)
+        a, b = int(pos * SR), int(min(pos + ln, 1.3) * SR)
+        env[a:b] = np.hanning(max(b - a, 2))[: b - a]
+        pos += ln + r.uniform(0.02, 0.09)
+    voice = np.zeros(n)
+    seg = int(SR * 0.08)
+    for i in range(0, n, seg):
+        part = pulses[i:i + seg]
+        f1, f2 = r.uniform(350, 800), r.uniform(1000, 2300)
+        voice[i:i + seg] += filt(part, "bp", (f1 * 0.8, f1 * 1.25), 2) + 0.6 * filt(part, "bp", (f2 * 0.85, f2 * 1.15), 2)
+    voice += filt(noise(total), "bp", (2500, 3800)) * 0.15 * env  # шипящие
+    voice *= env
+    hiss = filt(noise(total), "bp", (300, 3000)) * 0.12
+    crackle = (r.random(n) < 0.0015) * r.uniform(-1, 1, n) * 0.6
+    click = np.zeros(n)
+    click[: int(0.012 * SR)] = r.uniform(-1, 1, int(0.012 * SR)) * 0.8
+    click[int(1.38 * SR): int(1.4 * SR)] = r.uniform(-1, 1, int(1.4 * SR) - int(1.38 * SR)) * 0.6
+    x = soft(norm(voice) * 0.9 + hiss + crackle, 2.2)
+    x = filt(x, "bp", (300, 3000)) + click
+    gate = (t < 1.4).astype(float)
+    return fade(norm(x * gate), 0.001, 0.05)
+
+
 def whiz():
     """Свист пролетающего рядом снаряда (с допплеровским сдвигом)."""
     total = 0.6
@@ -446,4 +483,6 @@ if __name__ == "__main__":
     save("track_break", track_break())
     save("capture", capture())
     save("whiz", whiz())
+    for i in range(3):
+        save("radio_%d" % (i + 1), radio(40 + i))
     save("distant", distant_battle(), 3)

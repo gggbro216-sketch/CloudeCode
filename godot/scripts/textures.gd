@@ -1,6 +1,7 @@
 extends RefCounted
 ## Процедурные текстуры окружения (кирпич, штукатурка, черепица, бетон, доски, песчаник,
-## ржавый металл, мешковина, гарь, оконные проёмы) и общий шейдер построек:
+## ржавый металл, мешковина, гарь, оконные проёмы, нормандский камень, сланец, листва изгородей,
+## земляные валы, берлинские фасады) и общий шейдер построек:
 ## мировая трипланарная проекция, копоть у земли и снег на верхних гранях.
 
 static var _cache := {}
@@ -175,6 +176,75 @@ static func get_tex(kind: String) -> ImageTexture:
 					var c := Color("7d766c") if v > 0.45 else Color("7a5040")
 					c = c.darkened((nz.get_pixel(x, y).r - 0.5) * 0.4 + (v - 0.5) * 0.3)
 					img.set_pixel(x, y, c)
+		"stone":
+			# нормандская кладка из известняка: неровные ряды светлых блоков, тёмный раствор
+			img.fill(Color("8a8273"))
+			var y0 := 0
+			while y0 < S:
+				var rh := rng.randi_range(20, 30)
+				if y0 + rh > S - 12:
+					rh = S - y0
+				var x0 := -rng.randi_range(0, 30)
+				while x0 < S:
+					var bw := rng.randi_range(26, 58)
+					var c := Color("cbc1a6").darkened(rng.randf_range(-0.08, 0.16)).lerp(Color("b9a988"), rng.randf() * 0.4)
+					for y in range(y0 + 2, mini(y0 + rh, S)):
+						for x in range(maxi(x0 + 2, 0), mini(x0 + bw, S)):
+							img.set_pixel(x, y, c.darkened((fine.get_pixel(x, y).r - 0.5) * 0.25 + (nz.get_pixel(x, y).r - 0.5) * 0.2))
+					x0 += bw
+				y0 += rh
+		"slate":
+			# сланцевая кровля: мелкие серо-синие плитки внахлёст
+			for y in S:
+				for x in S:
+					var ry := float(y % 14) / 14.0
+					var tile := (x + (8 if (y / 14) % 2 == 1 else 0)) % 16
+					var c := Color("525a60").lightened(0.12 - ry * 0.22).darkened(0.12 if tile < 1 else 0.0)
+					c = c.darkened((nz.get_pixel(x, y).r - 0.5) * 0.3 + (fine.get_pixel(x, y).r - 0.5) * 0.15)
+					img.set_pixel(x, y, c)
+		"leaves":
+			# листва живой изгороди: тёмная зелень с бликами и тенями
+			for y in S:
+				for x in S:
+					var v := fine.get_pixel(x, y).r
+					var c := Color("33502a").lerp(Color("5c7a36"), smoothstep(0.55, 0.8, v)).darkened(smoothstep(0.45, 0.2, v) * 0.35)
+					c = c.darkened((nz.get_pixel(x, y).r - 0.5) * 0.3)
+					img.set_pixel(x, y, c)
+		"earth":
+			# земляной вал: суглинок с камешками
+			for y in S:
+				for x in S:
+					var v := fine.get_pixel(x, y).r
+					var c := Color("6a5840").darkened((nz.get_pixel(x, y).r - 0.5) * 0.35 + (v - 0.5) * 0.3)
+					if v > 0.82:
+						c = Color("8d8572")
+					img.set_pixel(x, y, c)
+		"facade":
+			# берлинский доходный дом: серо-охристая штукатурка, высокие окна с наличниками,
+			# карнизы между этажами, выбоины от пуль и осколков
+			for y in S:
+				for x in S:
+					var c := Color("989488").darkened((nz.get_pixel(x, y).r - 0.5) * 0.3 + (fine.get_pixel(x, y).r - 0.5) * 0.12)
+					img.set_pixel(x, y, c)
+			for fy in [0, 128]:
+				img.fill_rect(Rect2i(0, fy + 118, S, 6), Color("8b8170"))
+				img.fill_rect(Rect2i(0, fy + 116, S, 2), Color("c2b8a4"))
+				for wx in [20, 84, 148, 212]:
+					img.fill_rect(Rect2i(wx - 5, fy + 10, 34, 6), Color("bfb5a0"))
+					img.fill_rect(Rect2i(wx - 3, fy + 16, 30, 82), Color("7f7564"))
+					img.fill_rect(Rect2i(wx, fy + 18, 24, 78), Color("141310"))
+					img.fill_rect(Rect2i(wx + 11, fy + 18, 2, 78), Color("3a3329"))
+					img.fill_rect(Rect2i(wx - 5, fy + 96, 34, 5), Color("bdb39e"))
+			for k in 160:
+				var p := Vector2i(rng.randi_range(0, S - 4), rng.randi_range(0, S - 4))
+				var r := rng.randi_range(1, 3)
+				img.fill_rect(Rect2i(p.x, p.y, r, r), Color("5d5547"))
+			# копоть над выгоревшими окнами
+			for p in [Vector2i(84, 146), Vector2i(212, 146)]:
+				for y in 46:
+					for x in 30:
+						var c := img.get_pixel(p.x + x, p.y - 46 + y)
+						img.set_pixel(p.x + x, p.y - 46 + y, c.darkened(float(y) / 46.0 * 0.65))
 		"windows":
 			img.fill(Color("8a8378"))
 			var plaster := get_tex("plaster").get_image()

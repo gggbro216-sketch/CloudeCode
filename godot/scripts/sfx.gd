@@ -5,7 +5,8 @@ extends Node3D
 
 const DIR := "res://assets/sfx/"
 const ONE_SHOTS := ["gun_75", "gun_88", "gun_122", "explosion", "hit_pen", "hit_nopen", "ricochet",
-	"impact_ground", "impact_stone", "reload", "tree", "track_break", "capture", "whiz", "distant"]
+	"impact_ground", "impact_stone", "reload", "tree", "track_break", "capture", "whiz", "distant",
+	"radio_1", "radio_2", "radio_3"]
 const LOOPS := ["engine_diesel", "engine_petrol", "tracks", "turret", "wind", "fire"]
 # громкость (дБ) и «размер» источника (на каком расстоянии звук начинает затухать, единицы карты)
 const MIX := {

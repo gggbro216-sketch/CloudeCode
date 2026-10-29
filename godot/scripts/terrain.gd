@@ -143,7 +143,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	mask.fill(Color(0, 0, 0, 1))
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	if map_key == "prokhorovka":
+	if map_key == "prokhorovka" or map_key == "normandy":
 		# поля с бороздами
 		for f in 14:
 			var fx := int((rng.randf() * D.WS - ORIGIN) * k)
@@ -152,6 +152,13 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 			var fh := int((150 + rng.randf() * 260) * k)
 			for s in range(0, fw, 3):
 				mask.fill_rect(Rect2i(fx + s, fz, 1, fh), Color(0, 0, 0.55, 1))
+	if map_key == "berlin":
+		# пыль и битый кирпич в кварталах и на пустырях
+		var dust := _brush(int(60 * k), Color(0, 0, 0.8, 0.7))
+		for f in 60:
+			var px := int((rng.randf() * D.WS - ORIGIN) * k)
+			var pz := int((rng.randf() * D.WS - ORIGIN) * k)
+			mask.blend_rect(dust, Rect2i(0, 0, dust.get_width(), dust.get_height()), Vector2i(px, pz))
 	var brushes := {}
 	for road in roads:
 		var w: float = road.w
@@ -237,6 +244,12 @@ static func _detail(surf: String) -> Array:
 					v = 0.5 + 0.35 * sin((x + va * 40.0) * 0.32) + (vb - 0.5) * 0.3
 				"snow":
 					v = 0.5 + (va - 0.5) * 0.6 + (vb - 0.5) * 0.15
+				"urban":
+					# брусчатка: скруглённые камни рядами со сдвигом, пыль в швах
+					var cx := float((x + (8 if (y / 16) % 2 == 1 else 0)) % 16) - 7.5
+					var cy := float(y % 16) - 7.5
+					var d := maxf(absf(cx), absf(cy)) / 7.5
+					v = 0.62 - smoothstep(0.7, 1.0, d) * 0.45 + (va - 0.5) * 0.35 + (vb - 0.5) * 0.12
 				_:
 					# трава: короткие штрихи стеблей поверх комковатой земли
 					v = 0.4 + (va - 0.5) * 0.5 + pow(vb, 3.0) * 0.8
@@ -244,7 +257,7 @@ static func _detail(surf: String) -> Array:
 			img.set_pixel(x, y, Color(v, v, v))
 			h.set_pixel(x, y, Color(v, v, v))
 	img.generate_mipmaps()
-	h.bump_map_to_normal_map(3.0 if surf == "grass" else 2.0)
+	h.bump_map_to_normal_map(3.0 if surf == "grass" or surf == "urban" else 2.0)
 	h.generate_mipmaps()
 	return [ImageTexture.create_from_image(img), ImageTexture.create_from_image(h)]
 

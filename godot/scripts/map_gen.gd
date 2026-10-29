@@ -1,5 +1,6 @@
 extends RefCounted
-## Карты: расстановка объектов (Прохоровка, Эль-Аламейн, Сталинград) и постройка 3D-сцены.
+## Карты: расстановка объектов (Прохоровка, Эль-Аламейн, Сталинград, Нормандия, Берлин)
+## и постройка 3D-сцены.
 ## Логика боя работает на плоскости: точка карты (x, y) — это (x, высота рельефа, y) в 3D.
 ## Неподвижные объекты сливаются в одну сетку на материал; деревья и заборы — разрушаемые.
 
@@ -207,6 +208,10 @@ static func generate(map_key: String, zones: Array, rng: RandomNumberGenerator) 
 			return _alamein(rng, zones)
 		"stalingrad":
 			return _stalingrad(rng, zones)
+		"normandy":
+			return _normandy(rng, zones)
+		"berlin":
+			return _berlin(rng, zones)
 	return _prokhorovka(rng, zones)
 
 
@@ -371,6 +376,270 @@ static func _stalingrad(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
 	return {"obst": obst, "bushes": bushes, "props": props, "decor": decor, "craters": craters, "roads": roads}
 
 
+## Расстояние от точки до ближайшей дороги (за вычетом её полуширины).
+static func _road_dist(p: Vector2, roads: Array) -> float:
+	var best := 1e9
+	for road in roads:
+		var pts: PackedVector2Array = road.pts
+		for i in pts.size() - 1:
+			var c := Geometry2D.get_closest_point_to_segment(p, pts[i], pts[i + 1])
+			best = minf(best, p.distance_to(c) - float(road.w) * 0.5)
+	return best
+
+
+## Ставит постройку, если она не на дороге.
+static func _place_off_road(rng: RandomNumberGenerator, obst: Array, zones: Array, roads: Array, w: float, h: float, kind: String,
+		ht: float, area: Rect2, margin := 40.0) -> Obst:
+	for t in 40:
+		var o := _place(rng, obst, zones, w, h, kind, ht, area, margin)
+		if o == null:
+			return null
+		var r := o.r
+		var ok := true
+		for c in [r.position, r.end, Vector2(r.position.x, r.end.y), Vector2(r.end.x, r.position.y), r.get_center()]:
+			if _road_dist(c, roads) < 12.0:
+				ok = false
+				break
+		if ok:
+			return o
+		obst.erase(o)
+	return null
+
+
+static func _normandy(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
+	var ws := D.WS
+	var obst: Array = []
+	var props: Array = []
+	var bushes: Array = []
+	var decor: Array = []
+	var mid := Rect2(140, 440, ws - 280, ws - 880)
+	# просёлки между полями
+	var road1 := Geo_bezier(Vector2(ws * 0.42, ws + 100), Vector2(ws * 0.58, ws * 0.68), Vector2(ws * 0.32, ws * 0.36), Vector2(ws * 0.52, -100))
+	var road2 := Geo_bezier(Vector2(-100, ws * 0.46), Vector2(ws * 0.3, ws * 0.56), Vector2(ws * 0.68, ws * 0.4), Vector2(ws + 100, ws * 0.52))
+	var roads := [{"pts": road1, "w": 34.0}, {"pts": road2, "w": 30.0}]
+	# деревня с церковью у перекрёстка
+	var cross := road1[0]
+	var bd := 1e9
+	for a in road1:
+		for b in road2:
+			if a.distance_to(b) < bd:
+				bd = a.distance_to(b)
+				cross = (a + b) * 0.5
+	var village := Rect2(cross - Vector2(330, 300), Vector2(660, 600))
+	_place_off_road(rng, obst, zones, roads, 40, 84, "church", 34.0, Rect2(cross - Vector2(160, 160), Vector2(320, 320)), 30.0)
+	for i in 9:
+		var w := rng.randf_range(44, 66)
+		var h := rng.randf_range(34, 48)
+		_place_off_road(rng, obst, zones, roads, w, h, "house" if rng.randf() < 0.6 else "ruin", rng.randf_range(18, 24), village, 26.0)
+	# фермы на отшибе: дом, амбар, рядом яблоневый сад
+	var orchards: Array = []
+	for f in 3:
+		var c := Vector2(rng.randf_range(300, ws - 300), rng.randf_range(650, ws - 650))
+		if c.distance_to(cross) < 500.0:
+			continue
+		var area := Rect2(c - Vector2(140, 140), Vector2(280, 280))
+		_place_off_road(rng, obst, zones, roads, rng.randf_range(46, 60), rng.randf_range(34, 42), "house", 20.0, area, 24.0)
+		_place_off_road(rng, obst, zones, roads, rng.randf_range(60, 76), rng.randf_range(36, 44), "barn", 22.0, area, 24.0)
+		orchards.append(Rect2(c + Vector2(rng.randf_range(-260, 60), rng.randf_range(-260, 60)), Vector2(200, 200)))
+	# бокаж: сетка полей, по границам — земляные валы с живой изгородью и проходами
+	var xs: Array = []
+	var x := 90.0
+	while x < ws - 200.0:
+		x += rng.randf_range(300, 420)
+		if x < ws - 200.0:
+			xs.append(x)
+	var ys: Array = [440.0]
+	var y := 440.0
+	while y < ws - 640.0:
+		y += rng.randf_range(300, 400)
+		ys.append(minf(y, ws - 440.0))
+	if ys[-1] < ws - 440.0:
+		ys.append(ws - 440.0)
+	var edges: Array = []  # [начало, конец] отрезков границ полей
+	var gx: Array = [90.0] + xs + [ws - 90.0]
+	for j in ys.size():
+		for i in gx.size() - 1:
+			var yy: float = ys[j] + rng.randf_range(-20, 20)
+			edges.append([Vector2(gx[i], yy), Vector2(gx[i + 1], yy), j == 0 or j == ys.size() - 1])
+	for i in xs.size():
+		for j in ys.size() - 1:
+			var xx: float = xs[i] + rng.randf_range(-20, 20)
+			edges.append([Vector2(xx, ys[j]), Vector2(xx, ys[j + 1]), false])
+	var buildings := obst.duplicate()
+	for e in edges:
+		var a: Vector2 = e[0]
+		var b: Vector2 = e[1]
+		var outer: bool = e[2]
+		if not outer and rng.randf() < 0.16:
+			continue  # снесённая изгородь: поле открыто
+		var ln := a.distance_to(b)
+		var dir := (b - a) / ln
+		# проходы: на краях полосы старта — три, внутри — один-два
+		var gaps: Array = []
+		for g in (3 if outer else 1 + rng.randi() % 2):
+			var gc := rng.randf_range(50, ln - 50)
+			gaps.append([gc - rng.randf_range(32, 42), gc + rng.randf_range(32, 42)])
+		var t := 0.0
+		var piece_start := 0.0
+		var step := 8.0
+		var open := false
+		while t <= ln:
+			var p := a + dir * t
+			var cut := _road_dist(p, roads) < 14.0
+			for g in gaps:
+				if t > g[0] and t < g[1]:
+					cut = true
+			if cut or t + step > ln:
+				var end_t := t if cut else ln
+				if not open and end_t - piece_start > 24.0:
+					var p0 := a + dir * piece_start
+					var p1 := a + dir * end_t
+					var r := Rect2(p0.min(p1), Vector2.ZERO).expand(p1.max(p0))
+					r = r.grow_individual(7 if absf(dir.y) > 0.5 else 0, 7 if absf(dir.x) > 0.5 else 0, 7 if absf(dir.y) > 0.5 else 0, 7 if absf(dir.x) > 0.5 else 0)
+					if excl_ok(r, zones, 20.0) and not _hits(r, buildings, 12.0):
+						obst.append(Obst.new(r, "hedgerow", 19.0))
+				open = cut
+				piece_start = t
+			elif open:
+				open = false
+				piece_start = t
+			t += step
+	# сады: яблони рядами
+	for orc in orchards:
+		var r: Rect2 = orc
+		var px := r.position.x
+		while px < r.end.x:
+			var py := r.position.y
+			while py < r.end.y:
+				var p := Vector2(px + rng.randf_range(-4, 4), py + rng.randf_range(-4, 4))
+				if _free_point(p, obst, zones, props, 18.0) and _road_dist(p, roads) > 10.0:
+					_prop(props, "apple", p, rng)
+				py += 34.0
+			px += 34.0
+	# одиночные деревья у изгородей
+	for i in 30:
+		var p := Vector2(rng.randf_range(150, ws - 150), rng.randf_range(420, ws - 420))
+		if _free_point(p, obst, zones, props, 26.0) and _road_dist(p, roads) > 12.0:
+			_prop(props, "tree", p, rng)
+	# обломки: подбитые танки и грузовики, планёры «Хорса» после высадки
+	for i in 5:
+		var truck := rng.randf() < 0.4
+		_place_off_road(rng, obst, zones, roads, 34 if truck else 36, 16 if truck else 22, "wreck_truck" if truck else "wreck_tank", 10.0, mid, 50.0)
+	for i in 2:
+		_place_off_road(rng, obst, zones, roads, 70, 26, "glider", 9.0, mid, 60.0)
+	for i in 3:
+		_sandbag_nest(rng, obst, zones, mid)
+	# стога сена и телеграфные столбы вдоль дороги
+	for i in 14:
+		var p := Vector2(rng.randf_range(150, ws - 150), rng.randf_range(420, ws - 420))
+		if _free_point(p, obst, zones, props, 24.0) and _road_dist(p, roads) > 12.0:
+			decor.append({"kind": "hay", "pos": p, "rot": rng.randf() * TAU})
+	for i in range(0, road1.size(), 2):
+		var p := road1[i] + Vector2(30, 0)
+		if _free_point(p, obst, zones, props, 10.0):
+			decor.append({"kind": "pole", "pos": p, "rot": 0.0})
+	_bushes(rng, bushes, 16, obst, zones, props, "bush", Rect2(120, 330, ws - 240, ws - 660))
+	var craters := _craters(rng, 28, obst, zones, mid)
+	return {"obst": obst, "bushes": bushes, "props": props, "decor": decor, "craters": craters, "roads": roads}
+
+
+static func _berlin(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
+	var ws := D.WS
+	var obst: Array = []
+	var props: Array = []
+	var bushes: Array = []
+	var decor: Array = []
+	var cell := 330.0
+	var street := 130.0
+	var bs := cell - street
+	var axis_y := ws * 0.5  # ось Восток — Запад: широкий проспект через весь город
+	var roads: Array = [{"pts": PackedVector2Array([Vector2(-100, axis_y), Vector2(ws + 100, axis_y)]), "w": 150.0}]
+	var landmarks: Array = []
+	# Рейхстаг — на стороне обороны, зенитная башня — в парке на другой половине
+	var reich := Rect2(Vector2(rng.randf_range(260, ws - 600), rng.randf_range(560, 700)), Vector2(320, 170))
+	if excl_ok(reich, zones, 30.0):
+		obst.append(Obst.new(reich, "reichstag", 40.0))
+		landmarks.append(reich.grow(40))
+	var flak := Rect2(Vector2(rng.randf_range(260, ws - 400), rng.randf_range(ws * 0.5 + 220, ws - 640)), Vector2(130, 130))
+	if excl_ok(flak, zones, 30.0) and not _hits(flak, obst, 80.0):
+		obst.append(Obst.new(flak, "flak_tower", 100.0))
+		landmarks.append(flak.grow(60))
+	var parks: Array = []
+	for i in 8:
+		for j in 8:
+			var bx := -60.0 + i * cell + street / 2
+			var by := -60.0 + j * cell + street / 2
+			var block := Rect2(bx, by, bs, bs)
+			if absf(block.get_center().y - axis_y) < cell * 0.5:
+				continue  # на месте проспекта
+			var skip := false
+			for lm in landmarks:
+				if block.intersects(lm):
+					skip = true
+			if skip:
+				continue
+			if rng.randf() < 0.14:
+				parks.append(block)
+				continue
+			# доходные дома по периметру квартала, внутри — двор
+			var parts: Array = []
+			var depth := bs * 0.32
+			parts.append(Rect2(bx, by, bs, depth))
+			parts.append(Rect2(bx, by + bs - depth, bs, depth))
+			if rng.randf() < 0.6:
+				parts.append(Rect2(bx, by + depth + 12, depth, bs - 2 * depth - 24))
+			if rng.randf() < 0.6:
+				parts.append(Rect2(bx + bs - depth, by + depth + 12, depth, bs - 2 * depth - 24))
+			for pr in parts:
+				if rng.randf() < 0.12:
+					continue  # разрушен до основания: только груда обломков
+				if excl_ok(pr, zones, 25.0):
+					var kind := "ruin_block" if rng.randf() < 0.55 else "block"
+					obst.append(Obst.new(pr, kind, rng.randf_range(55, 85)))
+	var street_area := Rect2(120, 450, ws - 240, ws - 900)
+	# баррикады поперёк улиц, трамваи, ежи, подбитая техника
+	for i in 10:
+		_place(rng, obst, zones, rng.randf_range(30, 50), rng.randf_range(24, 40), "rubble", 6.0, street_area, 30.0)
+	for i in 5:
+		var hz := rng.randf() < 0.5
+		_place(rng, obst, zones, 64.0 if hz else 14.0, 14.0 if hz else 64.0, "barricade", 8.0, street_area, 40.0)
+	for i in 4:
+		var hz := rng.randf() < 0.5
+		_place(rng, obst, zones, 48.0 if hz else 12.0, 12.0 if hz else 48.0, "tram", 13.0, street_area, 40.0)
+	for i in 6:
+		var hz := rng.randf() < 0.5
+		_place(rng, obst, zones, 60.0 if hz else 12.0, 12.0 if hz else 60.0, "hedgehogs", 8.0, street_area, 40.0, false)
+	for i in 4:
+		_sandbag_nest(rng, obst, zones, street_area)
+	for i in 7:
+		var truck := rng.randf() < 0.5
+		_place(rng, obst, zones, 34 if truck else 36, 16 if truck else 22, "wreck_truck" if truck else "wreck_tank", 10.0, street_area, 40.0)
+	# Тиргартен: изрытые воронками парки с обломанными деревьями
+	for p in parks:
+		for k in 6:
+			var tp := Vector2(p.position.x + rng.randf() * p.size.x, p.position.y + rng.randf() * p.size.y)
+			if _free_point(tp, obst, zones, props, 22.0):
+				_prop(props, "bare", tp, rng)
+		_bushes(rng, bushes, 1, obst, zones, props, "bush", p)
+	# деревья и фонари вдоль проспекта
+	var xx := 120.0
+	while xx < ws - 120.0:
+		for s: float in [-1.0, 1.0]:
+			var p := Vector2(xx + rng.randf_range(-6, 6), axis_y + s * 62.0)
+			if _free_point(p, obst, zones, props, 16.0):
+				if int(xx / 70.0) % 2 == 0:
+					_prop(props, "bare", p, rng)
+				else:
+					decor.append({"kind": "lamp", "pos": p, "rot": 0.0})
+		xx += 70.0
+	for i in 9:
+		var c := -60.0 + i * cell
+		roads.append({"pts": PackedVector2Array([Vector2(c, -100), Vector2(c, ws + 100)]), "w": street - 20.0})
+		roads.append({"pts": PackedVector2Array([Vector2(-100, c), Vector2(ws + 100, c)]), "w": street - 20.0})
+	var craters := _craters(rng, 45, obst, zones, street_area)
+	return {"obst": obst, "bushes": bushes, "props": props, "decor": decor, "craters": craters, "roads": roads}
+
+
 static func Geo_bezier(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, n := 32) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for i in n + 1:
@@ -438,7 +707,17 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		"snow": mat(Color("eef3f6")), "canvas": Tx.call("sandbag", 1.0 / 18.0, Color(0.95, 0.92, 0.75)),
 		"olive": mat(Color("4d5233")), "pole": Tx.call("wood", 1.0 / 10.0, Color(0.7, 0.65, 0.6)),
 	}
+	M["earth"] = Tx.call("earth", 1.0 / 14.0)
+	M["leaves"] = Tx.call("leaves", 1.0 / 12.0)
+	M["hay"] = Tx.call("sandbag", 1.0 / 6.0, Color(1.25, 1.1, 0.7))
+	if map_key == "normandy":
+		# нормандские дома и церкви — из светлого известняка под сланцем
+		M.plaster = Tx.call("stone", 1.0 / 18.0)
+		M.brick = M.plaster
+		M.roof = Tx.call("slate", 1.0 / 14.0)
 	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45, Color(0.78, 0.78, 0.8) if winter else Color.WHITE)
+	var facade := TexLib.world_mat("facade", Vector3(1.0 / 40.0, 1.0 / 40.0, 1.0 / 40.0), 0.0, 0.5)
+	var hedge_blob := Geo.sphere(6, 3)
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var smokes: Array = []
@@ -550,24 +829,181 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 					var sz := rng.randf_range(8, 16)
 					g.add(rock_base, Transform3D(Basis.from_scale(Vector3(sz, sz * 0.7, sz)), c + Vector3(rng.randf_range(-w, w) * 0.6, sz * 0.15, rng.randf_range(-d, d) * 0.6)), M.rock, true)
 				_phys(body, c + Vector3(0, ht * 0.55, 0), Vector3(w * 0.95, ht * 1.1, d * 0.95))
-			"tower", "ruin_tower":
+			"hedgerow":
+				# земляной вал и живая изгородь поверх: сплошная стена кустов в два-три метра,
+				# снаряд вязнет, танк не перелезет, из-за неё ничего не видно
+				var horiz := w >= d
+				var ln := w if horiz else d
+				var th := d if horiz else w
+				g.add(Geo.box(Vector3(w, 6.0, d)), Geo.xf(c + Vector3(0, 2.5, 0)), M.earth)
+				var n := maxi(2, int(ln / 7.0))
+				for i in n:
+					var t := (i + 0.5) * ln / n - ln / 2
+					var sz := Vector3(rng.randf_range(12, 16), rng.randf_range(14, 19), th * rng.randf_range(1.2, 1.5))
+					var p := c + (Vector3(t, 4.0 + sz.y * 0.4, rng.randf_range(-1, 1)) if horiz else Vector3(rng.randf_range(-1, 1), 4.0 + sz.y * 0.4, t))
+					if not horiz:
+						sz = Vector3(sz.z, sz.y, sz.x)
+					g.add(hedge_blob, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)).scaled(sz), p), M.leaves, true)
+					if rng.randf() < 0.05:
+						# дерево, выросшее из изгороди
+						g.add(hedge_blob, Transform3D(Basis.from_scale(Vector3(20, 22, 20)), p + Vector3(0, 20, 0)), M.leaves, true)
+						g.add(Geo.cyl(0.7, 1.0, 14, 6), Geo.xf(p + Vector3(0, 6, 0)), M.wood)
+				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht, d))
+			"church":
+				# сельская нормандская церковь: неф под сланцевой кровлей и колокольня со шпилем
+				var along_y := d >= w
+				var nave_l := (d if along_y else w) * 0.72
+				var nave_w := (w if along_y else d) * 0.85
+				var nave_c := c + (Vector3(0, 0, -(d - nave_l) / 2) if along_y else Vector3(-(w - nave_l) / 2, 0, 0))
+				var nsize := Vector3(nave_w, 26, nave_l) if along_y else Vector3(nave_l, 26, nave_w)
+				g.add(Geo.box(nsize), Geo.xf(nave_c + Vector3(0, 13, 0)), M.plaster)
+				var roof := PrismMesh.new()
+				roof.size = Vector3(nave_w + 4, 16, nave_l + 2)
+				g.add(roof, Geo.xf(nave_c + Vector3(0, 34, 0), Vector3(0, 0.0 if along_y else PI / 2, 0)), M.roof, true)
+				var tw := minf(w, d) * 0.62
+				var tower_c := c + (Vector3(0, 0, d / 2 - tw / 2) if along_y else Vector3(w / 2 - tw / 2, 0, 0))
+				var broken := rng.randf() < 0.5
+				var th2 := 44.0 if broken else 52.0
+				g.add(Geo.box(Vector3(tw, th2, tw)), Geo.xf(tower_c + Vector3(0, th2 / 2, 0)), M.plaster)
+				g.add(Geo.box(Vector3(tw * 0.3, 7, 1.0)), Geo.xf(tower_c + Vector3(0, th2 - 10, tw / 2 + 0.2)), M.charred)
+				if broken:
+					# шпиль снесён снарядом: зубчатый обрез и обломки у подножия
+					for k in 4:
+						g.add(Geo.box(Vector3(tw * 0.3, rng.randf_range(3, 9), tw * 0.3)), Geo.xf(tower_c + Vector3(rng.randf_range(-1, 1) * tw * 0.35, th2 + 2, rng.randf_range(-1, 1) * tw * 0.35)), M.plaster)
+					smokes.append(tower_c + Vector3(0, th2, 0))
+				else:
+					g.add(Geo.cyl(0.0, tw * 0.62, 30, 4), Transform3D(Basis(Vector3.UP, PI / 4), tower_c + Vector3(0, th2 + 15, 0)), M.roof, true)
+				_phys(body, nave_c + Vector3(0, 17, 0), nsize + Vector3(0, 8, 0))
+				_phys(body, tower_c + Vector3(0, th2 / 2, 0), Vector3(tw, th2, tw))
+			"barn":
+				# амбар: каменный низ, дощатый верх, высокая крыша, ворота
+				g.add(Geo.box(Vector3(w, 9, d)), Geo.xf(c + Vector3(0, 4.5, 0)), M.plaster)
+				g.add(Geo.box(Vector3(w - 1, ht - 9, d - 1)), Geo.xf(c + Vector3(0, 9 + (ht - 9) / 2, 0)), M.wood)
+				var roof := PrismMesh.new()
+				var along_x := w >= d
+				roof.size = Vector3((d if along_x else w) + 4, 14, (w if along_x else d) + 4)
+				g.add(roof, Geo.xf(c + Vector3(0, ht + 7, 0), Vector3(0, PI / 2 if along_x else 0.0, 0)), M.roof, true)
+				g.add(Geo.box(Vector3(14, 14, 0.8)), Geo.xf(c + Vector3(0, 7, d / 2 + 0.3)), M.charred)
+				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht + 12, d))
+			"glider":
+				# разбитый десантный планёр «Хорса»: фюзеляж переломлен, крыло лежит рядом
+				var yaw := rng.randf() * TAU
+				var bs := Basis(Vector3.UP, yaw)
+				g.add(Geo.cyl(4.0, 4.0, 34, 10), Transform3D(bs * Basis(Vector3.BACK, PI / 2 - 0.06), c + bs * Vector3(-10, 4, 0)), M.olive)
+				g.add(Geo.cyl(2.2, 4.0, 22, 10), Transform3D(bs * Basis(Vector3.UP, 0.5) * Basis(Vector3.BACK, PI / 2 + 0.12), c + bs * Vector3(18, 3, 4)), M.olive)
+				g.add(Geo.box(Vector3(12, 1.2, 64)), Transform3D(bs * Basis(Vector3.RIGHT, 0.08), c + bs * Vector3(-6, 1.5, -6)), M.wood)
+				g.add(Geo.box(Vector3(5, 8, 1)), Transform3D(bs, c + bs * Vector3(30, 7, 6)), M.olive)
+				for k in 4:
+					g.add(Geo.box(Vector3(1.2, rng.randf_range(4, 9), 0.6)), Transform3D(bs * Basis(Vector3.BACK, rng.randf_range(-0.6, 0.6)), c + bs * Vector3(-24 + k * 6, 4, 2)), M.charred)
+				_phys(body, c + Vector3(0, 4, 0), Vector3(w * 0.8, 8, d * 0.8), yaw)
+			"reichstag":
+				# Рейхстаг: корпус с угловыми башнями, портик с колоннами и остов купола
+				var stone: Material = M.concrete_d
+				g.add(Geo.box(Vector3(w, ht, d)), Geo.xf(c + Vector3(0, ht / 2, 0)), stone)
+				g.add(Geo.box(Vector3(w + 3, 3, d + 3)), Geo.xf(c + Vector3(0, ht + 1.5, 0)), M.concrete)
+				for sx: float in [-1.0, 1.0]:
+					for sz: float in [-1.0, 1.0]:
+						var tp := c + Vector3(sx * (w / 2 - 20), 0, sz * (d / 2 - 20))
+						g.add(Geo.box(Vector3(44, ht + 22, 44)), Geo.xf(tp + Vector3(0, (ht + 22) / 2, 0)), stone)
+						g.add(Geo.box(Vector3(48, 3, 48)), Geo.xf(tp + Vector3(0, ht + 23, 0)), M.concrete)
+				# портик со стороны наступающих
+				var pz := d / 2 + 10.0
+				for k in 6:
+					g.add(Geo.cyl(3.0, 3.4, ht - 4, 10), Geo.xf(c + Vector3(-40 + k * 16, (ht - 4) / 2, pz)), M.concrete)
+				g.add(Geo.box(Vector3(96, 5, 20)), Geo.xf(c + Vector3(0, ht - 1.5, pz - 2)), stone)
+				var ped := PrismMesh.new()
+				ped.size = Vector3(96, 14, 20)
+				g.add(ped, Geo.xf(c + Vector3(0, ht + 8, pz - 2)), stone, true)
+				for k in 5:
+					g.add(Geo.box(Vector3(10, 2, 10)), Geo.xf(c + Vector3(-40 + k * 20, 1, pz + 14)), M.concrete)
+				# выгоревшие окна и пробоины
+				for k in 14:
+					var side := 1.0 if k % 2 == 0 else -1.0
+					g.add(Geo.box(Vector3(7, 10, 1.0)), Geo.xf(c + Vector3(rng.randf_range(-w / 2 + 50, w / 2 - 50), rng.randf_range(10, ht - 8), side * (d / 2 + 0.3))), M.charred)
+				# остов купола: стальные рёбра без стёкол
+				var dome_c := c + Vector3(0, ht + 3, 0)
+				for k in 12:
+					var a := TAU * k / 12.0
+					for sgm in 4:
+						var a0 := PI / 2 * sgm / 4.0
+						var a1 := PI / 2 * (sgm + 1) / 4.0
+						var dr := 34.0
+						var p0 := Vector3(cos(a) * dr * cos(a0), dr * 0.8 * sin(a0), sin(a) * dr * cos(a0))
+						var p1 := Vector3(cos(a) * dr * cos(a1), dr * 0.8 * sin(a1), sin(a) * dr * cos(a1))
+						var mid := (p0 + p1) / 2
+						var dir := (p1 - p0)
+						var bas := Basis.looking_at(dir.normalized(), Vector3.UP if absf(dir.normalized().y) < 0.95 else Vector3.RIGHT)
+						g.add(Geo.box(Vector3(1.0, 1.0, dir.length() + 0.5)), Transform3D(bas, dome_c + mid), M.steel)
+				for ring_h: float in [0.0, 0.45, 0.75]:
+					var rr := 34.0 * cos(asin(ring_h))
+					for k in 24:
+						var a := TAU * k / 24.0
+						var a2 := TAU * (k + 1) / 24.0
+						var q0 := Vector3(cos(a) * rr, 34.0 * 0.8 * ring_h, sin(a) * rr)
+						var q1 := Vector3(cos(a2) * rr, 34.0 * 0.8 * ring_h, sin(a2) * rr)
+						g.add(Geo.box(Vector3(0.8, 0.8, q0.distance_to(q1) + 0.4)), Transform3D(Basis.looking_at((q1 - q0).normalized(), Vector3.UP), dome_c + (q0 + q1) / 2), M.steel)
+				smokes.append(c + Vector3(rng.randf_range(-60, 60), ht, 0))
+				_phys(body, c + Vector3(0, (ht + 22) / 2, 0), Vector3(w, ht + 22, d))
+			"flak_tower":
+				# зенитная башня: бетонная крепость с площадками для 128-мм спарок по углам
+				g.add(Geo.box(Vector3(w, ht, d)), Geo.xf(c + Vector3(0, ht / 2, 0)), M.concrete)
+				for k in 4:
+					g.add(Geo.box(Vector3(w + 2, 2.5, d + 2)), Geo.xf(c + Vector3(0, ht * (0.25 + k * 0.2), 0)), M.concrete_d)
+				for sx: float in [-1.0, 1.0]:
+					for sz: float in [-1.0, 1.0]:
+						var tp := c + Vector3(sx * (w / 2 - 12), ht, sz * (d / 2 - 12))
+						g.add(Geo.cyl(16, 16, 12, 16), Geo.xf(tp + Vector3(0, 6, 0)), M.concrete)
+						g.add(Geo.box(Vector3(6, 4, 6)), Geo.xf(tp + Vector3(0, 14, 0)), M.steel)
+						for gz: float in [-1.4, 1.4]:
+							g.add(Geo.cyl(0.6, 0.6, 16, 6), Transform3D(Basis(Vector3.UP, sx * 0.7) * Basis(Vector3.BACK, -PI / 2 + 0.5), tp + Vector3(6, 18, gz)), M.steel)
+				for k in 16:
+					var side := Vector3(rng.randf_range(-w / 2 + 10, w / 2 - 10), rng.randf_range(15, ht - 10), (d / 2 + 0.3) * (1.0 if k % 2 == 0 else -1.0))
+					g.add(Geo.box(Vector3(4, 4, 1)), Geo.xf(c + side), M.charred)
+				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht, d))
+			"tram":
+				# сгоревший трамвай, поставленный поперёк улицы
+				var horiz := w >= d
+				var ln := w if horiz else d
+				var bs := Basis(Vector3.UP, 0.0 if horiz else PI / 2) * Basis(Vector3.RIGHT, rng.randf_range(-0.05, 0.05))
+				g.add(Geo.box(Vector3(ln, 10, 9)), Transform3D(bs, c + Vector3(0, 6.5, 0)), M.rust)
+				g.add(Geo.box(Vector3(ln - 4, 4, 9.3)), Transform3D(bs, c + Vector3(0, 8.5, 0)), M.charred)
+				g.add(Geo.box(Vector3(ln + 1, 1.2, 9.5)), Transform3D(bs, c + Vector3(0, 11.8, 0)), M.steel)
+				for k in 4:
+					g.add(Geo.cyl(1.4, 1.4, 9.6, 8), Transform3D(bs * Basis(Vector3.RIGHT, PI / 2), c + bs * Vector3(-ln / 2 + 6 + k * (ln - 12) / 3.0, 1.4, 0)), M.steel)
+				_phys(body, c + Vector3(0, 6.5, 0), Vector3(w, 13, d))
+			"barricade":
+				# баррикада: обломки, балки, перевёрнутая повозка
+				var horiz := w >= d
+				var ln := w if horiz else d
+				for k in 10:
+					var t := rng.randf_range(-ln / 2, ln / 2)
+					var sz := Vector3(rng.randf_range(4, 10), rng.randf_range(2, 6), rng.randf_range(4, 9))
+					var p := c + (Vector3(t, sz.y * 0.4, rng.randf_range(-3, 3)) if horiz else Vector3(rng.randf_range(-3, 3), sz.y * 0.4, t))
+					g.add(Geo.box(sz), Geo.xf(p, Vector3(rng.randf() * 0.5, rng.randf() * TAU, rng.randf() * 0.5)), M.rubble if k % 3 else M.brick)
+				for k in 4:
+					var t := rng.randf_range(-ln / 2, ln / 2) * 0.8
+					var p := c + (Vector3(t, 5, 0) if horiz else Vector3(0, 5, t))
+					g.add(Geo.box(Vector3(1.4, 1.4, 16)), Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.6, 0.6)), p), M.wood)
+				_phys(body, c + Vector3(0, 4, 0), Vector3(w, 8, d))
+			"tower", "ruin_tower", "block", "ruin_block":
 				var cols := 3 if w > 110 else 2
 				var rows := 3 if d > 110 else 2
 				for ix in cols:
 					for iz in rows:
 						var cw := w / cols
 						var cd := d / rows
-						var hgt := ht if o.kind == "tower" else ht * rng.randf_range(0.3, 1.0)
+						var hgt := ht if not o.kind.begins_with("ruin") else ht * rng.randf_range(0.3, 1.0)
 						var p := c + Vector3(-w / 2 + cw * (ix + 0.5), hgt / 2 - 3, -d / 2 + cd * (iz + 0.5))
-						g.add(Geo.box(Vector3(cw, hgt + 6, cd)), Geo.xf(p), win)
+						var wall: Material = facade if o.kind.ends_with("block") else win
+						g.add(Geo.box(Vector3(cw, hgt + 6, cd)), Geo.xf(p), wall)
 						g.add(Geo.box(Vector3(cw + 1, 1.6, cd + 1)), Geo.xf(p + Vector3(0, hgt / 2 + 3.6, 0)), M.snow if winter else M.concrete_d)
 						_phys(body, p + Vector3(0, 3, 0), Vector3(cw, hgt, cd))
-						if o.kind == "ruin_tower":
+						if o.kind.begins_with("ruin"):
 							for k in 2:
 								var jh := rng.randf_range(3, 12)
 								g.add(Geo.box(Vector3(rng.randf_range(4, cw * 0.4), jh, rng.randf_range(4, cd * 0.4))),
-									Geo.xf(p + Vector3(rng.randf_range(-cw, cw) * 0.3, hgt / 2 + 3 + jh / 2, rng.randf_range(-cd, cd) * 0.3)), win)
-				if o.kind == "ruin_tower":
+									Geo.xf(p + Vector3(rng.randf_range(-cw, cw) * 0.3, hgt / 2 + 3 + jh / 2, rng.randf_range(-cd, cd) * 0.3)), wall)
+				if o.kind.begins_with("ruin"):
 					for k in 5:
 						var side := Vector3(rng.randf_range(-w, w) * 0.55, 0, (d / 2 + 6) * (1.0 if rng.randf() < 0.5 else -1.0))
 						g.add(Geo.box(Vector3(rng.randf_range(5, 12), rng.randf_range(2, 5), rng.randf_range(5, 10))),
@@ -591,6 +1027,17 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		if dc.kind == "pole":
 			g.add(Geo.cyl(0.6, 0.8, 26, 6), Geo.xf(Vector3(p.x, y + 13, p.y)), M.pole)
 			g.add(Geo.box(Vector3(0.6, 0.6, 9)), Geo.xf(Vector3(p.x, y + 24, p.y)), M.pole)
+		elif dc.kind == "lamp":
+			# чугунный фонарь берлинского проспекта
+			g.add(Geo.cyl(0.35, 0.6, 22, 6), Geo.xf(Vector3(p.x, y + 11, p.y)), M.steel)
+			g.add(Geo.box(Vector3(5, 0.5, 0.5)), Geo.xf(Vector3(p.x, y + 21.5, p.y)), M.steel)
+			for s: float in [-2.2, 2.2]:
+				g.add(Geo.cyl(0.9, 0.5, 2.0, 6), Geo.xf(Vector3(p.x + s, y + 20.2, p.y)), M.charred)
+		elif dc.kind == "hay":
+			# круглые тюки сена
+			for k in 3:
+				var hp := p + Vector2(rng.randf_range(-8, 8), rng.randf_range(-8, 8))
+				g.add(Geo.cyl(2.6, 2.6, 3.6, 12), Geo.xf(Vector3(hp.x, terra.height(hp.x, hp.y) + 2.6, hp.y), Vector3(PI / 2, rng.randf() * TAU, 0)), M.hay)
 		else:
 			for k in 5:
 				var bp := p + Vector2(rng.randf_range(-7, 7), rng.randf_range(-7, 7))
@@ -803,10 +1250,8 @@ void fragment() {
 
 
 static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGenerator, map_key: String, hq: bool) -> void:
-	var dry := map_key != "prokhorovka"
-	var total := 9000 if map_key == "prokhorovka" else 2500
-	if map_key == "stalingrad":
-		total = 900
+	var dry := map_key != "prokhorovka" and map_key != "normandy"
+	var total: int = {"prokhorovka": 9000, "normandy": 10000, "stalingrad": 900, "berlin": 1100}.get(map_key, 2500)
 	if not hq:
 		total /= 3
 	var sh := Shader.new()
@@ -893,6 +1338,17 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	for bl in blobs:
 		crown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.82, bl[3])), Vector3(bl[0], bl[2], bl[1])), leaves, true)
 	out["tree"] = [[_one(t), trunk], [_one(crown), leaves]]
+	# яблоня нормандского сада: низкая, с широкой раскидистой кроной
+	var at := Geo.Group.new()
+	at.add(Geo.cyl(0.6, 1.0, 9, 6), Geo.xf(Vector3(0, 4.5, 0), Vector3(0, 0, 0.12)), trunk)
+	for k in 3:
+		var a := k * 2.1
+		at.add(Geo.cyl(0.25, 0.5, 6, 5), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.9), Vector3(cos(a) * 1.8, 9.5, sin(a) * 1.8)), trunk)
+	var acrown := Geo.Group.new()
+	var aleaves := _foliage(Color("4a6e2c"), 8.0)
+	for bl in [[0.0, 0.0, 14.0, 9.0], [4.5, 1.5, 12.5, 7.0], [-4.0, 2.0, 13.0, 7.0], [1.0, -4.5, 12.0, 6.5], [-1.5, -3.0, 16.5, 6.0]]:
+		acrown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.7, bl[3])), Vector3(bl[0], bl[2], bl[1])), aleaves, true)
+	out["apple"] = [[_one(at), trunk], [_one(acrown), aleaves]]
 	var palm_t := Geo.Group.new()
 	for k in 4:
 		palm_t.add(Geo.cyl(0.7, 0.9, 8.5, 6), Geo.xf(Vector3(k * 0.6, 4 + k * 8, 0), Vector3(0, 0, -0.06 * k)), trunk)

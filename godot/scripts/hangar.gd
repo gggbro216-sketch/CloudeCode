@@ -42,9 +42,9 @@ class TankBars extends Control:
 			return
 		var A: Array = T.armor
 		var rows := [
-			["Прочность", "%d" % int(T.hp), float(T.hp) / 1500.0],
-			["Урон / пробитие", "%d / %d мм" % [int(T.dmg), int(T.pen)], float(T.pen) / 165.0],
-			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 120.0],
+			["Прочность", "%d" % int(T.hp), float(T.hp) / 1800.0],
+			["Урон / пробитие", "%d / %d мм" % [int(T.dmg), int(T.pen)], float(T.pen) / 230.0],
+			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 150.0],
 			["Скорость", "%d км/ч" % int(T.kmh), float(T.kmh) / 56.0],
 			["Мощность", "%d л.с. · %.1f т" % [int(T.power), float(T.mass)], float(T.power) / float(T.mass) / 16.0],
 			["Перезарядка", "%.1f с" % float(T.reload), 2.4 / float(T.reload)],
@@ -241,7 +241,7 @@ func _build_ui() -> void:
 		side_btns[key] = b
 	lv.add_child(UI.label("ТАНК", 14, UI.DIM))
 	tank_grid = GridContainer.new()
-	tank_grid.columns = 2
+	tank_grid.columns = 3
 	tank_grid.add_theme_constant_override("h_separation", 8)
 	tank_grid.add_theme_constant_override("v_separation", 6)
 	lv.add_child(tank_grid)
@@ -293,7 +293,7 @@ func _build_ui() -> void:
 		b.toggle_mode = true
 		b.button_group = mg
 		b.button_pressed = key == main.save.mode
-		b.custom_minimum_size = Vector2(0, 44)
+		b.custom_minimum_size = Vector2(0, 40)
 		b.pressed.connect(_select_mode.bind(key))
 		rv.add_child(b)
 	mode_desc = UI.label("", 14, UI.DIM)
@@ -315,7 +315,7 @@ func _build_ui() -> void:
 		b.button_group = pg
 		b.button_pressed = key == main.save.map
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 44)
+		b.custom_minimum_size = Vector2(0, 40)
 		b.pressed.connect(_select_map.bind(key))
 		grid.add_child(b)
 		map_btns[key] = b
@@ -370,13 +370,12 @@ func _select_side(side: String, want: String) -> void:
 		if T.side != side:
 			continue
 		var b := Button.new()
-		b.text = "%s  %s" % [T.short, T.tag]
-		b.add_theme_font_size_override("font_size", 16)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.text = D.spec(key, _map_year(key)).tag
+		b.add_theme_font_size_override("font_size", 15)
 		b.toggle_mode = true
 		b.button_group = tg
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 40)
+		b.custom_minimum_size = Vector2(0, 38)
 		b.pressed.connect(_select_tank.bind(key))
 		tank_grid.add_child(b)
 		tank_btns[key] = b
@@ -389,6 +388,21 @@ func _select_side(side: String, want: String) -> void:
 		if want == "":
 			want = tank_btns.keys()[0]
 	_select_tank(want)
+
+
+## Карта, по которой показываем танк: выбранная или (для случайной) первая, где он воевал.
+func _view_map(key: String) -> String:
+	var m: String = main.save.map
+	if D.MAPS.has(m):
+		return m
+	var maps := D.maps_for(key, true)
+	return maps[0] if not maps.is_empty() else ""
+
+
+## Год, модификацию которого показываем (Pz IV G/H/J, Panther D/A/G).
+func _map_year(key: String) -> int:
+	var m := _view_map(key)
+	return D.MAPS[m].year if m != "" else int(D.TYPES[key].year)
 
 
 ## Воевал ли танк на выбранной карте (при свободных составах — всегда).
@@ -405,8 +419,8 @@ func _select_tank(key: String) -> void:
 	main.save.tank = key
 	main.persist()
 	(tank_btns[key] as Button).button_pressed = true
-	var T: Dictionary = D.TYPES[key]
-	tank_cls.text = ("%s · %s · %d" % [T.cls, T.nation, int(T.year)]).to_upper()
+	var T := D.spec(key, _map_year(key))
+	tank_cls.text = String(T.name).to_upper()
 	tank_bars.T = T
 	tank_bars.queue_redraw()
 	_refresh()
@@ -419,7 +433,9 @@ func _show_preview() -> void:
 	var m: String = main.save.map
 	var tk: TankScript = TankScript.new()
 	add_child(tk)
-	tk.setup(main.save.tank, 0, Vector2.ZERO, "", false, true, D.MAPS[m].year if D.MAPS.has(m) else 1943)
+	var key: String = main.save.tank
+	var vm := _view_map(key)
+	tk.setup(key, 0, Vector2.ZERO, "", false, true, _map_year(key), D.paint(key, vm, main.save.history) if vm != "" else {})
 	tk.hull = 0.4
 	tk.tur = 0.4
 	tk.sync_node()
@@ -436,7 +452,7 @@ func _refresh() -> void:
 	for m in maps:
 		names.append(D.MAPS[m].name)
 	var where := "Воевал: %s." % ", ".join(names) if not names.is_empty() else "В бою с %d г. — карт этого периода пока нет, доступен в свободных составах." % int(T.year)
-	tank_info.text = "Боевой вес %d. %s" % [int(T.pts), where]
+	tank_info.text = "%s · %s · %d. Боевой вес %d. %s" % [T.cls, T.nation, int(T.year), int(T.pts), where]
 	for k in tank_btns:
 		(tank_btns[k] as Button).modulate.a = 1.0 if _available(k) else 0.45
 	for m in map_btns:
@@ -453,7 +469,7 @@ func _refresh() -> void:
 		var M: Dictionary = D.MAPS[m]
 		map_desc.text = "%s · %s против %s. %s." % [M.date, M[T.side], M[D.foe_side(T.side) + "_g"], M.desc]
 	else:
-		map_desc.text = "Любая из карт, где воевал выбранный танк" if hist else "Любая из трёх карт"
+		map_desc.text = "Любая из карт, где воевал выбранный танк" if hist else "Любая из пяти карт"
 
 
 func _select_mode(key: String) -> void:
@@ -466,8 +482,10 @@ func _select_map(key: String) -> void:
 	(map_btns[key] as Button).button_pressed = true
 	main.save.map = key
 	main.persist()
-	_refresh()
-	_show_preview()
+	# подписи модификаций по году карты
+	for k in tank_btns:
+		(tank_btns[k] as Button).text = D.spec(k, _map_year(k)).tag
+	_select_tank(main.save.tank)
 
 
 func _update_qual() -> void:
