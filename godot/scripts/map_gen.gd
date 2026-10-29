@@ -148,11 +148,13 @@ static func _bushes(rng: RandomNumberGenerator, out: Array, n: int, obst: Array,
 		bush.pos = c
 		bush.kind = kind
 		bush.r = 34.0 + rng.randf() * 10.0 if kind == "fir" else 40.0 + rng.randf() * 16.0
-		var k := 2 + rng.randi() % 3 if kind == "fir" else 3 + rng.randi() % 3
+		# куст — неровная купа из нескольких крон разного размера
+		var k := 2 + rng.randi() % 3 if kind == "fir" else 7 + rng.randi() % 4
 		for i in k:
 			var a := rng.randf() * TAU
-			var d := rng.randf() * bush.r * 0.55
-			bush.subs.append(Vector3(cos(a) * d, sin(a) * d, bush.r * (0.5 + rng.randf() * 0.3)))
+			var d := rng.randf() * bush.r * (0.55 if kind == "fir" else 0.75)
+			var sr := bush.r * (0.5 + rng.randf() * 0.3) if kind == "fir" else bush.r * (0.28 + rng.randf() * 0.22)
+			bush.subs.append(Vector3(cos(a) * d, sin(a) * d, sr))
 		out.append(bush)
 		left -= 1
 
@@ -663,12 +665,17 @@ shader_type spatial;
 render_mode diffuse_lambert, specular_disabled;
 uniform vec3 fade_a;
 uniform vec3 fade_b;
+uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 varying vec2 center;
 varying float rad;
+varying vec3 wp;
+varying vec3 wn;
 
 void vertex() {
 	center = UV2;
 	rad = COLOR.a * 100.0;
+	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	wn = NORMAL;
 }
 
 void fragment() {
@@ -678,7 +685,9 @@ void fragment() {
 			discard;
 		}
 	}
-	ALBEDO = COLOR.rgb;
+	// листва пятнами: светлые верхушки, тёмная глубина и низ
+	float n = texture(noise, wp.xz * 0.06 + wp.y * 0.05).r * 0.6 + texture(noise, wp.xz * 0.21 - wp.y * 0.13).r * 0.4;
+	ALBEDO = COLOR.rgb * (0.62 + 0.62 * n) * (0.72 + 0.28 * clamp(wn.y * 0.5 + 0.5, 0.0, 1.0));
 	ROUGHNESS = 1.0;
 }
 """
@@ -717,7 +726,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		M.roof = Tx.call("slate", 1.0 / 14.0)
 	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45, Color(0.78, 0.78, 0.8) if winter else Color.WHITE)
 	var facade := TexLib.world_mat("facade", Vector3(1.0 / 40.0, 1.0 / 40.0, 1.0 / 40.0), 0.0, 0.5)
-	var hedge_blob := Geo.sphere(6, 3)
+	var hedge_blob := Geo.sphere(8, 4)
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var smokes: Array = []
@@ -837,17 +846,25 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				var th := d if horiz else w
 				g.add(Geo.box(Vector3(w, 6.0, d)), Geo.xf(c + Vector3(0, 2.5, 0)), M.earth)
 				var n := maxi(2, int(ln / 7.0))
+				var along := Vector3(1, 0, 0) if horiz else Vector3(0, 0, 1)
+				var across := Vector3(0, 0, 1) if horiz else Vector3(1, 0, 0)
 				for i in n:
-					var t := (i + 0.5) * ln / n - ln / 2
-					var sz := Vector3(rng.randf_range(12, 16), rng.randf_range(14, 19), th * rng.randf_range(1.2, 1.5))
-					var p := c + (Vector3(t, 4.0 + sz.y * 0.4, rng.randf_range(-1, 1)) if horiz else Vector3(rng.randf_range(-1, 1), 4.0 + sz.y * 0.4, t))
-					if not horiz:
-						sz = Vector3(sz.z, sz.y, sz.x)
-					g.add(hedge_blob, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)).scaled(sz), p), M.leaves, true)
-					if rng.randf() < 0.05:
-						# дерево, выросшее из изгороди
-						g.add(hedge_blob, Transform3D(Basis.from_scale(Vector3(20, 22, 20)), p + Vector3(0, 20, 0)), M.leaves, true)
-						g.add(Geo.cyl(0.7, 1.0, 14, 6), Geo.xf(p + Vector3(0, 6, 0)), M.wood)
+					var t := (i + 0.5) * ln / n - ln / 2 + rng.randf_range(-2.5, 2.5)
+					# неровная стена: кусты разной высоты, то выпирают, то проседают
+					var hgt := rng.randf_range(10, 21)
+					var sz := along * rng.randf_range(10, 17) + Vector3(0, hgt, 0) + across * th * rng.randf_range(1.1, 1.6)
+					var p := c + along * t + across * rng.randf_range(-2.0, 2.0) + Vector3(0, 4.0 + hgt * 0.42, 0)
+					g.add(hedge_blob, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.4, 0.4)).scaled(sz), p), M.leaves)
+					if rng.randf() < 0.45:
+						# второй ярус: молодая поросль сбоку и сверху
+						var s2 := Vector3.ONE * rng.randf_range(6, 10)
+						g.add(hedge_blob, Transform3D(Basis.from_scale(s2), p + across * rng.randf_range(-1, 1) * th * 0.6 + Vector3(rng.randf_range(-3, 3), hgt * 0.35, 0)), M.leaves)
+					if rng.randf() < 0.06:
+						# дерево, выросшее из изгороди: ствол и крона из нескольких частей
+						g.add(Geo.cyl(0.7, 1.1, 18, 6), Geo.xf(p + Vector3(0, 6, 0)), M.wood)
+						for k in 4:
+							var cs := rng.randf_range(10, 15)
+							g.add(hedge_blob, Transform3D(Basis.from_scale(Vector3(cs, cs * 0.8, cs)), p + Vector3(rng.randf_range(-5, 5), 18 + rng.randf_range(0, 7), rng.randf_range(-5, 5))), M.leaves)
 				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht, d))
 			"church":
 				# сельская нормандская церковь: неф под сланцевой кровлей и колокольня со шпилем
@@ -1051,9 +1068,10 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	sh.code = BUSH_SHADER
 	var bmat := ShaderMaterial.new()
 	bmat.shader = sh
-	var ico := Geo.sphere(7, 4)
+	bmat.set_shader_parameter("noise", TexLib.noise_texture())
+	var ico := Geo.sphere(9, 5)
 	var cone := Geo.cyl(0.0, 0.5, 1.0, 7)
-	var tones := {"bush": [Color("3b5f2a"), Color("4f7838")], "shrub": [Color("6f6a38"), Color("8a8448")], "fir": [Color("2a4630"), Color("e9eff2")]}
+	var tones := {"bush": [Color("424e33"), Color("5a6442")], "shrub": [Color("6f6a38"), Color("8a8448")], "fir": [Color("2a4630"), Color("e9eff2")]}
 	for bsh in data.bushes:
 		var bp: Vector2 = bsh.pos
 		var by: float = terra.height(bp.x, bp.y)
@@ -1073,8 +1091,9 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				bg.add(cone, Transform3D(Basis.from_scale(Vector3(sv.z * 0.64, h * 0.32, sv.z * 0.64)), base + Vector3(0, h * 0.86, 0)), bmat, true, l, bp)
 			else:
 				var k := 0.75 if bsh.kind == "shrub" else 1.0
-				bg.add(ico, Transform3D(Basis.from_scale(Vector3(sv.z * 1.5, sv.z * 1.15, sv.z * 1.5) * k), base + Vector3(0, sv.z * 0.4 * k, 0)), bmat, true, ca, bp)
-				bg.add(ico, Transform3D(Basis.from_scale(Vector3(sv.z * 0.8, sv.z * 0.7, sv.z * 0.8) * k), base + Vector3(-3, sv.z * 0.72 * k, -3)), bmat, true, l, bp)
+				var sq := rng.randf_range(0.75, 1.1)
+				bg.add(ico, Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(sv.z * 2.0, sv.z * 1.5 * sq, sv.z * 1.7) * k), base + Vector3(0, sv.z * 0.55 * k * sq, 0)), bmat, false, ca, bp)
+				bg.add(ico, Transform3D(Basis.from_scale(Vector3(sv.z * 1.1, sv.z * 0.9, sv.z * 1.1) * k), base + Vector3(rng.randf_range(-3, 3), sv.z * 1.05 * k * sq, rng.randf_range(-3, 3))), bmat, false, l, bp)
 	bg.commit(parent, hq)
 
 	# разрушаемые деревья и заборы: MultiMesh на часть (ствол, крона, забор)
@@ -1104,7 +1123,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		var i: int = counters.get(pr.kind, 0)
 		counters[pr.kind] = i + 1
 		pr.y = terra.height(pr.pos.x, pr.pos.y)
-		var tint := Color.from_hsv(rng.randf_range(-0.03, 0.04), rng.randf_range(0.0, 0.25), rng.randf_range(0.8, 1.15))
+		var tint := Color.from_hsv(rng.randf_range(0.12, 0.2), rng.randf_range(0.0, 0.12), rng.randf_range(0.82, 1.12))
 		for part in parts[pr.kind]:
 			pr.mms.append([mms[part], i])
 			(mms[part] as MultiMesh).set_instance_color(i, tint)
@@ -1229,7 +1248,9 @@ render_mode diffuse_lambert;
 uniform vec4 base : source_color = vec4(0.3, 0.42, 0.18, 1.0);
 uniform float crown_from = 12.0;
 uniform float sway = 0.5;
+uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 varying float lh;
+varying vec3 wp;
 
 void vertex() {
 	vec3 o = MODEL_MATRIX[3].xyz;
@@ -1238,12 +1259,14 @@ void vertex() {
 	VERTEX.x += sin(t) * sway * h * 2.0;
 	VERTEX.z += cos(t * 0.8) * sway * h * 1.5;
 	lh = VERTEX.y;
+	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
 	// нижняя часть кроны в тени
 	float shade = clamp((lh - crown_from) / 18.0, 0.0, 1.0);
-	ALBEDO = base.rgb * COLOR.rgb * (0.55 + 0.5 * shade);
+	float n = texture(noise, wp.xz * 0.09 + wp.y * 0.07).r * 0.6 + texture(noise, wp.xz * 0.3 - wp.y * 0.2).r * 0.4;
+	ALBEDO = base.rgb * COLOR.rgb * (0.55 + 0.5 * shade) * (0.65 + 0.6 * n);
 	ROUGHNESS = 0.9;
 }
 """
@@ -1259,7 +1282,8 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	m.set_shader_parameter("tex", TexLib.grass_texture(dry))
-	m.set_shader_parameter("tint", Color(0.92, 0.95, 0.85) if map_key == "stalingrad" else Color.WHITE)
+	var tints := {"stalingrad": Color(0.92, 0.95, 0.85), "prokhorovka": Color(1.0, 0.96, 0.8), "normandy": Color(0.92, 0.94, 0.85)}
+	m.set_shader_parameter("tint", tints.get(map_key, Color.WHITE))
 	var g := Geo.Group.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(7, 4.6)
@@ -1309,6 +1333,7 @@ static func _foliage(c: Color, crown_from: float) -> ShaderMaterial:
 	m.shader = sh
 	m.set_shader_parameter("base", c)
 	m.set_shader_parameter("crown_from", crown_from)
+	m.set_shader_parameter("noise", TexLib.noise_texture())
 	return m
 
 
@@ -1326,7 +1351,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	var out := {}
 	var trunk := mat(Color("4b3a2a"))
 	trunk.vertex_color_use_as_albedo = true
-	var leaves := _foliage(Color("3f6129"), 12.0)
+	var leaves := _foliage(Color("4a5634"), 12.0)
 	var t := Geo.Group.new()
 	t.add(Geo.cyl(0.8, 1.4, 20, 7), Geo.xf(Vector3(0, 10, 0)), trunk)
 	for k in 3:
@@ -1345,7 +1370,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 		var a := k * 2.1
 		at.add(Geo.cyl(0.25, 0.5, 6, 5), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.9), Vector3(cos(a) * 1.8, 9.5, sin(a) * 1.8)), trunk)
 	var acrown := Geo.Group.new()
-	var aleaves := _foliage(Color("4a6e2c"), 8.0)
+	var aleaves := _foliage(Color("515d38"), 8.0)
 	for bl in [[0.0, 0.0, 14.0, 9.0], [4.5, 1.5, 12.5, 7.0], [-4.0, 2.0, 13.0, 7.0], [1.0, -4.5, 12.0, 6.5], [-1.5, -3.0, 16.5, 6.0]]:
 		acrown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.7, bl[3])), Vector3(bl[0], bl[2], bl[1])), aleaves, true)
 	out["apple"] = [[_one(at), trunk], [_one(acrown), aleaves]]
@@ -1353,7 +1378,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	for k in 4:
 		palm_t.add(Geo.cyl(0.7, 0.9, 8.5, 6), Geo.xf(Vector3(k * 0.6, 4 + k * 8, 0), Vector3(0, 0, -0.06 * k)), trunk)
 	var fronds := Geo.Group.new()
-	var green := _foliage(Color("4d6a2b"), 28.0)
+	var green := _foliage(Color("5a6634"), 28.0)
 	for k in 7:
 		var a := k * TAU / 7.0
 		fronds.add(Geo.box(Vector3(12, 0.4, 3)), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.45), Vector3(2.4 + cos(a) * 5, 34, sin(a) * 5)), green)

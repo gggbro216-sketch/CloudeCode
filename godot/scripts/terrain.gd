@@ -73,7 +73,7 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 		var out := maxf(maxf(-x, x - ws), maxf(-z, z - ws))
 		if out > -150.0:
 			var k := smoothstep(-150.0, 450.0, out)
-			v += k * (90.0 + (ridge.get_noise_2d(x, z) * 0.5 + 0.5) * 140.0)
+			v += k * (90.0 + (ridge.get_noise_2d(x, z) * 0.5 + 0.5) * 140.0) * float(M.get("edge", 1.0))
 		# сглаживаем зоны старта
 		if z < 420.0 or z > ws - 420.0:
 			var dz := minf(absf(z - 260.0), absf(z - (ws - 260.0)))
@@ -297,7 +297,12 @@ void fragment() {
 	float d1 = texture(detail_tex, wpos.xz * 0.11).r;
 	float d2 = texture(detail_tex, wpos.xz * 0.023).r;
 	vec3 c = mix(c_g1, c_g2, smoothstep(0.3, 0.75, n_big * 0.6 + n_mid * 0.4));
-	c *= 0.72 + 0.5 * d1 * (0.6 + 0.4 * d2);
+	// выгоревшие проплешины и тёмные сырые низины
+	float dry = smoothstep(0.55, 0.78, texture(noise_tex, wpos.xz * 0.0023 + vec2(0.31, 0.77)).r);
+	c = mix(c, c_g2 * vec3(1.1, 1.03, 0.8), dry * 0.45 * (1.0 - snow));
+	float damp = smoothstep(0.6, 0.85, texture(noise_tex, wpos.xz * 0.0041 + vec2(0.6, 0.1)).r);
+	c = mix(c, c_g1 * 0.82, damp * 0.35);
+	c *= 0.68 + 0.55 * d1 * (0.6 + 0.4 * d2);
 	float slope = 1.0 - wnrm.y;
 	float rock = smoothstep(0.18, 0.38, slope + (n_mid - 0.5) * 0.12);
 	c = mix(c, c_rock * (0.75 + 0.5 * d2), rock);
@@ -307,6 +312,10 @@ void fragment() {
 	c = mix(c, c_road * (0.72 + 0.5 * d1), road);
 	c = mix(c, c_scorch * (0.7 + 0.6 * d1), smoothstep(0.1, 0.8, m.g) * 0.9);
 	c *= mix(0.55, 1.0, ao);
+	// дальние холмы за краем поля: голая земля и камень, выцветшие в дымке
+	float hi = smoothstep(35.0, 170.0, wpos.y);
+	vec3 bare = mix(c_rock, c_g2, 0.35) * (0.8 + 0.3 * n_mid);
+	c = mix(c, mix(bare, vec3(dot(bare, vec3(0.333))), 0.35), hi * 0.75 * (1.0 - snow));
 	ALBEDO = c;
 	NORMAL_MAP = texture(detail_nrm, wpos.xz * 0.11).rgb;
 	NORMAL_MAP_DEPTH = mix(1.0, 0.4, road) * (1.0 - rock * 0.5);

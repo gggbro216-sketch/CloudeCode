@@ -221,6 +221,13 @@ func _make_env() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(M.sky_hor).lerp(Color.WHITE, 0.25)
 	env.ambient_light_energy = M.amb
+	# плёночная тональная кривая и приглушённые цвета вместо «открыточной» яркости
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.08
+	env.tonemap_white = 6.0
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 0.84
+	env.adjustment_contrast = 1.06
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color(M.fog)

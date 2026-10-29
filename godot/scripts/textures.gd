@@ -207,7 +207,7 @@ static func get_tex(kind: String) -> ImageTexture:
 			for y in S:
 				for x in S:
 					var v := fine.get_pixel(x, y).r
-					var c := Color("33502a").lerp(Color("5c7a36"), smoothstep(0.55, 0.8, v)).darkened(smoothstep(0.45, 0.2, v) * 0.35)
+					var c := Color("37432c").lerp(Color("66704a"), smoothstep(0.55, 0.8, v)).darkened(smoothstep(0.45, 0.2, v) * 0.35)
 					c = c.darkened((nz.get_pixel(x, y).r - 0.5) * 0.3)
 					img.set_pixel(x, y, c)
 		"earth":
@@ -318,7 +318,7 @@ static func grass_texture(dry: bool) -> ImageTexture:
 		var lean := rng.randf_range(-22, 22)
 		var h := rng.randf_range(S * 0.45, S * 0.98)
 		var w := rng.randf_range(2.0, 4.5)
-		var base := Color("4f6a2a") if not dry else Color("9c8a56")
+		var base := Color("566038") if not dry else Color("9c8a56")
 		base = base.lightened(rng.randf_range(-0.1, 0.2))
 		for i in int(h):
 			var t := float(i) / h
@@ -328,7 +328,8 @@ static func grass_texture(dry: bool) -> ImageTexture:
 				var px := int(x) + dx
 				var py := S - 1 - i
 				if px >= 0 and px < S and absf(dx) <= ww:
-					img.set_pixel(px, py, base.lightened(t * 0.25).darkened((1.0 - t) * 0.25))
+					# к кончикам травинки выгорают в солому
+					img.set_pixel(px, py, base.lerp(Color("a69a62"), t * t * 0.5).darkened((1.0 - t) * 0.3))
 	var t := _finish(img)
 	_cache[key] = t
 	return t
