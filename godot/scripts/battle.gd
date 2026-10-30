@@ -267,6 +267,8 @@ func _ready() -> void:
 	t0 = Time.get_ticks_usec()
 	_spawn()
 	_prof("load: танки", t0)
+	if core:
+		_phys_init()
 	cam = Camera3D.new()
 	# камеру двигаем каждый кадр сами, по сглаженному положению танка
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -835,6 +837,12 @@ func _props_collide(tk: TankScript) -> void:
 ## На мягком грунте медленнее разгон и поворот; тяга не больше сцепления — гусеницы буксуют,
 ## а на склоне круче, чем держит сцепление, танк сползает.
 func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
+	if core:
+		# C++: команды копятся, физика всех танков — одним вызовом в конце шага (_phys_native)
+		tk.cmd = true
+		tk.cmd_thr = thr
+		tk.cmd_steer = steer
+		return
 	var T := tk.T
 	if tk.track_broken > 0.0 or tk.immobile:
 		thr = 0.0
@@ -936,6 +944,179 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 		fx.exhaust(Vector3(ex.x, tk.ground + tk.hh + 1.0, ex.y), fwd)
 
 
+# ---------- Физика в C++ ----------
+
+const PHYS := 52  # чисел на танк в пакете phys_step (порядок — enum PhysField в native/src/core.cpp)
+var phys_buf := PackedFloat32Array()
+
+
+## Неизменное для C++-физики: характеристики танков, деревья и заборы, грунт.
+func _phys_init() -> void:
+	var st := PackedFloat32Array()
+	for i in tanks.size():
+		var tk: TankScript = tanks[i]
+		tk.idx = i
+		var T := tk.T
+		var A: Array = T.armor
+		var el: Array = T.elev
+		st.append_array([T.speed, T.rev_speed, T.turn, T.accel, T.mass, T.W, T.L, tk.press, tk.spring_k, tk.spring_c,
+			1.0 if tk.casemate else 0.0, float(T.get("trav", 0.0)), el[0], el[1], T.shell_v, T.tspd,
+			tk.gun_pos0.x, tk.gun_pos0.y, tk.gun_pos0.z, tk.tur_pos0.x, tk.tur_pos0.y, tk.tur_pos0.z,
+			T.disp, float(T.get("stab", 0.0)), T.aim, tk.track_z, tk.track_w,
+			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref])
+	core.tanks_static(st)
+	var pf := PackedFloat32Array()
+	for pr in props:
+		pf.append_array([pr.pos.x, pr.pos.y, pr.r, 1.0 if pr.alive else 0.0, 1.0 if WOOD.has(pr.kind) else 0.0])
+	core.props_set(pf)
+	core.mask_set(terra.mask.get_data(), terra.mask.get_width(), Terrain.SIZE)
+	var nimg: Image = terra.noise_img
+	var nd := nimg.get_data() if nimg and nimg.get_format() == Image.FORMAT_L8 else PackedByteArray()
+	core.ground_set({"sand": 1, "snow": 2, "urban": 3}.get(surf, 0), soft_base, mu_base, road_mu, nd, nimg.get_width() if nimg else 0)
+	phys_buf.resize(tanks.size() * PHYS)
+
+
+## Езда (по накопленным командам), расталкивание и подвеска всех танков одним вызовом C++;
+## звуки, частицы, урон тараном, следы — здесь по событиям.
+func _phys_native(dt: float) -> void:
+	var n := tanks.size()
+	var P := phys_buf
+	for i in n:
+		var tk: TankScript = tanks[i]
+		var k := i * PHYS
+		P[k] = 1.0 if tk.cmd else 0.0
+		P[k + 1] = tk.cmd_thr
+		P[k + 2] = tk.cmd_steer
+		P[k + 3] = tk.speed_k
+		P[k + 4] = tk.turn_k
+		P[k + 5] = tk.accel_k
+		P[k + 6] = tk.track_broken
+		P[k + 7] = 1.0 if tk.immobile else 0.0
+		P[k + 8] = 1.0 if tk.alive else 0.0
+		P[k + 9] = tk.team
+		P[k + 10] = tk.pos.x
+		P[k + 11] = tk.pos.y
+		P[k + 12] = tk.vel.x
+		P[k + 13] = tk.vel.y
+		P[k + 14] = tk.hull
+		P[k + 15] = tk.tur
+		P[k + 16] = tk.yaw_rate
+		P[k + 17] = tk.travel[0]
+		P[k + 18] = tk.travel[1]
+		P[k + 19] = tk.dist_travel
+		P[k + 20] = tk.pitch
+		P[k + 21] = tk.roll
+		P[k + 22] = tk.pitch_v
+		P[k + 23] = tk.roll_v
+		P[k + 24] = tk.body_p
+		P[k + 25] = tk.body_r
+		P[k + 26] = tk.body_pv
+		P[k + 27] = tk.body_rv
+		P[k + 28] = tk.slip
+		P[k + 29] = tk.soft
+		P[k + 30] = tk.throttle
+		P[k + 31] = tk.accel
+		P[k + 32] = tk.sp
+		P[k + 33] = tk.ground
+		P[k + 35] = 1.0 if tk.aim_cmd else 0.0
+		P[k + 36] = tk.aim_target.x
+		P[k + 37] = tk.aim_target.y
+		P[k + 38] = tk.aim_target.z
+		P[k + 39] = tk.tspd_k
+		P[k + 40] = tk.gun_pitch
+		P[k + 41] = tk.gun_target
+		P[k + 42] = tk.tur_rate
+		P[k + 43] = 1.0 if tk.disp_cmd else 0.0
+		P[k + 44] = tk.disp
+		P[k + 45] = tk.disp_k
+		P[k + 46] = tk.aim_k
+		P[k + 47] = 1.0 if (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 750.0 else 0.0
+		P[k + 48] = tk.hp / tk.max_hp
+		P[k + 49] = 1.0 if tk.vis[0] else 0.0
+		P[k + 50] = 1.0 if tk.vis[1] else 0.0
+		P[k + 51] = tk.b_tg.idx if tk.b_tg != null else -1
+	var res: Array = core.phys_step(dt, P, clock)
+	P = res[0]
+	phys_buf = P
+	for i in n:
+		var tk: TankScript = tanks[i]
+		var k := i * PHYS
+		tk.pos = Vector2(P[k + 10], P[k + 11])
+		tk.vel = Vector2(P[k + 12], P[k + 13])
+		tk.hull = P[k + 14]
+		tk.tur = P[k + 15]
+		tk.yaw_rate = P[k + 16]
+		tk.travel[0] = P[k + 17]
+		tk.travel[1] = P[k + 18]
+		tk.dist_travel = P[k + 19]
+		tk.pitch = P[k + 20]
+		tk.roll = P[k + 21]
+		tk.pitch_v = P[k + 22]
+		tk.roll_v = P[k + 23]
+		tk.body_p = P[k + 24]
+		tk.body_r = P[k + 25]
+		tk.body_pv = P[k + 26]
+		tk.body_rv = P[k + 27]
+		tk.slip = P[k + 28]
+		tk.soft = P[k + 29]
+		tk.throttle = P[k + 30]
+		tk.accel = P[k + 31]
+		tk.sp = P[k + 32]
+		tk.ground = P[k + 33]
+		tk.gun_pitch = P[k + 40]
+		tk.gun_target = P[k + 41]
+		tk.tur_rate = P[k + 42]
+		tk.disp = P[k + 44]
+		tk.aim_cmd = false
+		tk.disp_cmd = false
+	var ev: PackedFloat32Array = res[1]
+	for q in range(0, ev.size(), 5):
+		var tk: TankScript = tanks[int(ev[q + 1])]
+		match int(ev[q]):
+			1:  # удар о постройку (толчок корпуса уже в C++)
+				sfx.play3d("impact_stone", tk.center(), -6.0)
+				if tk == watch:
+					shake = maxf(shake, clampf(ev[q + 3] * 0.08, 2.0, 8.0))
+			2:  # сбито дерево или забор
+				var pr = props[int(ev[q + 2])]
+				pr.alive = false
+				pr.fall = 0.02
+				pr.fall_dir = Vector2(ev[q + 3], ev[q + 4])
+				falling.append(pr)
+				sfx.play3d("tree", Vector3(pr.pos.x, pr.y + 5.0, pr.pos.y))
+				fx.debris(Vector3(pr.pos.x, pr.y + 6.0, pr.pos.y), Color(0.3, 0.24, 0.16))
+			3:  # таран
+				var b: TankScript = tanks[int(ev[q + 2])]
+				var closing: float = ev[q + 3]
+				var ma: float = float(tk.T.mass)
+				var mb: float = float(b.T.mass)
+				stat.ram += 1
+				var e := closing * closing * 0.006
+				_damage(b, roundf(e * ma / (ma + mb) * 2.0), tk, "ТАРАН")
+				_damage(tk, roundf(e * mb / (ma + mb) * 0.8), b, "ТАРАН")
+				sfx.play3d("hit_pen", (tk.center() + b.center()) * 0.5, -3.0, 0.8)
+				if tk == watch or b == watch:
+					shake = maxf(shake, 7.0)
+	# следы гусениц, посчитанные в C++
+	var mk: PackedFloat32Array = res[2]
+	for q in range(0, mk.size(), 16):
+		trk_mm.set_instance_transform(trk_i, Transform3D(Vector3(mk[q], mk[q + 1], mk[q + 2]), Vector3(mk[q + 3], mk[q + 4], mk[q + 5]),
+			Vector3(mk[q + 6], mk[q + 7], mk[q + 8]), Vector3(mk[q + 9], mk[q + 10], mk[q + 11])))
+		trk_mm.set_instance_custom_data(trk_i, Color(mk[q + 12], mk[q + 13], mk[q + 14], mk[q + 15]))
+		trk_i = (trk_i + 1) % TRK
+	for i in n:
+		var tk: TankScript = tanks[i]
+		if tk.cmd:
+			tk.cmd = false
+			var fwd := Vector2.from_angle(tk.hull)
+			_trail(tk, fwd, tk.sp)
+			# выхлоп при резком разгоне
+			if tk.throttle > 0.6 and tk.sp < P[i * PHYS + 34] * 0.5 and randf() < dt * 6.0 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 700.0:
+				var ex := tk.pos - fwd * float(tk.T.L) * 0.45
+				fx.exhaust(Vector3(ex.x, tk.ground + tk.hh + 1.0, ex.y), fwd)
+		tk.sync_node()
+
+
 ## Следы гусениц: от прошлой точки каждой гусеницы до текущей — отрезок с рисунком траков;
 ## на мягком грунте глубже и темнее.
 func _track_marks(tk: TankScript) -> void:
@@ -972,6 +1153,8 @@ func _trail(tk: TankScript, fwd: Vector2, v_f: float) -> void:
 	if tk.dust_fx == null:
 		return
 	var on: bool = (absf(v_f) > 10.0 or tk.slip > 0.3) and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 1100.0
+	if not on and not tk.dust_fx.emitting and (tk.mud_fx == null or not tk.mud_fx.emitting):
+		return
 	var back := tk.pos - fwd * float(tk.T.L) * 0.45 * signf(v_f + 0.01)
 	var at := Vector3(back.x, tk.ground + 1.2, back.y)
 	var muddy := tk.mud_fx != null and tk.soft > 0.42
@@ -1069,6 +1252,9 @@ func separate() -> void:
 # ---------- Стрельба и броня ----------
 
 func _update_disp(tk: TankScript, dt: float) -> void:
+	if core:
+		tk.disp_cmd = true  # считается в C++ после хода (_phys_native)
+		return
 	var base: float = float(tk.T.disp) * tk.disp_k
 	# гиростабилизатор гасит раскачку орудия на ходу
 	var move := (absf(tk.sp) / float(tk.T.speed) * 0.03 + absf(tk.yaw_rate) * 0.02) * (1.0 - float(tk.T.stab))
@@ -1081,6 +1267,10 @@ func _update_disp(tk: TankScript, dt: float) -> void:
 
 ## Наведение башни и орудия на точку с поправкой на падение снаряда.
 func _aim_at(tk: TankScript, target: Vector3, dt: float) -> void:
+	if core:
+		tk.aim_cmd = true  # C++ наводит перед ходом (_phys_native)
+		tk.aim_target = target
+		return
 	var before := tk.tur
 	var want := (Vector2(target.x, target.z) - tk.pos).angle()
 	if tk.casemate:
@@ -1595,7 +1785,7 @@ func _update_spotting_native() -> void:
 		f[k + 12] = cen.y
 		f[k + 13] = cen.z
 		f[k + 14] = float(t.T.spot) * t.spot_k
-		f[k + 15] = 1.0 if in_bush(t.pos) != null or _trees_near(t.pos, 26.0) >= 2 else 0.0
+		f[k + 15] = 1.0 if _hidden(t.pos) else 0.0
 	var res: PackedInt32Array = core.spot(f, 110.0)
 	for i in n:
 		var e: TankScript = tanks[i]
@@ -1865,8 +2055,17 @@ func _solid(c: Vector2i) -> bool:
 	return nav_solid[c.y * nav_n + c.x] == 1
 
 
+## Прячет ли место танк: куст или лес.
+func _hidden(p: Vector2) -> bool:
+	if core:
+		return core.hidden_at(p)
+	return in_bush(p) != null or _trees_near(p, 26.0) >= 2
+
+
 ## Ближайшая клетка с укрытием в радиусе r; null — нет.
 func _cover_near(p: Vector2, r: float):
+	if core:
+		return core.cover_near(p, r)
 	var c := _cell_of(p)
 	var best = null
 	var bd := 1e9
@@ -2194,6 +2393,8 @@ func _ally_near(p: Vector2, team: int, r: float, b: TankScript) -> bool:
 
 ## Куст ближе всего к точке, в радиусе r, ещё не занятый своим.
 func _bush_near(p: Vector2, r: float, b: TankScript):
+	if core:
+		return core.bush_near(p, r, b.idx)
 	var best = null
 	var bd := r * r
 	for bsh in _near(h_bush, p, r):
@@ -2291,6 +2492,9 @@ static func _armor_toward(tg: TankScript, from: Vector2) -> float:
 ## Выбор цели: ближе, слабее бронёй, меньше прочности; по тому, кого уже обстреливают свои, —
 ## охотнее (фокус огня); текущую цель бот не бросает без причины.
 func _choose_target(b: TankScript) -> TankScript:
+	if core:
+		var ci: int = core.choose_target(b.idx)
+		return tanks[ci] if ci >= 0 else null
 	var best: TankScript = null
 	var bs := 1e9
 	var pen: float = b.T.pen
@@ -2354,6 +2558,8 @@ func _think(b: TankScript) -> void:
 		b.b_spot = null
 		b.b_spot_kind = ""
 	b.b_tg = nt
+	if core:
+		core.set_target(b.idx, nt.idx if nt else -1)
 	var tg: TankScript = nt
 	var spotted: bool = b.vis[en]
 	var danger := spotted and (clock - b.hit_t < 8.0 or _foe_near(b, 1000.0))
@@ -2376,7 +2582,7 @@ func _think(b: TankScript) -> void:
 			b.b_act = "hold"
 			return
 		# засада: ПТ и разведчик в кусте или в лесу стоят и не выдают себя дальними выстрелами
-		var hidden := in_bush(b.pos) != null or _trees_near(b.pos, 26.0) >= 2
+		var hidden := _hidden(b.pos)
 		if (b.b_cls == "ПТ" or b.b_cls == "ЛТ") and hidden and not spotted:
 			# огонь открывает, когда цель подошла, добивает или уже бьётся с нашими, или когда захватывают базу
 			var base_threat := false
@@ -2545,6 +2751,12 @@ func _bot(b: TankScript, dt: float) -> void:
 ## Ремкомплект — на гусеницу и уничтоженный двигатель или орудие, аптечку — на наводчика,
 ## заряжающего и мехвода, огнетушитель — сразу на пожар.
 func _bot_cons(b: TankScript, dt: float) -> void:
+	# четыре раза в секунду хватает: экипаж и так реагирует за 1–3 с
+	b.b_cons_acc += dt
+	if b.b_cons_acc < 0.25:
+		return
+	dt = b.b_cons_acc
+	b.b_cons_acc = 0.0
 	for c in b.cons:
 		var need := float(b.cons[c]) <= 0.0 and b.cons_needed(c)
 		if need and c == "repair":
@@ -2712,10 +2924,13 @@ func _update(dt: float) -> void:
 		tk.smoke_on(tk.hp < tk.max_hp * 0.35 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 1400.0)
 	_prof("танки (езда+боты)", t_tanks)
 	t0 = Time.get_ticks_usec()
-	separate()
-	for tk: TankScript in tanks:
-		_suspend(tk, dt)
-		tk.sync_node()
+	if core:
+		_phys_native(dt)
+	else:
+		separate()
+		for tk: TankScript in tanks:
+			_suspend(tk, dt)
+			tk.sync_node()
 	_prof("подвеска, столкновения", t0)
 	t0 = Time.get_ticks_usec()
 	_update_shells(dt)

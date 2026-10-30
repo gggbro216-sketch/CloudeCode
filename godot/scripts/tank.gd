@@ -93,6 +93,15 @@ var aim_k := 1.0  # множитель времени сведения
 var disp_k := 1.0
 var spot_k := 1.0
 var immobile := false  # двигатель уничтожен: танк стоит до конца боя (если нет ремкомплекта)
+var cmd := false  # C++-физика: на этом шаге задана команда хода (газ, поворот)
+var cmd_thr := 0.0
+var cmd_steer := 0.0
+var aim_cmd := false  # и навести башню на aim_target
+var aim_target := Vector3.ZERO
+var disp_cmd := false  # и пересчитать разброс
+var idx := -1  # номер в Battle.tanks (для C++)
+var b_cons_acc := 0.0  # бот: накопленное время до проверки снаряжения
+var gy_set := -1e9  # ground_y, последний отданный шейдеру
 
 # снаряжение: что взято в бой → секунд до готовности; что пускали в ход
 var cons := {}
@@ -297,10 +306,15 @@ func sync_node() -> void:
 		tur_node.rotation.y = -(tur - hull)
 	gun_node.rotation.z = gun_pitch
 	gun_node.position = gun_pos0 - Vector3(recoil * 0.35 * D.UPM, 0, 0)
-	set_param("ground_y", ground)
-	paint.set_shader_parameter("travel_l", travel[0])
-	paint.set_shader_parameter("travel_r", travel[1])
-	_track_offsets(travel[0], travel[1])
+	# высота грунта для пыли на корпусе — когда заметно сменилась
+	if absf(ground - gy_set) > 0.25:
+		gy_set = ground
+		set_param("ground_y", ground)
+	# ход гусениц у живого видимого танка каждый кадр ставит sync_travel (плавно), у невидимого не нужен
+	if not alive:
+		paint.set_shader_parameter("travel_l", travel[0])
+		paint.set_shader_parameter("travel_r", travel[1])
+		_track_offsets(travel[0], travel[1])
 
 
 func _track_offsets(l: float, r: float) -> void:
