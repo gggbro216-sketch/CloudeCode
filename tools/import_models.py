@@ -34,6 +34,11 @@ SIZES = {
     "pz4": (5.89, 2.88, 0.4, 0.82), "stug": (5.4, 2.95, 0.4, 0.85), "panther": (6.87, 3.27, 0.66, 1.02),
     "tiger": (6.32, 3.56, 0.725, 0.98), "tiger2": (7.38, 3.75, 0.8, 1.08), "m13_40": (4.92, 2.2, 0.26, 1.1),
     "jagdpanther": (6.87, 3.27, 0.66, 1.02), "su100": (6.1, 3.0, 0.5, 0.92),
+    "pz38t": (4.61, 2.14, 0.29, 0.95), "l6_40": (3.82, 1.86, 0.26, 0.85), "m15_42": (5.06, 2.23, 0.26, 1.1),
+    "hetzer": (4.87, 2.63, 0.35, 0.9), "nashorn": (6.0, 2.95, 0.4, 0.85), "ferdinand": (7.05, 3.38, 0.64, 1.0),
+    "jagdtiger": (7.8, 3.63, 0.8, 1.08), "stuart": (4.53, 2.24, 0.29, 0.95), "lee": (5.64, 2.72, 0.42, 1.0),
+    "churchill": (7.44, 3.25, 0.56, 1.2), "comet": (6.55, 3.05, 0.46, 1.0), "kv2": (6.79, 3.32, 0.7, 0.9),
+    "su85": (6.15, 3.0, 0.5, 0.92),
 }
 
 # Модели и правила разметки. Правило — (класс, поле, регулярное выражение) по пути узлов («path»)
@@ -45,7 +50,9 @@ SIZES = {
 #   gun_ymin — ниже этой высоты ствол не ищется (у САУ, чтобы не задеть нос корпуса);
 #   clip_y — всё выше этой высоты (м) — мусор вроде антенн и случайных вершин;
 #   rot — поворот модели до разметки (строки матрицы 3×3), если у неё вверх не +Y;
-#   gun_xmin — части орудия позади этой точки (казённик внутри рубки) выбрасываются: цапфы — у маски.
+#   gun_xmin — части орудия позади этой точки (казённик внутри рубки) выбрасываются: цапфы — у маски;
+#   trunnion_x — где цапфы орудия (м), если по сетке их не найти (длинные треугольники низкополигонального ствола);
+#   turret_box — [[x0, x1, y0, z0, z1], …] (м): если башня не отделена в модели, всё в этих коробках — башня.
 STAFFORD = [("drop", "path", r"Area|Camera|Light"), ("track", "path", r"[LR]\.Truck"),
             ("wheel", "path", r"[LR]\.[Ww]heel|Wheel")]
 MODELS = {
@@ -86,6 +93,38 @@ MODELS = {
     "jagdpanther": {"uid": "69fdbb9fe1e44870996f0dad90f0983e", "rot": [[1, 0, 0], [0, 0, -1], [0, 1, 0]], "bare": r"^tracks",
                     "wheels_from": ["hull"], "casemate": True, "clip_y": 3.0, "gun_xmin": 1.55,
                     "rules": [("drop", "mat", r"Decal|GLOW"), ("track", "mat", r"^tracks$"), ("gun", "mat", r"^material_2$")]},
+    "pz38t": {"uid": "2cf97fbe68c74aa5985e1702748ae073", "bare": r"^blinn14$", "gun_from": "turret", "clip_y": 2.5,
+              "rules": [("track", "mat", r"^blinn14$"), ("wheel", "mat", r"^blinn18$"), ("turret", "path", r"pCylinder1117")]},
+    "l6_40": {"uid": "a84d6f985c1d42038a8b84cc1ebb0f84", "bare": r"Track_blinn8", "gun_from": "turret", "clip_y": 2.3,
+              "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Wheel_GP"), ("turret", "path", r"Turret_GP")]},
+    "m15_42": {"uid": "fd4196a368d949e58abfc44251f39654", "bare": r"rubber|^track$", "clip_y": 2.6,
+               "rules": [("track", "path", r"/track/"), ("wheel", "path", r"wheels_and_bogies"), ("gun", "path", r"/gun/"),
+                         ("turret", "path", r"/turret/")]},
+    "hetzer": {"uid": "2fdb125a6c1d460284ea04f0310da812", "rot": [[0.9336, 0, 0.3584], [0, 1, 0], [-0.3584, 0, 0.9336]], "bare": r"^Tracks$", "gun_from": "hull", "gun_ymin": 1.2,
+               "casemate": True, "clip_y": 2.4, "rules": [("track", "mat", r"^Tracks$"), ("wheel", "mat", r"^Wheels$")]},
+    "nashorn": {"uid": "2cb24f763c284b49949e3ec4bdb10f57", "bare": r"_track$", "casemate": True, "clip_y": 3.2, "trunnion_x": 0.3,
+                "rules": [("drop", "path", r"_nc_"), ("track", "mat", r"_track$"), ("wheel", "path", r"chassis_wheels"),
+                          ("gun", "path", r"SM_gun_03")]},
+    "ferdinand": {"uid": "bf632385735f40138651fc22128c550e", "bare": r"^Material\.002$", "gun_from": "hull", "gun_ymin": 1.6,
+                  "casemate": True, "clip_y": 3.2,
+                  "rules": [("track", "mat", r"^Material\.002$"), ("wheel", "mat", r"^Material$")]},
+    "jagdtiger": {"uid": "ffc00d5e92854b6d903b1801dba38367", "flip": True, "bare": r"^Track$", "gun_from": "hull",
+                  "gun_ymin": 1.7, "casemate": True, "clip_y": 3.2,
+                  "rules": [("track", "mat", r"^Track$"), ("wheel", "mat", r"^Wheels$")]},
+    "stuart": {"uid": "812605c25a424162a54549faf7a39587", "bare": r"^Track$|Rubber", "gun_from": "turret", "clip_y": 2.7,
+               "turret_box": [[-0.9, 0.9, 1.55, -0.85, 0.85], [0.4, 1.7, 2.3, -0.25, 0.25]], "rules": [("track", "mat", r"^Track$")], "wheels_from": ["hull"]},
+    "lee": {"uid": "268c6a0ef3e3492f93f9c2a3213a0a6f", "bare": r"track_mat", "casemate": True, "clip_y": 3.3,
+            "rules": [("track", "mat", r"track_mat"), ("wheel", "mat", r"chassis"), ("gun", "path", r"gun_02Shape")]},
+    "churchill": {"uid": "ac032b8154f941a99914ba8679109064", "bare": r"Object_(91|39)$", "gun_from": "turret", "clip_y": 3.0,
+                  "rules": [("track", "path", r"Object_(91|39)$"), ("wheel", "path", r"/4(\.014_64|_38)/"),
+                            ("turret", "path", r"/1_5/")]},
+    "comet": {"uid": "f30f1655bba04489b33c079f50e62716", "bare": r"Lower_Body", "gun_from": "turret", "wheels_from": ["track"],
+              "clip_y": 3.0, "rules": [("track", "mat", r"Lower_Body"), ("turret", "mat", r"^Tower$")]},
+    "kv2": {"uid": "ed4ce3da390e4aa6bddb0c7507fa93cd", "bare": r"KV-2_track", "clip_y": 3.4,
+            "rules": [("wheel", "path", r"KV-2_wheel"), ("track", "mat", r"KV-2_track"), ("gun", "path", r"KV-2_gun|KV-2_mask"),
+                      ("turret", "mat", r"KV-2_turret")]},
+    "su85": {"uid": "2fb9d8a5caa247bbb5a5eb2518f3e0b2", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
+             "clip_y": 2.6, "casemate": True, "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
     "su100": {"uid": "b31f0902aa554702bb265700ce655b25", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
               "clip_y": 2.6, "casemate": True,
               "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
@@ -826,6 +865,9 @@ def process(key, folder, dbg=None):
     S["cls"][S["cls"] == DROP] = DROP
     if "clip_y" in cfg:
         S["cls"][S["P"][:, :, 1].max(1) > cfg["clip_y"]] = DROP
+    for box in cfg.get("turret_box", []):
+        x0, x1, y0, z0, z1 = box
+        S["cls"][(S["cls"] == HULL) & (cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > y0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)] = TURRET
     if "gun_xmin" in cfg:
         S["cls"][(S["cls"] == GUN) & (cen[:, 0] < cfg["gun_xmin"])] = DROP
     # детали в материале гусениц, но не на ней (запасные траки, буксирные крюки) — к корпусу
@@ -873,6 +915,7 @@ def process(key, folder, dbg=None):
     gsel = S["cls"] == GUN
     gv = S["P"][gsel].reshape(-1, 3)
     tx = min(start - 0.3, gv[:, 0].min() + 0.25) if not casemate else gv[:, 0].min() + 0.2
+    tx = cfg.get("trunnion_x", tx)
     trunnion = np.array([tx, ay, 0.0 if abs(az) < 0.12 else az])
     pitch = 0.0
     barrel = gv[:, 0].max() - trunnion[0]

@@ -11,10 +11,12 @@ const TexLib = preload("res://scripts/textures.gd")
 
 # Места танков в дереве исследования: [столбец (уровень − 3), строка].
 const TREE_POS := {
-	"allies": {"crusader": [1, 0], "cromwell": [2, 0], "firefly": [3, 0.5], "sherman": [2, 1], "chaffee": [2, 2],
-		"t34_76": [2, 3], "t34": [3, 3], "su100": [4, 3], "kv1": [3, 4], "is2": [5, 4]},
-	"axis": {"m13_40": [0, 1], "pz3": [1, 1], "pz4": [2, 0], "tiger": [3, 0], "tiger2": [5, 0], "panther": [4, 1],
-		"stug": [2, 2], "jagdpanther": [4, 2]},
+	"allies": {"stuart": [0, 0], "lee": [1, 0], "sherman": [2, 0], "firefly": [3, 0],
+		"crusader": [1, 1.1], "cromwell": [2, 1.1], "churchill": [3, 1.1], "comet": [4, 1.1], "chaffee": [2, 2.2],
+		"t34_76": [2, 3.3], "t34": [3, 3.3], "su100": [4, 3.8], "su85": [3, 4.4], "kv1": [3, 5.5], "kv2": [4, 5.5], "is2": [5, 5.5]},
+	"axis": {"l6_40": [0, 0], "m13_40": [0, 1.1], "m15_42": [1, 0.55], "pz3": [1, 2.2], "pz4": [2, 1.6], "tiger": [3, 1.6],
+		"tiger2": [5, 1.1], "ferdinand": [5, 2.2], "panther": [4, 2.7], "stug": [2, 3.3], "jagdpanther": [4, 3.8],
+		"jagdtiger": [5, 3.8], "pz38t": [0, 4.4], "hetzer": [1, 4.4], "nashorn": [3, 4.4]},
 }
 const NATION_COL := {"СССР": "b04a3c", "Германия": "8d8a7c", "США": "6d8650", "Великобритания": "a08650", "Италия": "4f8f5c"}
 const GREEN := "7bc65a"
@@ -70,7 +72,7 @@ class TankBars extends Control:
 			["Прочность", "%d" % int(T.hp), float(T.hp) / 1800.0],
 			["Урон / пробитие", "%d / %d мм" % [int(T.dmg), int(T.pen)], float(T.pen) / 230.0],
 			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 150.0],
-			["Скорость", "%d км/ч" % int(T.kmh), float(T.kmh) / 56.0],
+			["Скорость", "%d км/ч" % roundi(float(T.kmh) * D.SPEED_K), float(T.kmh) / 58.0],
 			["Мощность", "%d л.с. · %.1f т" % [int(T.power), float(T.mass)], float(T.power) / float(T.mass) / 16.0],
 			["Перезарядка", "%.1f с" % float(T.reload), 2.0 / float(T.reload)],
 		]
