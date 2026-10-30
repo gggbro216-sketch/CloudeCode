@@ -548,6 +548,22 @@ const SPECS := {
 static var _cache := {}
 
 
+## Оставить в кэше модели только этих танков: атласы и сетки остальных освобождаются, иначе
+## с каждой новой картой и нацией видеопамять растёт до конца сеанса.
+static func trim(keep: Array) -> void:
+	for k in _cache.keys():
+		var s := String(k)
+		var key := ""
+		if s.begins_with("model_"):
+			key = s.substr(6)
+		elif s.begins_with("pcol_"):
+			key = s.substr(5, s.rfind("_") - 5)
+		else:
+			continue
+		if not keep.has(key):
+			_cache.erase(k)
+
+
 # ---------- Текстуры ----------
 
 ## Камуфляж: однотонный 4БО (СССР), оливковый (США, Великобритания), тёмно-жёлтый с полосами

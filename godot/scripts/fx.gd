@@ -259,10 +259,12 @@ func explosion(at: Vector3) -> void:
 	emit(at, 26, 2.8, "dark", 15, 60, Vector3.UP, 70, 12, 30, false, true, 1.5)
 
 
-## Постоянный дым и огонь над подбитым танком.
-func wreck_fire(at: Vector3) -> void:
-	emit(at, 10, 2.6, "dark", 18, 30, Vector3.UP, 15, 4, 20, false, true, 0, false)
-	emit(at, 6, 0.6, "fire", 20, 50, Vector3.UP, 20, 0, 7, true, false, 0, false)
+## Дым и огонь над подбитым танком: [дым, огонь]. Гасит их бой (Battle._wrecks_update):
+## огонь горит ~20 с, дым ~60 с, вдали от камеры не рисуются вовсе.
+func wreck_fire(at: Vector3) -> Array:
+	var smoke := emit(at, 7, 2.4, "dark", 18, 30, Vector3.UP, 15, 4, 15, false, true, 0, false)
+	var fire := emit(at, 5, 0.6, "fire", 20, 50, Vector3.UP, 20, 0, 6, true, false, 0, false)
+	return [smoke, fire]
 
 
 ## Дымный шлейф повреждённого танка (включается, когда прочности мало).

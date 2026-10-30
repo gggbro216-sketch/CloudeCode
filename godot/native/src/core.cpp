@@ -11,6 +11,14 @@
 using namespace gd;
 
 static inline float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
+static inline bool finite2(float a, float b) { return std::isfinite(a) && std::isfinite(b); }
+static inline bool finite3(V3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
+// индекс клетки: нечисловое значение — к нижней границе
+static inline int cell_index(double v, int lo, int hi) {
+	if (!(v >= lo)) return lo;
+	if (v > hi) return hi;
+	return (int)v;
+}
 static inline double lerpd(double a, double b, double t) { return a + (b - a) * t; }
 static inline float smoothstep(float from, float to, float s) {
 	if (std::fabs(from - to) < 1e-6f) {
@@ -62,8 +70,9 @@ float Core::height(float x, float z) const {
 	if (h.empty()) {
 		return 0.0f;
 	}
-	double fx = std::min(std::max(((double)x - origin) / cell, 0.0), tn - 0.001);
-	double fz = std::min(std::max(((double)z - origin) / cell, 0.0), tn - 0.001);
+	double fx = ((double)x - origin) / cell, fz = ((double)z - origin) / cell;
+	fx = fx >= 0.0 ? std::min(fx, tn - 0.001) : 0.0;  // нечисловое — тоже к краю
+	fz = fz >= 0.0 ? std::min(fz, tn - 0.001) : 0.0;
 	int ix = (int)fx, iz = (int)fz;
 	double tx = fx - ix, tz = fz - iz;
 	size_t i = (size_t)iz * (tn + 1) + ix;
@@ -89,6 +98,9 @@ bool Core::terrain_clear(V3 a, V3 b) const {
 	}
 	float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
 	float len = std::sqrt(dx * dx + dz * dz);
+	if (!(len < 1e5f)) {
+		return false;  // нечисловые или невозможные координаты
+	}
 	if (len < 1e-4f) {
 		return true;
 	}
@@ -180,8 +192,9 @@ bool Core::blocked_at(float px, float py, float r) const {
 }
 
 bool Core::straight(V2 a, V2 b, float r) const {
+	if (!finite2(a.x, a.y) || !finite2(b.x, b.y)) return false;
 	float dx = b.x - a.x, dy = b.y - a.y;
-	int n = (int)(std::sqrt(dx * dx + dy * dy) / 12.0f) + 1;
+	int n = (int)std::min(std::sqrt(dx * dx + dy * dy) / 12.0f, 4000.0f) + 1;
 	for (int s = 1; s <= n; s++) {
 		float t = (float)s / n;
 		if (blocked_at(a.x + dx * t, a.y + dy * t, r)) {
@@ -222,6 +235,7 @@ static bool hits_box(const Box &b, V3 a, V3 d) {
 }
 
 bool Core::los(V3 a, V3 b) const {
+	if (!finite3(a) || !finite3(b)) return false;
 	V3 d = { b.x - a.x, b.y - a.y, b.z - a.z };
 	if (!terrain_clear(a, b)) {
 		return false;
@@ -296,9 +310,13 @@ static inline float octile(int dx, int dy) {
 
 std::vector<V2> Core::nav_path(V2 from, V2 to, bool safe, float r) const {
 	std::vector<V2> out;
+	if (!finite2(from.x, from.y) || !finite2(to.x, to.y)) {
+		out.push_back(finite2(to.x, to.y) ? to : from);
+		return out;
+	}
 	auto cell_of = [&](V2 p, int &cx, int &cy) {
-		cx = std::min(std::max((int)(p.x / nav_cell), 0), nn - 1);
-		cy = std::min(std::max((int)(p.y / nav_cell), 0), nn - 1);
+		cx = cell_index(p.x / nav_cell, 0, nn - 1);
+		cy = cell_index(p.y / nav_cell, 0, nn - 1);
 	};
 	auto free_cell = [&](int &cx, int &cy) {
 		if (!solid[(size_t)cy * nn + cx]) {
@@ -1140,7 +1158,7 @@ static inline float fposmod(float x, float y) {
 }
 
 float Core::patch(float px, float py, bool damp) const {
-	if (noise_w <= 0) return 0.0f;
+	if (noise_w <= 0 || !finite2(px, py)) return 0.0f;
 	float ux = damp ? px * 0.0041f + 0.6f : px * 0.0023f + 0.31f;
 	float uy = damp ? py * 0.0041f + 0.1f : py * 0.0023f + 0.77f;
 	int w = noise_w;
@@ -1157,8 +1175,8 @@ V2 Core::ground_at(float px, float py) const {
 	float cr = 0.0f, cg = 0.0f, cb = 0.0f;
 	if (mask_w > 0) {
 		int W = mask_w;
-		int mx = std::min(std::max((int)((px - origin) / tsize * W), 0), W - 1);
-		int mz = std::min(std::max((int)((py - origin) / tsize * W), 0), W - 1);
+		int mx = cell_index((px - origin) / tsize * W, 0, W - 1);
+		int mz = cell_index((py - origin) / tsize * W, 0, W - 1);
 		size_t mi = ((size_t)mz * W + mx) * 4;
 		if (mi + 2 < mask.size()) {
 			cr = mask[mi] / 255.0f;
@@ -1377,7 +1395,7 @@ METHOD(phys_step) {
 	for (int i = 0; i < n && i < (int)self->ts.size(); i++) {
 		float *t = &P[(size_t)i * PHYS];
 		const Core::TankStatic &T = self->ts[i];
-		if (t[P_AIM] != 0.0f) {
+		if (t[P_AIM] != 0.0f && finite3({ t[P_AX], t[P_AY], t[P_AZ] })) {
 			aim_tank(T, t, dt);
 		}
 		if (t[P_CMD] == 0.0f) {
@@ -1522,6 +1540,15 @@ METHOD(phys_step) {
 					}
 				}
 			}
+		}
+		// расчёт ушёл в нечисловые значения (не должно быть) — танк остаётся на месте
+		if (!finite2(t[P_X], t[P_Y]) || !finite2(t[P_VX], t[P_VY]) || !finite2(t[P_HULL], t[P_TUR]) || !std::isfinite(t[P_YAW])) {
+			t[P_X] = finite2(ox, oy) ? ox : self->ws * 0.5f;
+			t[P_Y] = finite2(ox, oy) ? oy : self->ws * 0.5f;
+			t[P_VX] = t[P_VY] = t[P_YAW] = 0.0f;
+			if (!std::isfinite(t[P_HULL])) t[P_HULL] = 0.0f;
+			if (!std::isfinite(t[P_TUR])) t[P_TUR] = t[P_HULL];
+			v_f = 0.0f;
 		}
 		float mdx = t[P_X] - ox, mdy = t[P_Y] - oy;
 		t[P_DIST] += std::sqrt(mdx * mdx + mdy * mdy);
@@ -1736,8 +1763,9 @@ METHOD(cover_near) {
 	V2 p = a.v2(0);
 	float rr = (float)a.num(1);
 	int nn = self->nn;
-	int cx = std::min(std::max((int)(p.x / self->nav_cell), 0), nn - 1);
-	int cy = std::min(std::max((int)(p.y / self->nav_cell), 0), nn - 1);
+	if (!finite2(p.x, p.y) || !(rr >= 0.0f && rr < 2000.0f)) return;
+	int cx = cell_index(p.x / self->nav_cell, 0, nn - 1);
+	int cy = cell_index(p.y / self->nav_cell, 0, nn - 1);
 	int k = (int)(rr / self->nav_cell);
 	float bd = 1e9f;
 	bool found = false;

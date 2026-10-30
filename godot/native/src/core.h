@@ -30,7 +30,15 @@ struct Hash {
 	void build(float lo, float hi, float p_cell);
 	void put(float ax, float ay, float bx, float by, int item);
 	const std::vector<int> *at(int cx, int cy) const;
-	int key(float v, bool y) const { return (int)std::floor(v / cell) - (y ? y0 : x0); }
+	// номер клетки, ограниченный сеткой (-1…n): цикл по клеткам не выйдет за неё даже при огромных
+	// или нечисловых координатах (на ARM перевод такого числа в int даёт не то же, что на x86)
+	int key(float v, bool y) const {
+		double k = std::floor((double)v / cell) - (y ? y0 : x0);
+		int n = y ? ny : nx;
+		if (!(k >= -1.0)) return -1;
+		if (k > n) return n;
+		return (int)k;
+	}
 };
 
 struct Core {

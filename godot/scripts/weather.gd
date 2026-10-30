@@ -185,6 +185,7 @@ func _mist(count: int) -> void:
 	m.shader = sh
 	m.set_shader_parameter("puff", TexLib.puff_texture())
 	var mmi := MultiMeshInstance3D.new()
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 	mmi.multimesh = mm
 	mmi.material_override = m
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

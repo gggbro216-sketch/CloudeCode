@@ -22,9 +22,48 @@ const RES_STEPS := [0.6, 0.75, 0.9, 1.0]  # доля разрешения экр
 
 func _ready() -> void:
 	_load()
+	_session_start()
 	apply_res()
 	apply_eco()
 	show_hangar()
+
+
+# ---------- Журнал сеанса: если игра оборвётся в бою, при следующем запуске ангар скажет, где ----------
+
+const SESSION_PATH := "user://session.json"
+var session := {"state": "hangar", "battles": 0}
+var last_crash := {}  # прошлый запуск оборвался в бою: что о нём известно (показывает ангар)
+var _session_t := 0.0
+
+
+func _session_start() -> void:
+	if FileAccess.file_exists(SESSION_PATH):
+		var d = JSON.parse_string(FileAccess.get_file_as_string(SESSION_PATH))
+		if d is Dictionary and String(d.get("state", "")).begins_with("battle"):
+			last_crash = d
+	session_mark("hangar")
+
+
+## Состояние сеанса и память — в файл (маленький, пишется при смене состояния и раз в 20 с в бою).
+func session_mark(state: String, extra := {}) -> void:
+	session.state = state
+	session.merge(extra, true)
+	session.ram_mb = roundi(OS.get_static_memory_usage() / 1048576.0)
+	session.video_mb = roundi(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0)
+	session.fps = roundi(Engine.get_frames_per_second())
+	if battle:
+		session.clock = roundi(battle.clock)
+	var f := FileAccess.open(SESSION_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(session))
+
+
+func _process(delta: float) -> void:
+	if battle and String(session.state).begins_with("battle"):
+		_session_t -= delta
+		if _session_t <= 0.0:
+			_session_t = 20.0
+			session_mark("battle")
 
 
 ## 3D рисуется в уменьшенном разрешении и растягивается — главная экономия видеокарты на экране 1440p.
@@ -202,6 +241,7 @@ func show_hangar() -> void:
 	if battle:
 		battle.queue_free()
 		battle = null
+	session_mark("hangar")
 	if hangar:
 		hangar.queue_free()
 	hangar = HangarScript.new()
@@ -223,6 +263,9 @@ func start_battle() -> void:
 		if keys.is_empty():
 			keys = D.MAPS.keys()
 		map_key = keys[randi() % keys.size()]
+	session.battles = int(session.battles) + 1
+	session_mark("battle_loading", {"map": map_key, "mode": save.mode, "tank": save.tank, "clock": 0})
+	_session_t = 5.0
 	battle = BattleScript.new()
 	battle.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history,
 		"mods": top_config(save.tank), "cons": save.cons.duplicate()})
@@ -265,3 +308,10 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
 		if battle and not battle.over and not battle.paused:
 			battle.set_paused(true)
+		# свёрнутую игру система может закрыть — это не авария
+		if what == NOTIFICATION_APPLICATION_PAUSED and String(session.state).begins_with("battle"):
+			session_mark("background_" + String(session.state))
+	elif what == NOTIFICATION_APPLICATION_RESUMED and String(session.state).begins_with("background_"):
+		session_mark(String(session.state).trim_prefix("background_"))
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		session_mark("closed")

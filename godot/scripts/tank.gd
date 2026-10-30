@@ -100,6 +100,9 @@ var aim_cmd := false  # и навести башню на aim_target
 var aim_target := Vector3.ZERO
 var disp_cmd := false  # и пересчитать разброс
 var idx := -1  # номер в Battle.tanks (для C++)
+var wreck_fx: Array = []  # остов: [дым, огонь]
+var wreck_t := 0.0  # когда подбит (время боя)
+var sync_key := Vector4.INF  # остов: положение, нарисованное в последний раз (не менялось — не перерисовываем)
 var b_cons_acc := 0.0  # бот: накопленное время до проверки снаряжения
 var gy_set := -1e9  # ground_y, последний отданный шейдеру
 

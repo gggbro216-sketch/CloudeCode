@@ -14,6 +14,7 @@ const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
 const Terrain = preload("res://scripts/terrain.gd")
 const Native = preload("res://scripts/native.gd")
+const Models = preload("res://scripts/tank_models.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const FxScript = preload("res://scripts/fx.gd")
@@ -398,6 +399,7 @@ func _decal_mm(count: int, size: Vector2, col: Color, soft: bool) -> MultiMesh:
 	if soft:
 		m.albedo_texture = fx.soft
 	var mmi := MultiMeshInstance3D.new()
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 	mmi.multimesh = mm
 	mmi.material_override = m
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -441,6 +443,7 @@ func _track_mm() -> MultiMesh:
 		"urban": Color(0.8, 0.78, 0.75)}
 	trk_mat.set_shader_parameter("tint", tints.get(surf, Color(0.5, 0.45, 0.37)))
 	var mmi := MultiMeshInstance3D.new()
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 	mmi.multimesh = mm
 	mmi.material_override = trk_mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -463,6 +466,12 @@ func _spawn() -> void:
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
 	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)), float(hc.get(D.foe_side(side), 1.0)))
+	var keep: Array = [player_type]
+	for t in teams:
+		for k in t:
+			if not keep.has(k):
+				keep.append(k)
+	Models.trim(keep)
 	# позывные — по армии, которая ведёт машину
 	var names := {}
 	for nat in D.CALLSIGNS:
@@ -1114,6 +1123,12 @@ func _phys_native(dt: float) -> void:
 			if tk.throttle > 0.6 and tk.sp < P[i * PHYS + 34] * 0.5 and randf() < dt * 6.0 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 700.0:
 				var ex := tk.pos - fwd * float(tk.T.L) * 0.45
 				fx.exhaust(Vector3(ex.x, tk.ground + tk.hh + 1.0, ex.y), fwd)
+		if not tk.alive and not tk.popping:
+			# остов: перерисовываем, только если его сдвинули или он ещё оседает
+			var key := Vector4(tk.pos.x, tk.pos.y, tk.pitch + tk.roll * 3.0 + tk.body_p * 5.0 + tk.body_r * 7.0, tk.ground)
+			if key.is_equal_approx(tk.sync_key):
+				continue
+			tk.sync_key = key
 		tk.sync_node()
 
 
@@ -1392,6 +1407,7 @@ func _make_shell_mm() -> void:
 	shell_mat.shader = sh
 	shell_mat.set_shader_parameter("grav", D.GRAVITY)
 	var mmi := MultiMeshInstance3D.new()
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 	mmi.multimesh = shell_mm
 	mmi.material_override = shell_mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1674,7 +1690,8 @@ func kill(tk: TankScript, by: TankScript) -> void:
 	tk.make_wreck(randf() < 0.45)
 	var at := tk.center() + Vector3(0, tk.hh * 0.5, 0)
 	fx.explosion(at)
-	fx.wreck_fire(at)
+	tk.wreck_fx = fx.wreck_fire(at)
+	tk.wreck_t = clock
 	_scorch(Vector3(tk.pos.x, 0, tk.pos.y), float(tk.T.L) * 1.4)
 	sfx.play3d("explosion", at)
 	var lp: Array = loops.get(tk, [])
@@ -1842,24 +1859,6 @@ func _player(p: TankScript, dt: float) -> void:
 		s.x -= 1
 	if Input.is_key_pressed(KEY_D):
 		s.x += 1
-	if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_LEFT):
-		cam_yaw -= 1.6 * dt
-	if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_RIGHT):
-		cam_yaw += 1.6 * dt
-	if Input.is_key_pressed(KEY_UP):
-		cam_pitch -= 0.6 * dt
-	if Input.is_key_pressed(KEY_DOWN):
-		cam_pitch += 0.6 * dt
-	var zoom := 0.3 if sniper else 1.0
-	var dv: Vector2 = hud.take_cam_delta()
-	cam_yaw = wrapf(cam_yaw + dv.x * SENS_X * zoom, -PI, PI)
-	cam_pitch = clampf(cam_pitch + dv.y * SENS_Y * zoom, -0.3, 0.45)
-	if sniper:
-		# в прицеле нельзя опустить взгляд ниже, чем опускается пушка (с учётом наклона корпуса)
-		var rel := ang_diff(p.tur, p.hull)
-		var tilt := p.pitch * cos(rel) - p.roll * sin(rel)
-		var lim: Array = p.T.elev
-		cam_pitch = clampf(cam_pitch, -float(lim[1]) - tilt, -float(lim[0]) - tilt - 0.005)
 	var thr := -s.y if absf(s.y) > 0.2 else 0.0
 	var steer := s.x if absf(s.x) > 0.15 else 0.0
 	if p.casemate and steer == 0.0:
@@ -2895,7 +2894,8 @@ func _update(dt: float) -> void:
 	for tk: TankScript in tanks:
 		if not tk.alive:
 			tk.update_pop(dt)
-			tk.sync_node()
+			if not core:
+				tk.sync_node()
 			continue
 		tk.rl = maxf(0.0, tk.rl - dt)
 		tk.lit = maxf(0.0, tk.lit - dt)
@@ -2952,9 +2952,6 @@ func _update(dt: float) -> void:
 				best = tk
 		if best:
 			watch = best
-	if not player.alive and watch != player:
-		cam_yaw = turn_toward(cam_yaw, watch.tur, 2.0 * dt)
-		cam_pitch = move_toward(cam_pitch, 0.07, dt)
 	shake = maxf(0.0, shake - dt * 30.0)
 	_radio_events()
 	if not over:
@@ -2991,7 +2988,39 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	_cam_input(minf(delta, 0.05))
 	_sync(minf(delta, 0.05))
+
+
+## Поворот камеры — каждый кадр, а не в шаге логики (30 раз в секунду): иначе при повороте
+## пальцем картинка двигается рывками через кадр.
+func _cam_input(dt: float) -> void:
+	if paused or briefing or player == null:
+		return
+	if player.alive and not autopilot:
+		if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_LEFT):
+			cam_yaw -= 1.6 * dt
+		if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_RIGHT):
+			cam_yaw += 1.6 * dt
+		if Input.is_key_pressed(KEY_UP):
+			cam_pitch -= 0.6 * dt
+		if Input.is_key_pressed(KEY_DOWN):
+			cam_pitch += 0.6 * dt
+		var zoom := 0.3 if sniper else 1.0
+		var dv: Vector2 = hud.take_cam_delta()
+		cam_yaw = wrapf(cam_yaw + dv.x * SENS_X * zoom, -PI, PI)
+		cam_pitch = clampf(cam_pitch + dv.y * SENS_Y * zoom, -0.3, 0.45)
+		if sniper:
+			# в прицеле нельзя опустить взгляд ниже, чем опускается пушка (с учётом наклона корпуса)
+			var p := player
+			var rel := ang_diff(p.tur, p.hull)
+			var tilt := p.pitch * cos(rel) - p.roll * sin(rel)
+			var lim: Array = p.T.elev
+			cam_pitch = clampf(cam_pitch, -float(lim[1]) - tilt, -float(lim[0]) - tilt - 0.005)
+	elif not player.alive and watch != player:
+		# камера плавно следует за союзником, за которым наблюдаем
+		cam_yaw = turn_toward(cam_yaw, watch.tur, 2.0 * dt)
+		cam_pitch = move_toward(cam_pitch, 0.07, dt)
 
 
 ## Брифинг закрыт — бой начинается, через секунду командир даёт команду по рации.
@@ -3156,6 +3185,10 @@ func _sync(dt: float) -> void:
 	for tk: TankScript in tanks:
 		tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
 		_sync_sound(tk)
+	wreck_check -= dt
+	if wreck_check <= 0.0:
+		wreck_check = 0.5
+		_wrecks_update()
 	# время для шейдеров — между шагами логики, чтобы трассеры летели плавно
 	var frac := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
 	var now_v := clock + frac * speed / float(Engine.physics_ticks_per_second)
@@ -3183,6 +3216,34 @@ func _sync(dt: float) -> void:
 		dc.a = 0.1
 		z.disc_mat.albedo_color = dc
 		z.flag_mat.set_shader_parameter("col", c)
+
+
+var wreck_check := 0.0
+
+
+## Огонь и дым остовов: огонь гаснет через ~20 с, дым — через ~60 с; вдали от камеры
+## (дальше 1000 единиц) не рисуются — частицы с крупным полупрозрачным дымом дороги телефону.
+func _wrecks_update() -> void:
+	var cp := cam.global_position if cam else Vector3.ZERO
+	for tk: TankScript in tanks:
+		if tk.alive or tk.wreck_fx.is_empty():
+			continue
+		var age := clock - tk.wreck_t
+		var near := cp.distance_to(tk.center()) < 1000.0
+		for k in tk.wreck_fx.size():
+			var p: GPUParticles3D = tk.wreck_fx[k]
+			if p == null:
+				continue
+			var lim := 60.0 if k == 0 else 20.0
+			if age > lim + 3.0:
+				p.queue_free()
+				tk.wreck_fx[k] = null
+				continue
+			var on := near and age < lim
+			if p.emitting != on:
+				p.emitting = on
+		if tk.wreck_fx.all(func(x): return x == null):
+			tk.wreck_fx = []
 
 
 ## Обороты двигателя и лязг гусениц следуют за газом и скоростью.

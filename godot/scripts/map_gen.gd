@@ -1514,6 +1514,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 			mm.mesh = part[0]
 			mm.instance_count = count
 			var mmi := MultiMeshInstance3D.new()
+			mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 			mmi.multimesh = mm
 			mmi.material_override = part[1]
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if hq else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1557,6 +1558,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 					placed += 1
 				mm.visible_instance_count = placed
 				var mmi := MultiMeshInstance3D.new()
+				mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 				mmi.multimesh = mm
 				mmi.material_override = M.rock
 				mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1739,6 +1741,7 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 				placed += 1
 			mm.visible_instance_count = placed
 			var mmi := MultiMeshInstance3D.new()
+			mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
 			mmi.multimesh = mm
 			mmi.material_override = m
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
