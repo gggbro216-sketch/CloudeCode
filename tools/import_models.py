@@ -38,13 +38,16 @@ SIZES = {
     "hetzer": (4.87, 2.63, 0.35, 0.9), "nashorn": (6.0, 2.95, 0.4, 0.85), "ferdinand": (7.05, 3.38, 0.64, 1.0),
     "jagdtiger": (7.8, 3.63, 0.8, 1.08), "stuart": (4.53, 2.24, 0.29, 0.95), "lee": (5.64, 2.72, 0.42, 1.0),
     "churchill": (7.44, 3.25, 0.56, 1.2), "comet": (6.55, 3.05, 0.46, 1.0), "kv2": (6.79, 3.32, 0.7, 0.9),
-    "su85": (6.15, 3.0, 0.5, 0.92),
+    "su85": (6.15, 3.0, 0.5, 0.92), "tiger_p": (6.7, 3.14, 0.64, 1.0),
+    "pz4f2": (5.89, 2.88, 0.4, 0.82), "p26": (5.8, 2.8, 0.4, 1.0), "easy8": (6.0, 2.99, 0.58, 1.0), "pershing": (6.33, 3.51, 0.61, 1.0),
+    "t70": (4.29, 2.32, 0.26, 0.8), "isu152": (5.6, 3.07, 0.65, 0.86),
 }
 
 # Модели и правила разметки. Правило — (класс, поле, регулярное выражение) по пути узлов («path»)
 # или имени материала («mat»); первое совпадение задаёт класс детали: drop — выбросить,
 # track — гусеница, wheel — каток, turret — башня, gun — орудие; без совпадения — корпус.
 #   bare — детали без окраски (резина, голый металл);  flip — нос модели смотрит в обратную сторону;
+#   nose — куда в исходной модели смотрит нос по длинной оси (±1), если по башне не понять;
 #   wheels_from — в каких классах ещё искать катки (круглые детали внизу у бортов);
 #   gun_from — из какого класса вырезать ствол, если он не отдельный (turret или hull у САУ);
 #   gun_ymin — ниже этой высоты ствол не ищется (у САУ, чтобы не задеть нос корпуса);
@@ -52,7 +55,8 @@ SIZES = {
 #   rot — поворот модели до разметки (строки матрицы 3×3), если у неё вверх не +Y;
 #   gun_xmin — части орудия позади этой точки (казённик внутри рубки) выбрасываются: цапфы — у маски;
 #   trunnion_x — где цапфы орудия (м), если по сетке их не найти (длинные треугольники низкополигонального ствола);
-#   turret_box — [[x0, x1, y0, z0, z1], …] (м): если башня не отделена в модели, всё в этих коробках — башня.
+#   turret_box — [[x0, x1, y0, z0, z1], …] (м): если башня не отделена в модели, всё в этих коробках — башня;
+#   track_zone — [y, z] (м): если гусеница не отделена — всё ниже y и дальше z от оси у бортов — гусеница.
 STAFFORD = [("drop", "path", r"Area|Camera|Light"), ("track", "path", r"[LR]\.Truck"),
             ("wheel", "path", r"[LR]\.[Ww]heel|Wheel")]
 MODELS = {
@@ -125,6 +129,23 @@ MODELS = {
                       ("turret", "mat", r"KV-2_turret")]},
     "su85": {"uid": "2fb9d8a5caa247bbb5a5eb2518f3e0b2", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
              "clip_y": 2.6, "casemate": True, "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
+    "tiger_p": {"uid": "2a00367024854718992eb8cdb9eddd36", "nose": -1, "bare": r"^track$", "gun_from": "turret",
+                "rules": [("track", "mat", r"^track$"), ("wheel", "path", r"/Wheels"), ("turret", "path", r"/Turret")]},
+    "easy8": {"uid": "a0242ce6fa6948ddb602211ab91ce316", "nose": -1, "bare": r"^$", "gun_from": "turret",
+              "rules": [("track", "path", r"/Cube\.(010|005)_"), ("wheel", "path", r"/Cylinder\.\d+_"),
+                        ("turret", "path", r"/Cube\.(001|009|01[4-9])_")]},
+    "t70": {"uid": "d95327cab9704120bca9571e7e11ba39", "nose": -1, "bare": r"Threads1|rubber1|blinn103", "gun_from": "turret",
+            "wheels_from": ["hull"], "turret_box": [[-0.8, 2.6, 1.5, -1.0, 1.0]],
+            "rules": [("track", "mat", r"Threads1"), ("turret", "mat", r"^Turret$")]},
+    "pz4f2": {"uid": "14c74d148326448c8edb5fee81be3894", "bare": r"Material_5937", "wheels_from": ["hull"],
+              "rules": [("track", "mat", r"Material_5937"), ("gun", "mat", r"Material_5932"), ("turret", "mat", r"Material_593[45]")]},
+    "pershing": {"uid": "7a90f9f5250a4ab28c744684e7055558", "nose": -1, "bare": r"^$", "clip_y": 3.0,
+                 "rules": [("wheel", "path", r"polySurface(99[89]|10[0-2]\d)/"), ("track", "path", r"defaultMaterial_26$"),
+                           ("gun", "path", r"polySurface673"), ("turret", "path", r"defaultMaterial_28$|polySurface674")]},
+    "p26": {"uid": "f28607c0272842988937a7c76f572da6", "bare": r"^$", "gun_from": "turret", "clip_y": 2.8,
+            "turret_box": [[-1.4, 1.3, 1.6, -1.15, 1.15], [1.0, 4.6, 1.75, -0.3, 0.3]], "wheels_from": ["hull"], "rules": []},
+    "isu152": {"uid": "d56a8eb9654f4c65814ea1db7905307f", "nose": -1, "bare": r"^$", "gun_from": "hull", "gun_ymin": 1.3, "casemate": True,
+               "clip_y": 2.7, "track_zone": [0.95, 0.95], "rules": []},
     "su100": {"uid": "b31f0902aa554702bb265700ce655b25", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
               "clip_y": 2.6, "casemate": True,
               "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
@@ -248,6 +269,8 @@ def orient(parts, cfg, size):
         f[ax] = 1.0 if t.max() - tc > tc - t.min() else -1.0
     if cfg.get("flip"):
         f = -f
+    if "nose" in cfg:
+        f[ax] = cfg["nose"]
     R = np.stack([f, up, np.cross(f, up)])
     for p in parts:
         p["V"] = p["V"] @ R.T
@@ -868,6 +891,10 @@ def process(key, folder, dbg=None):
     for box in cfg.get("turret_box", []):
         x0, x1, y0, z0, z1 = box
         S["cls"][(S["cls"] == HULL) & (cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > y0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)] = TURRET
+    if "track_zone" in cfg:
+        # гусеница не отделена в модели: всё низкое у бортов — гусеница (катки из неё выберутся ниже)
+        ty, tz = cfg["track_zone"]
+        S["cls"][(S["cls"] == HULL) & (cen[:, 1] < ty) & (np.abs(cen[:, 2]) > tz)] = TRACK
     if "gun_xmin" in cfg:
         S["cls"][(S["cls"] == GUN) & (cen[:, 0] < cfg["gun_xmin"])] = DROP
     # детали в материале гусениц, но не на ней (запасные траки, буксирные крюки) — к корпусу
