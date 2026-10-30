@@ -455,7 +455,10 @@ const MAPS := {
 		"sky_top": "8a97a4", "sky_hor": "c6cbd0", "fog": "bcc2c7", "sun": "e8eef5", "sun_e": 0.75, "amb": 0.55,
 		"cover": 0.88, "fog_near": 300.0, "fog_far": 1300.0, "sun_rot": [-48.0, 20.0],
 		"g1": "c9d1d8", "g2": "eef2f5", "rock": "7d8186", "road": "75797d", "dirt": "5d5650", "scorch": "2a2826",
-		"dust": "e6ebef", "mini": "9aa4ae", "relief": 7.0, "grip": 0.78, "edge": 0.55, "weather": "snow"},
+		"dust": "e6ebef", "mini": "9aa4ae", "relief": 7.0, "grip": 0.78, "edge": 0.55, "weather": "snow",
+		# на открытых улицах длинные 75-мм Pz IV и StuG били Т-34 и КВ раньше, чем те подходили:
+		# Ось выигрывала 7 боёв из 10 — её команда легче на десятую часть
+		"handicap": {"axis": 0.9}},
 	"normandy": {"name": "Нормандия", "desc": "Бокаж: поля за земляными валами с живыми изгородями", "surf": "grass",
 		"date": "июль 1944, утро", "year": 1944, "allies": "США и Великобритания", "axis": "Германия",
 		"allies_g": "США и Великобритании", "axis_g": "Германии",
@@ -638,14 +641,16 @@ static func compose(pool: Array, first: String, budget: int, rng: RandomNumberGe
 ## Две команды равного боевого веса: много случайных составов каждой стороны,
 ## из них — случайная пара с одинаковой суммой (иначе ближайшая).
 ## tier — уровень боя: на VII–VIII вес команды больше, чтобы тяжёлых машин было не по три.
-static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNumberGenerator, year: int, tier := 5) -> Array:
+## k_mine, k_theirs — поправка карты (handicap): вес команды стороны относительно другой.
+static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNumberGenerator, year: int, tier := 5,
+		k_mine := 1.0, k_theirs := 1.0) -> Array:
 	# у лёгких машин семь танков не набирают полного веса: бюджет — по более лёгкой стороне
 	var budget := mini(TEAM_BUDGET + maxi(0, tier - 6) * 9, int(minf(_mean_pts(mine, year), _mean_pts(theirs, year)) * TEAM_MAX))
 	var a_list: Array = []
 	var b_list: Array = []
 	for i in 40:
-		a_list.append(compose(mine, first, budget, rng, year))
-		b_list.append(compose(theirs, "", budget, rng, year))
+		a_list.append(compose(mine, first, int(budget * k_mine), rng, year))
+		b_list.append(compose(theirs, "", int(budget * k_theirs), rng, year))
 	var pairs: Array = []
 	var best: Array = [a_list[0], b_list[0]]
 	var best_d := 1 << 20
@@ -655,7 +660,7 @@ static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNu
 		for b in b_list:
 			if b.size() < 3:
 				continue
-			var d := absi(team_pts(a, year) - team_pts(b, year))
+			var d := absi(roundi(team_pts(a, year) / k_mine) - roundi(team_pts(b, year) / k_theirs))
 			if d == 0:
 				pairs.append([a, b])
 			elif d < best_d:

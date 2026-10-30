@@ -459,7 +459,8 @@ func _spawn() -> void:
 	var tier := D.tier(player_type)
 	var mine := D.pool(map_key, side, history, tier)
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
-	teams = D.match_teams(mine, theirs, player_type, rng, year, tier)
+	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
+	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)), float(hc.get(D.foe_side(side), 1.0)))
 	# позывные — по армии, которая ведёт машину
 	var names := {}
 	for nat in D.CALLSIGNS:

@@ -456,7 +456,10 @@ METHOD(terrain_generate) {
 	if (seeds.size() < 3) seeds.resize(3, 0);
 	int N = self->tn;
 	float ws = self->ws;
-	Fractal big(seeds[0], 0.0028f, 3, false), small(seeds[1], 0.02f, 5, false), ridge(seeds[2], 0.0016f, 5, true);
+	// частоты на 10 % ниже, чем у FastNoiseLite в GDScript-версии: у этого симплекс-шума
+	// больше мелких перепадов, так уклоны выходят те же (проверено по картам)
+	const float K = 0.9f;
+	Fractal big(seeds[0], 0.0028f * K, 3, false), small(seeds[1], 0.02f * K, 5, false), ridge(seeds[2], 0.0016f * K, 5, true);
 	auto hills_at = [&](float px, float py) {
 		double v = 0.0;
 		for (size_t k = 0; k + 6 < hills.size() + 0; k += 7) {

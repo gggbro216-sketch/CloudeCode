@@ -8,6 +8,7 @@ const UI = preload("res://scripts/ui.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const Geo = preload("res://scripts/geo.gd")
 const TexLib = preload("res://scripts/textures.gd")
+const Native = preload("res://scripts/native.gd")
 
 # Места танков в дереве исследования: [столбец (уровень − 3), строка].
 const TREE_POS := {
@@ -558,6 +559,13 @@ func _build_ui() -> void:
 		tl.add_theme_constant_override("outline_size", 8)
 		tl.add_theme_color_override("font_outline_color", Color(0.06, 0.07, 0.05, 0.85))
 		head.add_child(tl)
+	# версия и чем считаются тяжёлые части: C++ (библиотека загрузилась) или GDScript
+	var native := Native.available()
+	var vl := UI.label("v%s\n%s" % [ProjectSettings.get_setting("application/config/version", ""), "C++" if native else "GDScript"],
+		13, GREEN if native else UI.DIM)
+	vl.add_theme_constant_override("outline_size", 6)
+	vl.add_theme_color_override("font_outline_color", Color(0.06, 0.07, 0.05, 0.85))
+	head.add_child(vl)
 	head.add_child(_spacer())
 	silver_lbl = _chip(head, "СЕРЕБРО")
 	free_lbl = _chip(head, "СВОБОДНЫЙ ОПЫТ")
