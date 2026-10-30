@@ -1,5 +1,6 @@
 extends Node3D
-## Эффекты частиц: вспышки выстрелов, искры, пыль, дым и взрывы.
+## Эффекты частиц: вспышки выстрелов, искры, пыль, дым и взрывы. Частицы считает видеокарта
+## (GPUParticles3D), одинаковые настройки делят один материал; далёкие разовые эффекты не создаются.
 
 const TexLib = preload("res://scripts/textures.gd")
 
@@ -7,6 +8,9 @@ var soft: GradientTexture2D
 var mats := {}
 var quads := {}
 var ramps := {}
+var ramp_tex := {}
+var procs := {}  # настройки → ParticleProcessMaterial
+var far := 1600.0  # дальше от камеры разовые эффекты не рождаются
 var grow_curve := Curve.new()
 var shrink_curve := Curve.new()
 
@@ -43,6 +47,10 @@ func set_dust(c: Color) -> void:
 	var b := c
 	b.a = 0.0
 	ramps["dust"] = _ramp([a, b])
+	ramp_tex.erase("dust")
+	for k in procs.keys():
+		if String(k).begins_with("dust|"):
+			procs.erase(k)
 
 
 func _ramp(cols: Array) -> Gradient:
@@ -78,32 +86,24 @@ func _quad(size: float, add: bool) -> QuadMesh:
 
 
 func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax: float, dir: Vector3, spread: float,
-		grav: float, size: float, add: bool, grow: bool, damp := 0.0, one_shot := true, parent: Node3D = null) -> CPUParticles3D:
-	var p := CPUParticles3D.new()
-	p.mesh = _quad(size, add)
+		grav: float, size: float, add: bool, grow: bool, damp := 0.0, one_shot := true, parent: Node3D = null) -> GPUParticles3D:
+	if one_shot and parent == null:
+		var cam := get_viewport().get_camera_3d()
+		if cam and cam.global_position.distance_to(at) > far:
+			return null
+	var p := GPUParticles3D.new()
+	p.draw_pass_1 = _quad(size, add)
 	p.amount = amount
 	p.lifetime = life
 	p.one_shot = one_shot
 	p.explosiveness = 1.0 if one_shot else 0.0
-	p.lifetime_randomness = 0.4
-	p.direction = dir
-	p.spread = spread
-	p.initial_velocity_min = vmin
-	p.initial_velocity_max = vmax
-	p.gravity = Vector3(0, grav, 0)
-	p.damping_min = damp
-	p.damping_max = damp
-	p.color_ramp = ramps[ramp]
-	p.scale_amount_min = 0.7
-	p.scale_amount_max = 1.2
-	p.scale_amount_curve = grow_curve if grow else shrink_curve
+	p.randomness = 0.2
+	p.process_material = _proc(ramp, vmin, vmax, dir, spread, grav, grow, damp, add)
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.local_coords = false
-	if not add:
-		p.angle_min = -180.0
-		p.angle_max = 180.0
-		p.angular_velocity_min = -25.0
-		p.angular_velocity_max = 25.0
+	# частицы разлетаются далеко от излучателя: рамка видимости с запасом, иначе их отсекает камера
+	var r := maxf(vmax * life * 0.8, 20.0) + size
+	p.visibility_aabb = AABB(Vector3(-r, -r * 0.5, -r), Vector3(r * 2.0, r * 2.5, r * 2.0))
 	if parent:
 		parent.add_child(p)
 		p.position = at
@@ -114,6 +114,42 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 	if one_shot:
 		get_tree().create_timer(life + 0.6, false).timeout.connect(p.queue_free)
 	return p
+
+
+## Материал поведения частиц; одинаковые настройки — один материал на всех.
+func _proc(ramp: String, vmin: float, vmax: float, dir: Vector3, spread: float, grav: float, grow: bool, damp: float,
+		add: bool) -> ParticleProcessMaterial:
+	var key := "%s|%s|%s|%s|%s|%s|%s|%s|%s" % [ramp, vmin, vmax, dir, spread, grav, grow, damp, add]
+	if procs.has(key):
+		return procs[key]
+	var m := ParticleProcessMaterial.new()
+	m.direction = dir
+	m.spread = spread
+	m.initial_velocity_min = vmin
+	m.initial_velocity_max = vmax
+	m.gravity = Vector3(0, grav, 0)
+	m.damping_min = damp
+	m.damping_max = damp
+	m.lifetime_randomness = 0.4
+	if not ramp_tex.has(ramp):
+		var gt := GradientTexture1D.new()
+		gt.gradient = ramps[ramp]
+		gt.width = 64
+		ramp_tex[ramp] = gt
+	m.color_ramp = ramp_tex[ramp]
+	m.scale_min = 0.7
+	m.scale_max = 1.2
+	var ct := CurveTexture.new()
+	ct.curve = grow_curve if grow else shrink_curve
+	ct.width = 32
+	m.scale_curve = ct
+	if not add:
+		m.angle_min = -180.0
+		m.angle_max = 180.0
+		m.angular_velocity_min = -25.0
+		m.angular_velocity_max = 25.0
+	procs[key] = m
+	return m
 
 
 func muzzle(at: Vector3, dir: Vector3, caliber := 85.0) -> void:
@@ -130,7 +166,7 @@ func exhaust(at: Vector3, fwd: Vector2) -> void:
 
 
 ## Пожар в моторном отделении: пламя и чёрный дым, привязанные к корпусу.
-func deck_fire(hull: Node3D, local: Vector3) -> CPUParticles3D:
+func deck_fire(hull: Node3D, local: Vector3) -> GPUParticles3D:
 	var p := emit(local, 18, 0.7, "fire", 8, 25, Vector3.UP, 20, 12, 7, true, false, 0, false, hull)
 	var s := emit(local + Vector3(0, 3, 0), 10, 2.2, "dark", 10, 22, Vector3.UP, 15, 4, 16, false, true, 0, false, hull)
 	p.emitting = false
@@ -166,8 +202,8 @@ func shot_dust(at: Vector3) -> void:
 
 
 ## Шлейф за танком (включается на ходу): пыль, песок, снежная пыль или комья грязи.
-func trail(kind: String) -> CPUParticles3D:
-	var p: CPUParticles3D
+func trail(kind: String) -> GPUParticles3D:
+	var p: GPUParticles3D
 	match kind:
 		"snow":
 			p = emit(Vector3.ZERO, 16, 1.5, "snow", 6, 18, Vector3.UP, 55, -4, 15, false, true, 1.5, false)
@@ -184,7 +220,7 @@ func trail(kind: String) -> CPUParticles3D:
 
 
 ## Дым разбитого моторного отделения (танк обездвижен).
-func engine_smoke(hull: Node3D, local: Vector3) -> CPUParticles3D:
+func engine_smoke(hull: Node3D, local: Vector3) -> GPUParticles3D:
 	return emit(local, 10, 2.4, "engine", 8, 18, Vector3.UP, 18, 4, 15, false, true, 0.5, false, hull)
 
 
@@ -230,7 +266,7 @@ func wreck_fire(at: Vector3) -> void:
 
 
 ## Дымный шлейф повреждённого танка (включается, когда прочности мало).
-func damage_smoke(tank: Node3D, y: float) -> CPUParticles3D:
+func damage_smoke(tank: Node3D, y: float) -> GPUParticles3D:
 	var p := emit(Vector3(0, y, 0), 14, 1.4, "smoke", 15, 25, Vector3.UP, 15, 4, 14, false, true, 0, false, tank)
 	p.emitting = false
 	return p

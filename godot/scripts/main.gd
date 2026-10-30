@@ -9,7 +9,7 @@ const SAVE_PATH := "user://save.json"
 
 var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": D.START_SILVER, "free_xp": 0,
-	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true,
+	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75,
 	"owned": [], "researched": [], "txp": {}, "mods": {}, "mods_res": {}, "cons": ["repair", "medkit", "ext"],
 	"tstats": {}, "last": {},
 }
@@ -17,9 +17,27 @@ var hangar: Node
 var battle: Node
 
 
+const RES_STEPS := [0.6, 0.75, 0.9, 1.0]  # доля разрешения экрана для 3D (интерфейс — всегда в полном)
+
+
 func _ready() -> void:
 	_load()
+	apply_res()
 	show_hangar()
+
+
+## 3D рисуется в уменьшенном разрешении и растягивается — главная экономия видеокарты на экране 1440p.
+func apply_res() -> void:
+	var vp := get_viewport()
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = float(save.res)
+
+
+func cycle_res() -> void:
+	var i := RES_STEPS.find(float(save.res))
+	save.res = RES_STEPS[(i + 1) % RES_STEPS.size()]
+	apply_res()
+	persist()
 
 
 func _load() -> void:
@@ -56,6 +74,8 @@ func _load() -> void:
 		save.mode = "standard"
 	if save.map != "random" and not D.MAPS.has(save.map):
 		save.map = "random"
+	if not RES_STEPS.has(float(save.res)):
+		save.res = 0.75
 
 
 func persist() -> void:

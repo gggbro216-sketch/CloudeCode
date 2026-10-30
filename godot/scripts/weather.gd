@@ -1,7 +1,7 @@
 extends Node3D
 ## Погода: снегопад вокруг камеры (Сталинград), утренний туман у земли (Нормандия),
 ## дрожащее марево над раскалённой землёй у горизонта (Эль-Аламейн).
-## Всё движется в шейдерах — процессор не тратится; на «низкой» графике слоёв меньше.
+## Всё движется в шейдерах — процессор не тратится; снежинок и облаков немного, марево — только на высокой графике.
 
 const D = preload("res://scripts/data.gd")
 const TexLib = preload("res://scripts/textures.gd")
@@ -15,7 +15,7 @@ render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, shadows_disabl
 uniform vec3 box = vec3(170.0, 110.0, 170.0);
 uniform float fall = 9.0;
 uniform vec2 wind = vec2(4.0, 1.5);
-uniform float size = 0.32;
+uniform float size = 0.42;
 varying float fade;
 
 void vertex() {
@@ -49,7 +49,7 @@ render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, shadows_disabl
 
 uniform sampler2D puff : filter_linear_mipmap;
 uniform vec3 color : source_color = vec3(0.86, 0.87, 0.86);
-uniform float strength = 0.42;
+uniform float strength = 0.5;
 varying float fade;
 varying float seed;
 
@@ -84,7 +84,7 @@ render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, shadows_disabl
 
 uniform sampler2D screen : hint_screen_texture, filter_linear, repeat_disable;
 uniform sampler2D noise : filter_linear, repeat_enable;
-uniform float strength = 0.0045;
+uniform float strength = 0.006;
 varying vec3 wp;
 
 void vertex() {
@@ -95,8 +95,7 @@ void fragment() {
 	// дрожит узкая полоса у линии горизонта — там, где взгляд скользит над раскалённой землёй
 	vec3 v = normalize(wp - CAMERA_POSITION_WORLD);
 	float k = 1.0 - smoothstep(0.012, 0.06, abs(v.y + 0.008));
-	vec2 n = texture(noise, vec2(UV.x * 36.0, v.y * 9.0 + TIME * 0.45)).rg - 0.5;
-	n += (texture(noise, vec2(UV.x * 90.0 - TIME * 0.05, v.y * 22.0 + TIME * 0.9)).rg - 0.5) * 0.6;
+	vec2 n = texture(noise, vec2(UV.x * 48.0 - TIME * 0.03, v.y * 14.0 + TIME * 0.6)).rg - 0.5;
 	vec3 col = texture(screen, SCREEN_UV + n * strength * k).rgb;
 	col = mix(col, vec3(0.93, 0.88, 0.78), k * 0.06);
 	ALBEDO = col;
@@ -114,9 +113,9 @@ func setup(weather: String, b, hq: bool) -> void:
 	battle = b
 	match kind:
 		"snow":
-			_snow(4200 if hq else 1800)
+			_snow(1500 if hq else 700)
 		"mist":
-			_mist(150 if hq else 60)
+			_mist(90 if hq else 40)
 		"haze":
 			if hq:
 				_haze()
@@ -198,7 +197,7 @@ func _haze() -> void:
 	cyl.top_radius = 560.0
 	cyl.bottom_radius = 560.0
 	cyl.height = 500.0
-	cyl.radial_segments = 48
+	cyl.radial_segments = 32
 	cyl.rings = 1
 	cyl.cap_top = false
 	cyl.cap_bottom = false

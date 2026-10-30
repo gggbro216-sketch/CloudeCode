@@ -302,9 +302,10 @@ func _make_env() -> void:
 	sun.light_color = Color(M.sun)
 	sun.light_energy = M.sun_e
 	sun.shadow_enabled = hq
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 520.0
-	sun.directional_shadow_split_1 = 0.18
+	# один каскад теней на 300 единиц (≈40 м): дальше тени не видны, а их отрисовка дорогая
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 300.0
+	sun.directional_shadow_fade_start = 0.85
 	sun.shadow_blur = 1.2
 	add_child(sun)
 
@@ -848,10 +849,12 @@ func _trail(tk: TankScript, fwd: Vector2, v_f: float) -> void:
 	_fx_on(tk.dust_fx, on and not muddy, at)
 	if tk.mud_fx:
 		_fx_on(tk.mud_fx, on and muddy, at)
-		tk.mud_fx.direction = Vector3(-fwd.x * signf(v_f + 0.01), 1.4, -fwd.y * signf(v_f + 0.01)).normalized()
+		# комья летят назад-вверх: излучатель «смотрит» туда (направление частиц — вверх в его осях)
+		var d := Vector3(-fwd.x * signf(v_f + 0.01), 1.4, -fwd.y * signf(v_f + 0.01)).normalized()
+		tk.mud_fx.basis = Basis(Quaternion(Vector3.UP, d))
 
 
-func _fx_on(p: CPUParticles3D, on: bool, at: Vector3) -> void:
+func _fx_on(p: GPUParticles3D, on: bool, at: Vector3) -> void:
 	if on:
 		p.global_position = at
 	if p.emitting != on:
@@ -1891,7 +1894,8 @@ func _update(dt: float) -> void:
 			_player(tk, dt)
 		else:
 			_bot(tk, dt)
-		tk.smoke_on(tk.hp < tk.max_hp * 0.35)
+		# дым подбитого — только у видимых и не слишком далёких танков
+		tk.smoke_on(tk.hp < tk.max_hp * 0.35 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 1400.0)
 	separate()
 	for tk: TankScript in tanks:
 		_suspend(tk, dt)

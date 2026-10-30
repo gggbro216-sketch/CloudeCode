@@ -43,6 +43,7 @@ var cons_desc: Label
 var mode_desc: Label
 var map_desc: Label
 var qual_btn: Button
+var res_btn: Button
 var hist_btn: Button
 var go_btn: Button
 var map_btns := {}
@@ -355,7 +356,7 @@ func _build_scene() -> void:
 	sun.light_energy = 1.25
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-	sun.directional_shadow_max_distance = 360.0
+	sun.directional_shadow_max_distance = 260.0
 	sun.shadow_blur = 1.5
 	add_child(sun)
 	for lp: Vector3 in [Vector3(-48, EAVE - 40, 0), Vector3(48, EAVE - 40, 0)]:
@@ -566,6 +567,10 @@ func _build_ui() -> void:
 		main.persist()
 		_update_qual())
 	_update_qual()
+	res_btn = _small_btn(head, "", func():
+		main.cycle_res()
+		_update_res_btn())
+	_update_res_btn()
 	_small_btn(head, "АВТОРЫ", _show_credits)
 
 	var body := HBoxContainer.new()
@@ -780,6 +785,10 @@ func _card(key: String) -> TankCard:
 
 func _update_qual() -> void:
 	qual_btn.text = "ГРАФИКА:\nВЫСОКАЯ" if main.save.hq else "ГРАФИКА:\nБЫСТРАЯ"
+
+
+func _update_res_btn() -> void:
+	res_btn.text = "ЧЁТКОСТЬ:\n%d %%" % roundi(float(main.save.res) * 100.0)
 
 
 func _update_res() -> void:
