@@ -56,6 +56,7 @@ var gun_target := 0.0
 var disp := 0.05  # текущий разброс, рад
 var tur_rate := 0.0
 var travel := [0.0, 0.0]  # путь левой и правой гусеницы
+var travel_prev := [0.0, 0.0]  # он же на прошлом шаге логики (для сглаживания на экране)
 var press := 1.0  # удельное давление на грунт относительно среднего (узкие гусеницы вязнут сильнее)
 var slip := 0.0  # пробуксовка гусениц, 0–1
 var soft := 0.0  # мягкость грунта под танком, 0–1
@@ -122,6 +123,7 @@ var b_pi := 0
 var b_path_to := Vector2(-1e6, -1e6)
 var b_path_safe := false
 var b_path_t := 0.0
+var b_path_wait := false  # маршрут ищется в фоновом потоке
 var b_think := 0.0  # решения бот принимает 5 раз в секунду, а рулит и целится каждый кадр
 var b_spot = null  # Vector2: укрытие, позиция «корпус за гребнем» или куст засады
 var b_spot_kind := ""  # cover, hull, bush
@@ -277,6 +279,15 @@ func gun_dir() -> Vector3:
 	return gun_node.global_transform.basis.x.normalized()
 
 
+## Катки и траки между шагами логики: пройденный путь сглажен, чтобы они не крутились рывками.
+func sync_travel(f: float) -> void:
+	var l := lerpf(travel_prev[0], travel[0], f)
+	var r := lerpf(travel_prev[1], travel[1], f)
+	paint.set_shader_parameter("travel_l", l)
+	paint.set_shader_parameter("travel_r", r)
+	_track_offsets(l, r)
+
+
 func sync_node() -> void:
 	position = Vector3(pos.x, ground, pos.y)
 	hull_node.basis = Basis(Vector3.UP, -hull) * Basis(Vector3.BACK, pitch + body_p) * Basis(Vector3.RIGHT, roll + body_r)
@@ -289,9 +300,14 @@ func sync_node() -> void:
 	set_param("ground_y", ground)
 	paint.set_shader_parameter("travel_l", travel[0])
 	paint.set_shader_parameter("travel_r", travel[1])
+	_track_offsets(travel[0], travel[1])
+
+
+func _track_offsets(l: float, r: float) -> void:
 	var link := 0.24 * D.UPM
-	(tracks[0] as StandardMaterial3D).uv1_offset.x = -fmod(travel[0] / link, 1.0)
-	(tracks[1] as StandardMaterial3D).uv1_offset.x = -fmod(travel[1] / link, 1.0)
+	var m := tracks[0] as ShaderMaterial
+	m.set_shader_parameter("off_l", -fmod(l / link, 1.0))
+	m.set_shader_parameter("off_r", -fmod(r / link, 1.0))
 
 
 func smoke_on(v: bool) -> void:
@@ -301,8 +317,7 @@ func smoke_on(v: bool) -> void:
 
 func make_wreck(pop: bool) -> void:
 	set_param("burnt", 0.92)
-	for t in tracks:
-		(t as StandardMaterial3D).albedo_color = Color(0.45, 0.4, 0.36)
+	(tracks[0] as ShaderMaterial).set_shader_parameter("tint", Color(0.45, 0.4, 0.36))
 	gun_pitch = float(T.elev[0])
 	smoke_on(false)
 	if fire_fx:

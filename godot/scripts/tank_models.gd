@@ -930,12 +930,12 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var scaled := PackedVector2Array()
 	for p in outline:
 		scaled.append(p * U)
-	var trk_l := _track_mat()
-	var trk_r := _track_mat()
+	# обе ленты — одна сетка и один материал: сдвиг текстуры у каждой свой в шейдере (по знаку z)
+	var trk_m := _track_mat()
 	var tg := Geo.Group.new()
-	tg.add(Geo.belt(scaled, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_r)
-	tg.add(Geo.belt(scaled, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_l)
-	tg.commit(hull, shadows)
+	tg.add(Geo.belt(scaled, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_m)
+	tg.add(Geo.belt(scaled, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_m)
+	tg.commit(hull, false)  # тень гусениц всё равно под тенью корпуса
 
 	# --- детали корпуса
 	_hull_details(hb, key, S, roof, skirts, year)
@@ -968,6 +968,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	blob.rotation = Vector3(-PI / 2, 0, 0)
 	blob.position.y = 0.05 * U
 	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blob.visibility_range_end = 400.0 * U
 	hull.add_child(blob)
 
 	# --- башня или рубка
@@ -1053,7 +1054,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var cols: Array = _cache[ck]
 	var back: float = S.tpoly[2]
 	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paints": [paint, paint_t, paint_g],
-		"tracks": [trk_l, trk_r], "track_w": tw * U, "track_z": tz * U,
+		"tracks": [trk_m], "track_w": tw * U, "track_z": tz * U,
 		"parts": [{"part": "hull", "mat": paint, "node": hull, "shape": cols[0], "node_col": hull},
 			{"part": "top", "mat": paint_t, "node": top, "shape": cols[1], "node_col": top},
 			{"part": "gun", "mat": paint_g, "node": gun, "shape": cols[2], "node_col": gun}],
@@ -1164,12 +1165,12 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 		outline.append(Vector2(float(p[0]), float(p[1])) * U)
 	var tw: float = trk.w
 	var tz: float = trk.z
-	var trk_l := _track_mat()
-	var trk_r := _track_mat()
+	# обе ленты — одна сетка и один материал: сдвиг текстуры у каждой свой в шейдере (по знаку z)
+	var trk_m := _track_mat()
 	var tg := Geo.Group.new()
-	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_r)
-	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_l)
-	tg.commit(hull, shadows)
+	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_m)
+	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_m)
+	tg.commit(hull, false)  # тень гусениц всё равно под тенью корпуса
 
 	# опознавательные знаки на борту корпуса
 	var em_turret: bool = emblem == "ussr" or S.get("em_turret", false)
@@ -1191,13 +1192,14 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 	blob.rotation = Vector3(-PI / 2, 0, 0)
 	blob.position.y = 0.05 * U
 	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blob.visibility_range_end = 400.0 * U
 	hull.add_child(blob)
 
 	var casemate: bool = S.get("casemate", false)
 	var top := Node3D.new()
 	var tur: Node3D
 	var gun := Node3D.new()
-	var out := {"hull": hull, "paints": [paint, paint_t, paint_g], "tracks": [trk_l, trk_r], "th": th * U,
+	var out := {"hull": hull, "paints": [paint, paint_t, paint_g], "tracks": [trk_m], "th": th * U,
 		"barrel": float(info.barrel) * U, "track_w": tw * U, "track_z": tz * U, "parts": parts}
 	if casemate:
 		# рубка — часть корпуса; качается установка орудия; размеры рубки — по SPECS
@@ -1270,11 +1272,33 @@ static func _berlin_band(top: Node3D, info: Dictionary, shadows: bool) -> void:
 	g.commit(top, shadows)
 
 
-static func _track_mat() -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_texture = track_texture()
-	m.roughness = 0.75
-	m.metallic = 0.45
+const TRACK_SHADER := """
+shader_type spatial;
+uniform sampler2D tex : source_color, filter_linear_mipmap, repeat_enable;
+uniform float off_l = 0.0;
+uniform float off_r = 0.0;
+uniform vec4 tint : source_color = vec4(1.0);
+
+void vertex() {
+	UV.x += VERTEX.z > 0.0 ? off_r : off_l;
+}
+
+void fragment() {
+	ALBEDO = texture(tex, UV).rgb * tint.rgb;
+	ROUGHNESS = 0.75;
+	METALLIC = 0.45;
+}
+"""
+
+
+static func _track_mat() -> ShaderMaterial:
+	if not _cache.has("track_shader"):
+		var sh := Shader.new()
+		sh.code = TRACK_SHADER
+		_cache["track_shader"] = sh
+	var m := ShaderMaterial.new()
+	m.shader = _cache["track_shader"]
+	m.set_shader_parameter("tex", track_texture())
 	return m
 
 
@@ -1951,4 +1975,7 @@ static func _emblems(parent: Node3D, kind: String, pos: Vector3, size: float, ti
 	for s: float in [1.0, -1.0]:
 		var bs := Basis(Vector3.RIGHT, -tilt) if s > 0 else Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -tilt)
 		g.add(q, Transform3D(bs, Vector3(pos.x, pos.y, s * pos.z) * U), em)
-	g.commit(parent, false)
+	# дальше ~220 м знак меньше пары пикселей — не рисуем
+	for mi: MeshInstance3D in g.commit(parent, false):
+		mi.visibility_range_end = 220.0 * U
+		mi.visibility_range_end_margin = 15.0 * U

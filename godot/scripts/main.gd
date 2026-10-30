@@ -9,7 +9,7 @@ const SAVE_PATH := "user://save.json"
 
 var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": D.START_SILVER, "free_xp": 0,
-	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75,
+	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75, "eco": false,
 	"owned": [], "researched": [], "txp": {}, "mods": {}, "mods_res": {}, "cons": ["repair", "medkit", "ext"],
 	"tstats": {}, "last": {},
 }
@@ -23,6 +23,7 @@ const RES_STEPS := [0.6, 0.75, 0.9, 1.0]  # доля разрешения экр
 func _ready() -> void:
 	_load()
 	apply_res()
+	apply_eco()
 	show_hangar()
 
 
@@ -31,6 +32,17 @@ func apply_res() -> void:
 	var vp := get_viewport()
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = float(save.res)
+
+
+## Режим экономии батареи: не больше 30 кадров в секунду — заметно меньше работы процессору и видеокарте.
+func apply_eco() -> void:
+	Engine.max_fps = 30 if save.eco else 0  # 0 — по частоте экрана, как раньше
+
+
+func toggle_eco() -> void:
+	save.eco = not save.eco
+	apply_eco()
+	persist()
 
 
 func cycle_res() -> void:
@@ -76,6 +88,7 @@ func _load() -> void:
 		save.map = "random"
 	if not RES_STEPS.has(float(save.res)):
 		save.res = 0.75
+	save.eco = save.eco == true
 
 
 func persist() -> void:
@@ -192,6 +205,7 @@ func show_hangar() -> void:
 	if hangar:
 		hangar.queue_free()
 	hangar = HangarScript.new()
+	hangar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ангар живёт в кадрах, не в шагах физики
 	hangar.main = self
 	add_child(hangar)
 

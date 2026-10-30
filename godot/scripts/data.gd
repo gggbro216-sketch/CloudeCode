@@ -12,6 +12,7 @@ const TIME_LIMIT := 420.0  # 7 минут на бой
 const SUP_GOAL := 600.0  # очки для победы в «Превосходстве»
 const CAP_RATE := 2.2  # процентов захвата в секунду на танк (до трёх танков): тремя — 15 с
 const SPEED_K := 0.8  # в игре танки едут на 20 % медленнее исторической скорости
+const SPOT_K := 1.4  # обзор в игре на 40 % больше табличного: поле стало больше, бои дальше
 
 const ALLY := "6cd04f"
 const FOE := "e2563c"
@@ -567,7 +568,7 @@ static func derived(T: Dictionary) -> Dictionary:
 		"tspd": deg_to_rad(T.tspd),
 		"shell_v": float(T.shell) * SHELL_SCALE,
 		"disp": float(T.disp) / 100.0,  # рад: разброс в метрах на 100 м
-		"spot": float(T.spot) * UPM,
+		"spot": float(T.spot) * UPM * SPOT_K,
 		"slope": deg_to_rad(T.slope),
 		"tslope": deg_to_rad(T.get("tslope", 14.0)),
 		"trav": deg_to_rad(T.get("traverse", 180.0)),

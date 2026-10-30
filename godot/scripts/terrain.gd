@@ -345,7 +345,6 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 		verts[i] = Vector3(x, h[i], z)
 		norms[i] = normal(x, z, CELL)
 	var idx := PackedInt32Array()
-	var faces := PackedVector3Array()
 	var lo := int((-150.0 - ORIGIN) / CELL)
 	var hi := int((D.WS + 150.0 - ORIGIN) / CELL)
 	for iz in N:
@@ -355,8 +354,6 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 			var c := a + N + 1
 			var d := c + 1
 			idx.append_array([a, b, c, b, d, c])
-			if ix >= lo and ix <= hi and iz >= lo and iz <= hi:
-				faces.append_array([verts[a], verts[b], verts[c], verts[b], verts[d], verts[c]])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -391,13 +388,24 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
-	# коллизия для лучей (снаряды, видимость, камера)
+	# коллизия для лучей (снаряды, видимость, камера): сетка высот — луч идёт по клеткам,
+	# это в разы дешевле, чем по дереву из треугольников; масштаб общий, поэтому высоты делим на шаг
 	var body := StaticBody3D.new()
 	body.collision_layer = 1
 	body.collision_mask = 0
-	var shape := ConcavePolygonShape3D.new()
-	shape.set_faces(faces)
+	var n := hi - lo + 1
+	var data := PackedFloat32Array()
+	data.resize(n * n)
+	for iz in n:
+		for ix in n:
+			data[iz * n + ix] = h[(lo + iz) * (N + 1) + lo + ix] / CELL
+	var shape := HeightMapShape3D.new()
+	shape.map_width = n
+	shape.map_depth = n
+	shape.map_data = data
 	var cs := CollisionShape3D.new()
 	cs.shape = shape
+	var mid := ORIGIN + (lo + hi) * 0.5 * CELL
+	cs.transform = Transform3D(Basis.from_scale(Vector3(CELL, CELL, CELL)), Vector3(mid, 0.0, mid))
 	body.add_child(cs)
 	parent.add_child(body)

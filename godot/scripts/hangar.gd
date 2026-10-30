@@ -47,6 +47,7 @@ var mode_desc: Label
 var map_desc: Label
 var qual_btn: Button
 var res_btn: Button
+var eco_btn: Button
 var hist_btn: Button
 var go_btn: Button
 var map_btns := {}
@@ -66,7 +67,7 @@ class TankBars extends Control:
 
 	func _ready() -> void:
 		font = ThemeDB.fallback_font
-		custom_minimum_size = Vector2(0, 150)
+		custom_minimum_size = Vector2(0, 175)
 
 	func _draw() -> void:
 		if T.is_empty():
@@ -79,6 +80,7 @@ class TankBars extends Control:
 			["Скорость", "%d км/ч" % roundi(float(T.kmh) * D.SPEED_K), float(T.kmh) / 58.0],
 			["Мощность", "%d л.с. · %.1f т" % [int(T.power), float(T.mass)], float(T.power) / float(T.mass) / 16.0],
 			["Перезарядка", "%.1f с" % float(T.reload), 2.0 / float(T.reload)],
+			["Обзор", "%d м" % roundi(float(T.spot) * D.SPOT_K), float(T.spot) * D.SPOT_K / 100.0],
 		]
 		var y := 0.0
 		for r in rows:
@@ -574,6 +576,10 @@ func _build_ui() -> void:
 		main.cycle_res()
 		_update_res_btn())
 	_update_res_btn()
+	eco_btn = _small_btn(head, "", func():
+		main.toggle_eco()
+		_update_eco())
+	_update_eco()
 	_small_btn(head, "АВТОРЫ", _show_credits)
 
 	var body := HBoxContainer.new()
@@ -788,6 +794,10 @@ func _card(key: String) -> TankCard:
 
 func _update_qual() -> void:
 	qual_btn.text = "ГРАФИКА:\nВЫСОКАЯ" if main.save.hq else "ГРАФИКА:\nБЫСТРАЯ"
+
+
+func _update_eco() -> void:
+	eco_btn.text = "ЭКОНОМИЯ:\n30 FPS" if main.save.eco else "ЭКОНОМИЯ:\nВЫКЛ"
 
 
 func _update_res_btn() -> void:

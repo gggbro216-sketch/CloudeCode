@@ -54,7 +54,8 @@ class Zone:
 	var label := ""
 	var ring_mat: StandardMaterial3D
 	var disc_mat: StandardMaterial3D
-	var flag_mat: StandardMaterial3D
+	var flag_mat: ShaderMaterial
+	var col_key := -1  # какой раскраской сейчас покрашены кольцо, диск и флаг
 	var flag: Node3D
 
 
@@ -928,6 +929,23 @@ static func mat(c: Color, unshaded := false, rough := 0.95) -> StandardMaterial3
 	return m
 
 
+const FLAG_SHADER := """
+shader_type spatial;
+render_mode cull_disabled, diffuse_lambert;
+uniform vec4 col : source_color = vec4(1.0);
+
+void vertex() {
+	float k = (VERTEX.x + 11.0) / 22.0;
+	VERTEX.z += sin(TIME * 4.0 - VERTEX.x * 0.35 + NODE_POSITION_WORLD.x) * 1.6 * k;
+	VERTEX.y -= k * k * 1.2;
+}
+
+void fragment() {
+	ALBEDO = col.rgb;
+	ROUGHNESS = 0.9;
+}
+"""
+
 const BUSH_SHADER := """
 shader_type spatial;
 render_mode diffuse_lambert, specular_disabled;
@@ -1513,29 +1531,37 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 
 	# камешки в пустыне
 	if desert:
+		# участками 4×4, как трава: дальние участки не рисуются вовсе
 		var n := 1500 if hq else 680
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
 		var tuft := Geo.Group.new()
 		tuft.add(Geo.sphere(5, 3), Transform3D(Basis.from_scale(Vector3(3, 1.6, 2.6)), Vector3.ZERO), M.rock, true)
-		mm.mesh = _one(tuft)
-		mm.instance_count = n
-		var placed := 0
-		for t in n * 3:
-			if placed >= n:
-				break
-			var p := Vector2(rng.randf_range(-200, D.WS + 200), rng.randf_range(-200, D.WS + 200))
-			if _blocked(p, data.obst, 4.0):
-				continue
-			var s := rng.randf_range(0.6, 1.5)
-			mm.set_instance_transform(placed, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s)), Vector3(p.x, terra.height(p.x, p.y), p.y)))
-			placed += 1
-		mm.visible_instance_count = placed
-		var mmi := MultiMeshInstance3D.new()
-		mmi.multimesh = mm
-		mmi.material_override = M.rock
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		parent.add_child(mmi)
+		var pebble := _one(tuft)
+		var cs := (D.WS + 400.0) / 4.0
+		var per := n / 16
+		for cx in 4:
+			for cz in 4:
+				var mm := MultiMesh.new()
+				mm.transform_format = MultiMesh.TRANSFORM_3D
+				mm.mesh = pebble
+				mm.instance_count = per
+				var placed := 0
+				for t in per * 3:
+					if placed >= per:
+						break
+					var p := Vector2(-200.0 + (cx + rng.randf()) * cs, -200.0 + (cz + rng.randf()) * cs)
+					if _blocked(p, data.obst, 4.0):
+						continue
+					var s := rng.randf_range(0.6, 1.5)
+					mm.set_instance_transform(placed, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s)), Vector3(p.x, terra.height(p.x, p.y), p.y)))
+					placed += 1
+				mm.visible_instance_count = placed
+				var mmi := MultiMeshInstance3D.new()
+				mmi.multimesh = mm
+				mmi.material_override = M.rock
+				mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				mmi.visibility_range_end = cs * 0.75 + 380.0
+				mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+				parent.add_child(mmi)
 	# трава, качающаяся на ветру: участки с отсечением по дальности
 	if hq or not winter:
 		_grass(parent, data, terra, rng, map_key, hq)
@@ -1556,6 +1582,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		rmi.material_override = z.ring_mat
 		rmi.position = Vector3(zp.x, zy + 0.8, zp.y)
 		rmi.scale = Vector3(1, 0.12, 1)
+		rmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(rmi)
 		var disc := CylinderMesh.new()
 		disc.top_radius = zr - 4
@@ -1576,8 +1603,11 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		parent.add_child(pivot)
 		var q := QuadMesh.new()
 		q.size = Vector2(22, 13)
-		z.flag_mat = mat(Color.WHITE)
-		z.flag_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		# флаг полощется на ветру в шейдере: волна бежит от древка к краю
+		var fsh := Shader.new()
+		fsh.code = FLAG_SHADER
+		z.flag_mat = ShaderMaterial.new()
+		z.flag_mat.shader = fsh
 		var fmi := MeshInstance3D.new()
 		fmi.mesh = q
 		fmi.material_override = z.flag_mat

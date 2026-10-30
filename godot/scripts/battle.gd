@@ -140,8 +140,40 @@ var trk_mm: MultiMesh
 var trk_i := 0
 var scorch_mm: MultiMesh
 var scorch_i := 0
-var shell_mesh: BoxMesh
-var shell_mat: StandardMaterial3D
+# Трассеры снарядов рисует шейдер по формуле полёта: в данных экземпляра — точка и время вылета,
+# скорость и время конца; процессор только проверяет попадания.
+const SHELL_SLOTS := 64
+const SHELL_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, shadows_disabled, skip_vertex_transform, fog_disabled;
+uniform float now = 0.0;
+uniform float grav = 73.6;
+
+void vertex() {
+	// MODEL_MATRIX: [3] — точка вылета, [0] — скорость, [1].x — время вылета, [1].y — время конца
+	vec3 p0 = MODEL_MATRIX[3].xyz;
+	vec3 v0 = MODEL_MATRIX[0].xyz;
+	float tau = now - MODEL_MATRIX[1].x;
+	vec3 vel = v0 - vec3(0.0, grav * tau, 0.0);
+	vec3 p = p0 + v0 * tau - vec3(0.0, 0.5 * grav * tau * tau, 0.0);
+	vec3 f = normalize(vel);
+	vec3 side = normalize(cross(f, abs(f.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
+	vec3 up = cross(side, f);
+	vec3 wp = p + side * VERTEX.x + up * VERTEX.y + f * VERTEX.z;
+	if (tau < 0.0 || now > MODEL_MATRIX[1].y) {
+		wp = vec3(0.0, -10000.0, 0.0);
+	}
+	VERTEX = (VIEW_MATRIX * vec4(wp, 1.0)).xyz;
+	NORMAL = vec3(0.0, 0.0, 1.0);
+}
+
+void fragment() {
+	ALBEDO = vec3(1.0, 0.78, 0.4);
+}
+"""
+var shell_mm: MultiMesh
+var shell_mat: ShaderMaterial
+var shell_slot := 0
 var loops := {}  # танк -> [двигатель, гусеницы, башня]
 var reload_cue := false
 
@@ -181,12 +213,14 @@ func _ready() -> void:
 	lanes = data.lanes
 	_build_hash()
 	_build_nav()
+	_start_nav_thread()
 	terra.build(self, map_key, hq)
 	MapGen.TexLib.bump = hq
 	var built := MapGen.build(self, data, map_key, zones, terra, hq)
 	bush_mat = built.bush_mat
 	_make_env()
 	fx = FxScript.new()
+	fx.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # вспышки и дым ставятся на месте
 	add_child(fx)
 	fx.set_dust(Color(D.MAPS[map_key].dust))
 	for s in built.smokes:
@@ -200,20 +234,21 @@ func _ready() -> void:
 	add_child(sfx)
 	trk_mm = _track_mm()
 	scorch_mm = _decal_mm(SCORCH, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
-	shell_mesh = BoxMesh.new()
-	shell_mesh.size = Vector3(0.9, 0.9, 22)
-	shell_mat = MapGen.mat(Color(1.0, 0.78, 0.4), true)
-	shell_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_make_shell_mm()
 	_spawn()
 	cam = Camera3D.new()
+	# камеру двигаем каждый кадр сами, по сглаженному положению танка
+	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	cam.near = 0.5
 	cam.far = 4000.0
 	add_child(cam)
 	cam.current = true
 	weather = WeatherScript.new()
+	weather.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # идёт за камерой
 	add_child(weather)
 	weather.setup(str(D.MAPS[map_key].get("weather", "")), self, hq)
 	var layer := CanvasLayer.new()
+	layer.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(layer)
 	hud = HudScript.new()
 	hud.battle = self
@@ -428,6 +463,8 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 	rng.randomize()
 	var top: Dictionary = player_mods if is_player else D.random_mods(key, rng)
 	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history), top)
+	tk.sync_node()
+	tk.reset_physics_interpolation()  # появился на месте, а не приехал из начала координат
 	for c in (player_cons if is_player else D.CONSUMABLES.keys()):
 		tk.cons[c] = 0.0
 	tk.set_dust(Color(D.MAPS[map_key].dust), 0.75 if map_key == "alamein" else 0.55)
@@ -1030,14 +1067,11 @@ func shoot(tk: TankScript) -> void:
 	var g := Vector2(randfn(0.0, 0.45), randfn(0.0, 0.45)).limit_length(1.0) * spread
 	dir = (dir + u * g.x + v * g.y).normalized()
 	var p := tk.muzzle()
-	var mi := MeshInstance3D.new()
-	mi.mesh = shell_mesh
-	mi.material_override = shell_mat
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
-	mi.global_transform = Transform3D(Basis.looking_at(dir), p)
-	shells.append({"pos": p, "vel": dir * float(tk.T.shell_v), "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
-		"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "node": mi, "whiz": false})
+	var sh := {"pos": p, "vel": dir * float(tk.T.shell_v), "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
+		"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "slot": shell_slot, "whiz": false}
+	shell_slot = (shell_slot + 1) % SHELL_SLOTS
+	_shell_visual(sh, 1e9)
+	shells.append(sh)
 	tk.rl_max = tk.reload_time()
 	tk.rl = tk.rl_max
 	tk.shots_fired += 1
@@ -1098,12 +1132,48 @@ func _update_shells(dt: float) -> void:
 			if s.dist > D.RANGE:
 				s.dead = true
 				stat.miss += 1
-		var node: Node3D = s.node
 		if s.dead:
-			node.queue_free()
-		else:
-			node.global_transform = Transform3D(Basis.looking_at(v.normalized()), s.pos)
+			# трассер долетает до места попадания и гаснет
+			_shell_end(s, clock + dt)
+		elif s.rico == 1 and not s.has("rico_shown"):
+			# отражённый снаряд — новый полёт из точки рикошета
+			s.rico_shown = true
+			_shell_visual(s, 1e9)
 	shells = shells.filter(func(x): return not x.dead)
+
+
+func _make_shell_mm() -> void:
+	shell_mm = MultiMesh.new()
+	shell_mm.transform_format = MultiMesh.TRANSFORM_3D
+	var box := BoxMesh.new()
+	box.size = Vector3(0.9, 0.9, 22)
+	shell_mm.mesh = box
+	shell_mm.instance_count = SHELL_SLOTS
+	shell_mm.custom_aabb = AABB(Vector3(-1500, -600, -1500), Vector3(D.WS + 3000, 3000, D.WS + 3000))
+	for i in SHELL_SLOTS:
+		shell_mm.set_instance_transform(i, Transform3D(Basis(Vector3.ZERO, Vector3(1e9, 0, 0), Vector3.ZERO), Vector3.ZERO))
+	var sh := Shader.new()
+	sh.code = SHELL_SHADER
+	shell_mat = ShaderMaterial.new()
+	shell_mat.shader = sh
+	shell_mat.set_shader_parameter("grav", D.GRAVITY)
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = shell_mm
+	mmi.material_override = shell_mat
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.custom_aabb = shell_mm.custom_aabb
+	add_child(mmi)
+
+
+## Полёт снаряда для шейдера: откуда и с какой скоростью вылетел и когда (сейчас).
+func _shell_visual(s: Dictionary, t_end: float) -> void:
+	shell_mm.set_instance_transform(int(s.slot), Transform3D(Basis(s.vel, Vector3(clock, t_end, 0), Vector3.ZERO), s.pos))
+
+
+func _shell_end(s: Dictionary, t_end: float) -> void:
+	var xf := shell_mm.get_instance_transform(int(s.slot))
+	xf.basis.y.y = t_end
+	shell_mm.set_instance_transform(int(s.slot), xf)
 
 
 func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
@@ -1436,8 +1506,7 @@ func _update_spotting() -> void:
 					var d := o.pos.distance_to(e.pos)
 					if d > (110.0 if bush else float(o.T.spot) * o.spot_k):
 						continue
-					var eye := o.top() + Vector3(0, 2, 0)
-					if clear_line(eye, e.top()) or clear_line(eye, e.center()):
+					if _los(o, e):
 						seen = true
 						if team == 0 and not spotter.has(e):
 							spotter[e] = o
@@ -1450,6 +1519,23 @@ func _update_spotting() -> void:
 			if team == 0 and seen and not reported.has(e) and clock > 3.0:
 				reported[e] = true
 				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", _clock_of(watch, e.pos))
+
+
+## Прямая видимость наблюдателя o на цель e. Ответ хранится, пока оба сдвинулись меньше чем на 8 единиц
+## и прошло меньше секунды: стоящие и медленные танки не гоняют лучи заново каждую четверть секунды.
+var los_cache := {}  # [o, e] → [видно, где o, где e, когда]
+
+
+func _los(o: TankScript, e: TankScript) -> bool:
+	var key := [o, e]
+	var c = los_cache.get(key)
+	if c != null and clock - float(c[3]) < 1.0 and (c[1] as Vector2).distance_squared_to(o.pos) < 64.0 \
+			and (c[2] as Vector2).distance_squared_to(e.pos) < 64.0:
+		return c[0]
+	var eye := o.top() + Vector3(0, 2, 0)
+	var v := clear_line(eye, e.top()) or clear_line(eye, e.center())
+	los_cache[key] = [v, o.pos, e.pos, clock]
+	return v
 
 
 # ---------- Игрок ----------
@@ -1554,10 +1640,13 @@ func _player(p: TankScript, dt: float) -> void:
 
 
 func _cam_origin(w: TankScript) -> Vector3:
+	# логика идёт 30 раз в секунду, а на экране танк сглажен между шагами — камера берёт
+	# сглаженное положение, иначе дёргалась бы относительно него
 	if sniper and w.alive:
 		# прицел наводчика — рядом с осью орудия, поэтому без параллакса
-		return w.gun_node.global_transform * Vector3(0.2 * D.UPM, 0.45 * D.UPM, 0.0)
-	var pivot := Vector3(w.pos.x, w.ground + w.height + 7.0, w.pos.y)
+		return w.gun_node.get_global_transform_interpolated() * Vector3(0.2 * D.UPM, 0.45 * D.UPM, 0.0)
+	var wo := w.get_global_transform_interpolated().origin
+	var pivot := Vector3(wo.x, wo.y + w.height + 7.0, wo.z)
 	var dir := _cam_dir()
 	var want: float = 70.0 + float(w.T.L) * 0.55
 	var o := pivot - dir * want
@@ -1710,15 +1799,83 @@ func nav_path(from: Vector2, to: Vector2, safe: bool, r: float) -> PackedVector2
 	return out
 
 
-## Задать боту маршрут; не пересчитывается, пока цель та же и маршрут свежий.
+## Задать боту маршрут; не пересчитывается, пока цель та же и маршрут свежий. Сам поиск идёт
+## в фоновом потоке: бот едет по старому маршруту, пока не придёт новый (обычно через кадр).
 func _set_route(b: TankScript, to: Vector2, safe: bool) -> void:
+	if b.b_path_wait:
+		return
 	if not b.b_path.is_empty() and b.b_path_to.distance_to(to) < 50.0 and safe == b.b_path_safe and clock < b.b_path_t:
 		return
-	b.b_path = nav_path(b.pos, to, safe, radius(b))
+	if nav_sync:
+		_apply_route(b, nav_path(b.pos, to, safe, radius(b)), to, safe)
+		return
+	b.b_path_wait = true
+	nav_mx.lock()
+	nav_jobs.append([b, b.pos, to, safe, radius(b)])
+	nav_mx.unlock()
+	nav_sem.post()
+
+
+# Фоновый поток маршрутов: берёт заявки по одной (сетка A* не любит одновременных поисков).
+var nav_thread: Thread
+var nav_sem: Semaphore
+var nav_mx: Mutex
+var nav_jobs: Array = []  # [бот, откуда, куда, под огнём, радиус]
+var nav_done: Array = []  # [бот, маршрут, куда, под огнём]
+var nav_quit := false
+var nav_sync := false  # прогоны без кадров (simulate): маршрут сразу, как в игре к следующему кадру
+
+
+func _start_nav_thread() -> void:
+	nav_sem = Semaphore.new()
+	nav_mx = Mutex.new()
+	nav_thread = Thread.new()
+	nav_thread.start(_nav_worker)
+
+
+func _nav_worker() -> void:
+	while true:
+		nav_sem.wait()
+		nav_mx.lock()
+		if nav_quit:
+			nav_mx.unlock()
+			return
+		var job = nav_jobs.pop_front() if not nav_jobs.is_empty() else null
+		nav_mx.unlock()
+		if job == null:
+			continue
+		var path := nav_path(job[1], job[2], job[3], job[4])
+		nav_mx.lock()
+		nav_done.append([job[0], path, job[2], job[3]])
+		nav_mx.unlock()
+
+
+## Готовые маршруты из фонового потока — ботам (в начале шага логики).
+func _take_routes() -> void:
+	nav_mx.lock()
+	var done := nav_done
+	nav_done = []
+	nav_mx.unlock()
+	for r in done:
+		_apply_route(r[0], r[1], r[2], r[3])
+
+
+func _apply_route(b: TankScript, path: PackedVector2Array, to: Vector2, safe: bool) -> void:
+	b.b_path = path
 	b.b_pi = 0
 	b.b_path_to = to
 	b.b_path_safe = safe
 	b.b_path_t = clock + randf_range(5.0, 8.0)
+	b.b_path_wait = false
+
+
+func _exit_tree() -> void:
+	if nav_thread and nav_thread.is_started():
+		nav_mx.lock()
+		nav_quit = true
+		nav_mx.unlock()
+		nav_sem.post()
+		nav_thread.wait_to_finish()
 
 
 func _route_vec(b: TankScript) -> Vector2:
@@ -2161,7 +2318,9 @@ func _bot(b: TankScript, dt: float) -> void:
 	_bot_cons(b, dt)
 	b.b_think -= dt
 	if b.b_think <= 0.0:
-		b.b_think = randf_range(0.18, 0.24)
+		# далёкий от камеры бот, которого не видят и у которого нет цели, думает реже
+		var calm: bool = b.b_tg == null and not b.vis[1 - b.team] and b.pos.distance_squared_to(watch.pos) > 1200.0 * 1200.0
+		b.b_think = randf_range(0.5, 0.6) if calm else randf_range(0.18, 0.24)
 		_think(b)
 	var tg: TankScript = b.b_tg if b.b_tg != null and b.b_tg.alive else null
 	var mv := Vector2.ZERO
@@ -2377,6 +2536,10 @@ func alive_count(team: int) -> int:
 
 func _update(dt: float) -> void:
 	clock += dt
+	_take_routes()
+	for tk: TankScript in tanks:
+		tk.travel_prev[0] = tk.travel[0]
+		tk.travel_prev[1] = tk.travel[1]
 	spot_t -= dt
 	if spot_t <= 0:
 		_update_spotting()
@@ -2547,6 +2710,7 @@ func _clock_of(from: TankScript, p: Vector2) -> int:
 
 ## Прогон симуляции без отрисовки (для проверок).
 func simulate(steps: int) -> void:
+	nav_sync = true
 	for i in steps:
 		if over:
 			return
@@ -2636,26 +2800,33 @@ func _sync(dt: float) -> void:
 	for tk: TankScript in tanks:
 		tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
 		_sync_sound(tk)
-	trk_mat.set_shader_parameter("now", clock)
+	# время для шейдеров — между шагами логики, чтобы трассеры летели плавно
+	var frac := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
+	var now_v := clock + frac * speed / float(Engine.physics_ticks_per_second)
+	trk_mat.set_shader_parameter("now", now_v)
+	shell_mat.set_shader_parameter("now", now_v)
+	for tk: TankScript in tanks:
+		if tk.alive and tk.visible:
+			tk.sync_travel(frac)
 	bush_mat.set_shader_parameter("fade_a", w.center())
 	bush_mat.set_shader_parameter("fade_b", cam.global_position)
 	for z in zones:
+		# перекрашиваем, только когда меняется владелец или начинается захват
+		var cap := 1 if z.prog[0] > 0 and z.side != 0 else (2 if z.prog[1] > 0 and z.side != 1 else 0)
+		var key: int = (z.side + 1) * 3 + cap
+		if key == z.col_key:
+			continue
+		z.col_key = key
 		var c := Color.WHITE
 		if z.side == 0:
 			c = Color(D.ALLY)
 		elif z.side == 1:
 			c = Color(D.FOE)
-		var ring := c
-		if z.prog[0] > 0 and z.side != 0:
-			ring = Color("9ae07a")
-		elif z.prog[1] > 0 and z.side != 1:
-			ring = Color("ff8a6a")
-		z.ring_mat.albedo_color = ring
+		z.ring_mat.albedo_color = [c, Color("9ae07a"), Color("ff8a6a")][cap]
 		var dc := c
 		dc.a = 0.1
 		z.disc_mat.albedo_color = dc
-		z.flag_mat.albedo_color = c
-		z.flag.rotation.y = sin(clock * 2.0 + z.pos.x) * 0.25
+		z.flag_mat.set_shader_parameter("col", c)
 
 
 ## Обороты двигателя и лязг гусениц следуют за газом и скоростью.

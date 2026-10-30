@@ -44,6 +44,12 @@ var col_amber := Color(D.AMBER)
 var col_text := Color(UI.TEXT)
 var col_dim := Color(UI.DIM)
 var sb_panel := UI.box("0a0c08", UI.LINE, 1, 8, 0.62, 0.0)
+var mini_tex: ImageTexture  # неподвижный слой миникарты, запекается один раз за бой
+# Интерфейс в два слоя: быстрый (прицел, метки над танками, миникарта, кнопки) рисуется каждый кадр,
+# медленный (счёт и таймер, лента событий, рация, прочность и модули) — 10 раз в секунду.
+var cv: CanvasItem = self  # на чём сейчас рисуем
+var slow: Control
+var slow_t := 0.0
 
 var brief_box: Control
 var dead_box: Control
@@ -61,6 +67,11 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = UI.theme()
 	font = ThemeDB.fallback_font
+	slow = Control.new()
+	slow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slow.draw.connect(_draw_slow)
+	add_child(slow)
 	_build_dead()
 	_build_pause()
 	_build_result()
@@ -72,6 +83,7 @@ func team_color(team: int) -> Color:
 
 func add_feed(parts: Array) -> void:
 	feed.append({"parts": parts, "t": 4.5})
+	slow_t = 0.0
 	while feed.size() > 4:
 		feed.pop_front()
 
@@ -83,6 +95,7 @@ func alert(text: String, col: Color) -> void:
 			a.t = 2.8
 			return
 	alerts.append({"text": text, "col": col, "t": 2.8})
+	slow_t = 0.0
 	while alerts.size() > 3:
 		alerts.pop_front()
 
@@ -90,6 +103,7 @@ func alert(text: String, col: Color) -> void:
 ## Переговоры: позывной, фраза на языке стороны и перевод (пустой для русского).
 func add_radio(cs: String, text: String, tr: String) -> void:
 	radio_lines.append({"cs": cs, "text": text, "tr": tr, "t": 7.0})
+	slow_t = 0.0
 	while radio_lines.size() > 3:
 		radio_lines.pop_front()
 
@@ -215,6 +229,10 @@ func _process(delta: float) -> void:
 		a.t -= delta
 	alerts = alerts.filter(func(x): return x.t > 0)
 	queue_redraw()
+	slow_t -= delta
+	if slow_t <= 0.0:
+		slow_t = 0.1
+		slow.queue_redraw()
 
 
 # ---------- Рисование ----------
@@ -224,8 +242,8 @@ func _text(p: Vector2, s: String, fs: int, col: Color, center := false, outline 
 	var pos := Vector2(p.x - 400.0, p.y) if center else p
 	var al := HORIZONTAL_ALIGNMENT_CENTER if center else HORIZONTAL_ALIGNMENT_LEFT
 	if outline > 0:
-		draw_string_outline(font, pos, s, al, w, fs, outline, Color(0, 0, 0, 0.7))
-	draw_string(font, pos, s, al, w, fs, col)
+		cv.draw_string_outline(font, pos, s, al, w, fs, outline, Color(0, 0, 0, 0.7))
+	cv.draw_string(font, pos, s, al, w, fs, col)
 
 
 func _proj(p3: Vector3):
@@ -242,14 +260,22 @@ func _proj(p3: Vector3):
 func _draw() -> void:
 	if battle == null or battle.cam == null:
 		return
+	cv = self
 	_draw_world()
 	_draw_crosshair()
+	_draw_minimap()
+	_draw_controls()
+
+
+func _draw_slow() -> void:
+	if battle == null or battle.cam == null:
+		return
+	cv = slow
 	_draw_top()
 	_draw_feed()
-	_draw_minimap()
 	_draw_radio()
 	_draw_hp()
-	_draw_controls()
+	cv = self
 
 
 func _draw_world() -> void:
@@ -273,16 +299,16 @@ func _draw_world() -> void:
 			continue
 		if tk.pos.distance_to(w.pos) > 1100.0:
 			continue
-		var s = _proj(tk.top() + Vector3(0, 12, 0))
+		var s = _proj(tk.get_global_transform_interpolated().origin + Vector3(0, tk.height + 10.0, 0))
 		if s == null:
 			continue
 		var col := team_color(tk.team)
 		var bw := 58.0
-		draw_rect(Rect2(s.x - bw / 2 - 1, s.y - 1, bw + 2, 7), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(s.x - bw / 2, s.y, bw * clampf(tk.hp / tk.max_hp, 0.0, 1.0), 5), col)
+		cv.draw_rect(Rect2(s.x - bw / 2 - 1, s.y - 1, bw + 2, 7), Color(0, 0, 0, 0.6))
+		cv.draw_rect(Rect2(s.x - bw / 2, s.y, bw * clampf(tk.hp / tk.max_hp, 0.0, 1.0), 5), col)
 		_text(Vector2(s.x, s.y - 6), tk.callsign, 16, col, true, 4)
 		# маркер-треугольник команды
-		draw_colored_polygon(PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
+		cv.draw_colored_polygon(PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
 	for tx in battle.texts:
 		var s = _proj(tx.pos + Vector3(0, (1.3 - float(tx.life)) * 22.0, 0))
 		if s == null:
@@ -302,19 +328,19 @@ func _draw_crosshair() -> void:
 		# оптика: затемнение по краям и сетка
 		var r := minf(size.x, size.y) * 0.46
 		var dark := Color(0.02, 0.02, 0.02, 0.92)
-		draw_rect(Rect2(0, 0, c.x - r, size.y), dark)
-		draw_rect(Rect2(c.x + r, 0, size.x - c.x - r, size.y), dark)
+		cv.draw_rect(Rect2(0, 0, c.x - r, size.y), dark)
+		cv.draw_rect(Rect2(c.x + r, 0, size.x - c.x - r, size.y), dark)
 		var ring := PackedVector2Array()
 		for i in 49:
 			ring.append(c + Vector2.from_angle(TAU * i / 48.0) * r)
-		draw_polyline(ring, dark, 40.0)
-		draw_line(c + Vector2(-r, 0), c + Vector2(-26, 0), Color(0, 0, 0, 0.7), 2.0)
-		draw_line(c + Vector2(26, 0), c + Vector2(r, 0), Color(0, 0, 0, 0.7), 2.0)
-		draw_line(c + Vector2(0, 26), c + Vector2(0, r), Color(0, 0, 0, 0.7), 2.0)
+		cv.draw_polyline(ring, dark, 40.0)
+		cv.draw_line(c + Vector2(-r, 0), c + Vector2(-26, 0), Color(0, 0, 0, 0.7), 2.0)
+		cv.draw_line(c + Vector2(26, 0), c + Vector2(r, 0), Color(0, 0, 0, 0.7), 2.0)
+		cv.draw_line(c + Vector2(0, 26), c + Vector2(0, r), Color(0, 0, 0, 0.7), 2.0)
 		for k in range(1, 5):
-			draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
+			cv.draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
 	else:
-		draw_circle(c, 2.0, Color(1, 1, 1, 0.8))
+		cv.draw_circle(c, 2.0, Color(1, 1, 1, 0.8))
 	if not w.alive or battle.gun_point == null:
 		return
 	var s = _proj(battle.gun_point)
@@ -328,14 +354,14 @@ func _draw_crosshair() -> void:
 		_text(s + Vector2(0, r + 30), "ПРЕДЕЛ НАВОДКИ", 14, col, true, 3)
 	else:
 		col = _pen_color()
-	draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
-	draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
+	cv.draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
+	cv.draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
 	if w.rl > 0:
 		var k: float = 1.0 - w.rl / maxf(float(w.rl_max), 0.01)
-		draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
+		cv.draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
-		draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
-	draw_circle(s, 1.8, col)
+		cv.draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
+	cv.draw_circle(s, 1.8, col)
 
 
 func _pen_color() -> Color:
@@ -353,28 +379,28 @@ func _pen_color() -> Color:
 func _draw_top() -> void:
 	var cx := size.x / 2
 	var top := 12.0 + margins.y
-	draw_style_box(sb_panel, Rect2(cx - 160, top, 320, 46))
+	cv.draw_style_box(sb_panel, Rect2(cx - 160, top, 320, 46))
 	_text(Vector2(cx - 108, top + 34), str(battle.alive_count(0)), 30, col_ally, true, 0)
 	_text(Vector2(cx - 40, top + 30), "ПРОТИВ", 14, col_dim, true, 0)
 	_text(Vector2(cx + 28, top + 34), str(battle.alive_count(1)), 30, col_foe, true, 0)
 	_text(Vector2(cx + 106, top + 31), _fmt_t(D.TIME_LIMIT - battle.clock), 20, col_text, true, 0)
 	var y := top + 56
 	if battle.mode == "supremacy":
-		draw_style_box(sb_panel, Rect2(cx - 130, y, 260, 44))
+		cv.draw_style_box(sb_panel, Rect2(cx - 130, y, 260, 44))
 		_text(Vector2(cx - 98, y + 30), str(int(battle.score[0])), 20, col_ally, true, 0)
 		_text(Vector2(cx + 98, y + 30), str(int(battle.score[1])), 20, col_foe, true, 0)
 		for i in battle.zones.size():
 			var z = battle.zones[i]
 			var c := Vector2(cx + (i - 1) * 44.0, y + 22)
 			var fill := Color(1, 1, 1, 0.15) if z.side < 0 else team_color(z.side)
-			draw_circle(c, 16, fill)
-			draw_arc(c, 16, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
+			cv.draw_circle(c, 16, fill)
+			cv.draw_arc(c, 16, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
 			var pr: float = maxf(z.prog[0], z.prog[1])
 			if pr > 0:
 				var pc := col_ally if z.prog[0] > z.prog[1] else col_foe
-				draw_arc(c, 19, -PI / 2, -PI / 2 + TAU * pr / 100.0, 32, pc, 4.0, true)
+				cv.draw_arc(c, 19, -PI / 2, -PI / 2 + TAU * pr / 100.0, 32, pc, 4.0, true)
 			if z.n[0] > 0 and z.n[1] > 0 and int(battle.clock * 3) % 2 == 0:
-				draw_arc(c, 23, 0, TAU, 32, col_amber, 2.0, true)
+				cv.draw_arc(c, 23, 0, TAU, 32, col_amber, 2.0, true)
 			_text(c + Vector2(0, 7), z.label, 18, Color.WHITE if z.side < 0 else Color(0.08, 0.1, 0.05), true, 0)
 		y += 52
 	else:
@@ -392,15 +418,15 @@ func _draw_top() -> void:
 				bars.append(["ПРОТИВНИК ЗАХВАТЫВАЕТ", z.prog[1], col_foe])
 		for b in bars:
 			var v: float = b[1]
-			draw_style_box(sb_panel, Rect2(cx - 160, y, 320, 34))
+			cv.draw_style_box(sb_panel, Rect2(cx - 160, y, 320, 34))
 			_text(Vector2(cx, y + 18), "%s  %d%%" % [b[0], int(v)], 14, b[2], true, 0)
-			draw_rect(Rect2(cx - 150, y + 24, 300, 5), Color(1, 1, 1, 0.12))
-			draw_rect(Rect2(cx - 150, y + 24, 300 * v / 100.0, 5), b[2])
+			cv.draw_rect(Rect2(cx - 150, y + 24, 300, 5), Color(1, 1, 1, 0.12))
+			cv.draw_rect(Rect2(cx - 150, y + 24, 300 * v / 100.0, 5), b[2])
 			y += 40
 	var p = battle.player
 	if p.alive and p.vis[1] and _enemy_near(p):
 		var r := Rect2(cx - 100, y, 200, 28)
-		draw_rect(r, col_amber)
+		cv.draw_rect(r, col_amber)
 		_text(Vector2(cx, y + 20), "ВАС ОБНАРУЖИЛИ", 15, Color("1b1405"), true, 0)
 
 
@@ -419,52 +445,99 @@ func _draw_feed() -> void:
 		for part in f.parts:
 			total += font.get_string_size(part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 		var a := clampf(f.t, 0.0, 1.0)
-		draw_rect(Rect2(x - total - 10, y, total + 20, 26), Color(0.04, 0.05, 0.03, 0.6 * a))
+		cv.draw_rect(Rect2(x - total - 10, y, total + 20, 26), Color(0.04, 0.05, 0.03, 0.6 * a))
 		var px := x - total
 		for part in f.parts:
 			var c: Color = part[1]
 			c.a = a
-			draw_string(font, Vector2(px, y + 19), part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, c)
+			cv.draw_string(font, Vector2(px, y + 19), part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, c)
 			px += font.get_string_size(part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 		y += 30
+
+
+## Неподвижный слой миникарты: рельеф с отмывкой склонов, дороги, постройки, изгороди, кусты и лес.
+## Рисуется один раз в картинку — каждый кадр поверх неё только танки, зоны и конус обзора.
+func _bake_minimap() -> void:
+	var S := 340
+	var k := float(S) / D.WS
+	var M: Dictionary = D.MAPS[battle.map_key]
+	var bg := Color(M.mini)
+	var terra = battle.terra
+	# отмывка склонов по узлам сетки рельефа (шаг 20 единиц), потом растянуть до размера карты;
+	# свет с северо-запада: склоны к нему светлее, от него темнее
+	var n0 := int(-terra.ORIGIN / terra.CELL)
+	var cells := int(D.WS / terra.CELL)
+	var row: int = terra.N + 1
+	var h: PackedFloat32Array = terra.h
+	var shade := Image.create(cells, cells, false, Image.FORMAT_RGBA8)
+	for y in cells:
+		for x in cells:
+			var i := (n0 + y) * row + n0 + x
+			var g: float = (h[i + 1] - h[i - 1]) + (h[i + row] - h[i - row])
+			var c := bg.lightened(clampf(-g * 0.03, 0.0, 0.25)).darkened(clampf(g * 0.03, 0.0, 0.3))
+			c.a = 0.88
+			shade.set_pixel(x, y, c)
+	shade.resize(S, S, Image.INTERPOLATE_BILINEAR)
+	var img := shade
+	var road := bg.lerp(Color(M.road), 0.6)
+	road.a = 0.88
+	var mask: Image = terra.mask
+	var mk_k := 1024.0 / float(terra.SIZE)
+	for y in S:
+		var mz := clampi(int(((y + 0.5) / k - terra.ORIGIN) * mk_k), 0, 1023)
+		for x in S:
+			if mask.get_pixel(clampi(int(((x + 0.5) / k - terra.ORIGIN) * mk_k), 0, 1023), mz).r > 0.4:
+				img.set_pixel(x, y, road)
+	var oc := Color(0.12, 0.12, 0.1, 0.9) if not M.get("winter", false) else Color(0.28, 0.31, 0.35, 0.95)
+	var hedge := Color(0.13, 0.24, 0.1, 0.95)
+	for ob in battle.obst:
+		var r: Rect2 = ob.r
+		var pr := Rect2i(Vector2i(r.position * k), Vector2i((r.size * k).max(Vector2(2, 2)))).intersection(Rect2i(0, 0, S, S))
+		img.fill_rect(pr, hedge if ob.kind == "hedgerow" else oc)
+	var leaf := Color(0.15, 0.3, 0.12, 0.9)
+	var _dot := func(p: Vector2, rad: float, col: Color) -> void:
+		var c := p * k
+		var rr := maxf(1.0, rad * k)
+		for y in range(int(c.y - rr), int(c.y + rr) + 1):
+			for x in range(int(c.x - rr), int(c.x + rr) + 1):
+				if x >= 0 and y >= 0 and x < S and y < S and Vector2(x + 0.5, y + 0.5).distance_to(c) <= rr:
+					img.set_pixel(x, y, col)
+	for b in battle.bushes:
+		_dot.call(b.pos, float(b.r), leaf)
+	for pr in battle.props:
+		if pr.kind == "tree" or pr.kind == "spruce" or pr.kind == "apple":
+			_dot.call(pr.pos, 10.0, leaf.darkened(0.15))
+	mini_tex = ImageTexture.create_from_image(img)
 
 
 func _draw_minimap() -> void:
 	var sz := 170.0
 	var o := Vector2(14.0 + margins.x, 12.0 + margins.y)
 	var k := sz / D.WS
-	var M: Dictionary = D.MAPS[battle.map_key]
-	var bg := Color(M.mini)
-	bg.a = 0.85
-	draw_rect(Rect2(o, Vector2(sz, sz)), bg)
-	var oc := Color(0.12, 0.12, 0.1, 0.8) if battle.map_key != "stalingrad" else Color(0.28, 0.31, 0.35, 0.95)
-	var hedge := Color(0.13, 0.24, 0.1, 0.95)
-	for ob in battle.obst:
-		var r: Rect2 = ob.r
-		draw_rect(Rect2(o + r.position * k, (r.size * k).max(Vector2(2, 2))), hedge if ob.kind == "hedgerow" else oc)
-	for b in battle.bushes:
-		draw_circle(o + b.pos * k, float(b.r) * k, Color(0.15, 0.3, 0.12, 0.85))
+	if mini_tex == null:
+		_bake_minimap()
+	cv.draw_texture_rect(mini_tex, Rect2(o, Vector2(sz, sz)), false)
 	for z in battle.zones:
 		var c := Color.WHITE if z.side < 0 else team_color(z.side)
-		draw_arc(o + z.pos * k, float(z.r) * k, 0, TAU, 24, c, 2.0, true)
+		cv.draw_arc(o + z.pos * k, float(z.r) * k, 0, TAU, 24, c, 2.0, true)
 		if z.label != "":
 			_text(o + z.pos * k + Vector2(0, 5), z.label, 13, Color.WHITE, true, 3)
 	var w = battle.watch
 	var wp: Vector2 = o + w.pos * k
 	var yaw: float = battle.cam_yaw
 	var cone := PackedVector2Array([wp, wp + Vector2.from_angle(yaw - 0.5) * 42.0, wp + Vector2.from_angle(yaw + 0.5) * 42.0])
-	draw_colored_polygon(cone, Color(1, 1, 1, 0.16))
+	cv.draw_colored_polygon(cone, Color(1, 1, 1, 0.16))
 	for tk in battle.tanks:
 		if not tk.alive or (tk.team == 1 and not tk.vis[0]):
 			continue
 		var c := team_color(tk.team)
 		var tp: Vector2 = o + tk.pos * k
 		if tk.is_player:
-			draw_circle(tp, 6.0, c)
-			draw_arc(tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0, true)
+			cv.draw_circle(tp, 6.0, c)
+			cv.draw_arc(tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0, true)
 		else:
-			draw_circle(tp, 4.5, c)
-	draw_rect(Rect2(o, Vector2(sz, sz)), Color(UI.LINE), false, 2.0)
+			cv.draw_circle(tp, 4.5, c)
+	cv.draw_rect(Rect2(o, Vector2(sz, sz)), Color(UI.LINE), false, 2.0)
 
 
 ## Последние переговоры под миникартой: позывной и фраза, под ней перевод.
@@ -478,12 +551,12 @@ func _draw_radio() -> void:
 		var tw := font.get_string_size(r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var trw := font.get_string_size(r.tr, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x if r.tr != "" else 0.0
 		var h := 44.0 if r.tr != "" else 26.0
-		draw_rect(Rect2(x, y, maxf(hw + tw, trw) + 16, h), Color(0.04, 0.05, 0.03, 0.62 * a))
-		draw_rect(Rect2(x, y, 3, h), Color(col_ally, a))
-		draw_string(font, Vector2(x + 9, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_ally, a))
-		draw_string(font, Vector2(x + 9 + hw, y + 18), r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_text, a))
+		cv.draw_rect(Rect2(x, y, maxf(hw + tw, trw) + 16, h), Color(0.04, 0.05, 0.03, 0.62 * a))
+		cv.draw_rect(Rect2(x, y, 3, h), Color(col_ally, a))
+		cv.draw_string(font, Vector2(x + 9, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_ally, a))
+		cv.draw_string(font, Vector2(x + 9 + hw, y + 18), r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(col_text, a))
 		if r.tr != "":
-			draw_string(font, Vector2(x + 9, y + 37), r.tr, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(col_dim, a))
+			cv.draw_string(font, Vector2(x + 9, y + 37), r.tr, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(col_dim, a))
 		y += h + 4.0
 
 
@@ -500,8 +573,8 @@ func _draw_hp() -> void:
 	else:
 		c = col_foe
 	_text(Vector2(cx, y), String(p.T.name).to_upper(), 14, col_dim, true, 3)
-	draw_rect(Rect2(cx - 150, y + 6, 300, 14), Color(0.04, 0.05, 0.03, 0.75))
-	draw_rect(Rect2(cx - 149, y + 7, 298 * f, 12), c)
+	cv.draw_rect(Rect2(cx - 150, y + 6, 300, 14), Color(0.04, 0.05, 0.03, 0.75))
+	cv.draw_rect(Rect2(cx - 149, y + 7, 298 * f, 12), c)
 	_text(Vector2(cx, y + 42), "%d / %d" % [ceili(maxf(p.hp, 0.0)), int(p.max_hp)], 20, col_text, true, 4)
 	if not p.alive:
 		return
@@ -544,10 +617,10 @@ func _draw_damage(p, cx: float, y: float) -> void:
 	for it in items:
 		var c := Vector2(x, y)
 		var col: Color = it[2]
-		draw_style_box(UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
+		cv.draw_style_box(UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
 		_icon(it[0], c, col)
 		if it[3] >= 0.0:
-			draw_arc(c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0, true)
+			cv.draw_arc(c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0, true)
 		_text(c + Vector2(0, 38), it[1], 10, col, true, 3)
 		x += step
 
@@ -556,75 +629,75 @@ func _draw_damage(p, cx: float, y: float) -> void:
 func _icon(kind: String, c: Vector2, col: Color) -> void:
 	match kind:
 		"engine":
-			draw_rect(Rect2(c + Vector2(-12, -3), Vector2(24, 13)), col)
+			cv.draw_rect(Rect2(c + Vector2(-12, -3), Vector2(24, 13)), col)
 			for i in 3:
-				draw_rect(Rect2(c + Vector2(-11 + i * 8, -11), Vector2(6, 7)), col)
+				cv.draw_rect(Rect2(c + Vector2(-11 + i * 8, -11), Vector2(6, 7)), col)
 		"gun":
-			draw_rect(Rect2(c + Vector2(-14, -2), Vector2(21, 4)), col)
-			draw_rect(Rect2(c + Vector2(5, -7), Vector2(9, 14)), col)
+			cv.draw_rect(Rect2(c + Vector2(-14, -2), Vector2(21, 4)), col)
+			cv.draw_rect(Rect2(c + Vector2(5, -7), Vector2(9, 14)), col)
 		"turret":
-			draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 8), c + Vector2(-10, -3), c + Vector2(3, -7),
+			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 8), c + Vector2(-10, -3), c + Vector2(3, -7),
 				c + Vector2(10, -1), c + Vector2(10, 8)]), col)
-			draw_rect(Rect2(c + Vector2(8, -3), Vector2(8, 3)), col)
+			cv.draw_rect(Rect2(c + Vector2(8, -3), Vector2(8, 3)), col)
 		"optics":
-			draw_arc(c, 11, 0, TAU, 24, col, 2.5, true)
-			draw_circle(c, 4.5, col)
+			cv.draw_arc(c, 11, 0, TAU, 24, col, 2.5, true)
+			cv.draw_circle(c, 4.5, col)
 		"ammo":
-			draw_rect(Rect2(c + Vector2(-4, -3), Vector2(8, 14)), col)
-			draw_colored_polygon(PackedVector2Array([c + Vector2(-4, -3), c + Vector2(4, -3), c + Vector2(0, -12)]), col)
+			cv.draw_rect(Rect2(c + Vector2(-4, -3), Vector2(8, 14)), col)
+			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-4, -3), c + Vector2(4, -3), c + Vector2(0, -12)]), col)
 		"fuel":
-			draw_rect(Rect2(c + Vector2(-8, -7), Vector2(16, 18)), col)
-			draw_line(c + Vector2(-3, -11), c + Vector2(5, -11), col, 3.0)
+			cv.draw_rect(Rect2(c + Vector2(-8, -7), Vector2(16, 18)), col)
+			cv.draw_line(c + Vector2(-3, -11), c + Vector2(5, -11), col, 3.0)
 		"track":
-			draw_arc(c + Vector2(-7, 2), 5, 0, TAU, 16, col, 2.0, true)
-			draw_arc(c + Vector2(7, 2), 5, 0, TAU, 16, col, 2.0, true)
-			draw_line(c + Vector2(-7, -5), c + Vector2(7, -5), col, 2.5)
-			draw_line(c + Vector2(-7, 9), c + Vector2(7, 9), col, 2.5)
+			cv.draw_arc(c + Vector2(-7, 2), 5, 0, TAU, 16, col, 2.0, true)
+			cv.draw_arc(c + Vector2(7, 2), 5, 0, TAU, 16, col, 2.0, true)
+			cv.draw_line(c + Vector2(-7, -5), c + Vector2(7, -5), col, 2.5)
+			cv.draw_line(c + Vector2(-7, 9), c + Vector2(7, 9), col, 2.5)
 		"fire":
-			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -13), c + Vector2(8, 0), c + Vector2(6, 10),
+			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -13), c + Vector2(8, 0), c + Vector2(6, 10),
 				c + Vector2(-6, 10), c + Vector2(-8, 0), c + Vector2(-3, -4)]), col)
 		_:
-			draw_circle(c + Vector2(0, -6), 5.5, col)
-			draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 11), c + Vector2(-7, 1), c + Vector2(7, 1),
+			cv.draw_circle(c + Vector2(0, -6), 5.5, col)
+			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 11), c + Vector2(-7, 1), c + Vector2(7, 1),
 				c + Vector2(10, 11)]), col)
 
 
 func _draw_controls() -> void:
 	# пауза
-	draw_circle(pause_c, 30, Color(0.04, 0.05, 0.03, 0.6))
-	draw_arc(pause_c, 30, 0, TAU, 32, Color(UI.LINE), 2.0, true)
-	draw_rect(Rect2(pause_c.x - 8, pause_c.y - 10, 5, 20), col_text)
-	draw_rect(Rect2(pause_c.x + 3, pause_c.y - 10, 5, 20), col_text)
+	cv.draw_circle(pause_c, 30, Color(0.04, 0.05, 0.03, 0.6))
+	cv.draw_arc(pause_c, 30, 0, TAU, 32, Color(UI.LINE), 2.0, true)
+	cv.draw_rect(Rect2(pause_c.x - 8, pause_c.y - 10, 5, 20), col_text)
+	cv.draw_rect(Rect2(pause_c.x + 3, pause_c.y - 10, 5, 20), col_text)
 	var p = battle.player
 	if not p.alive:
 		return
 	# джойстик движения
 	if move_idx != -1:
-		draw_circle(move_o, SR, Color(1, 1, 1, 0.08))
-		draw_arc(move_o, SR, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0, true)
-		draw_circle(move_o + move * SR, 34, Color(1, 1, 1, 0.45))
+		cv.draw_circle(move_o, SR, Color(1, 1, 1, 0.08))
+		cv.draw_arc(move_o, SR, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0, true)
+		cv.draw_circle(move_o + move * SR, 34, Color(1, 1, 1, 0.45))
 	else:
 		_text(Vector2(140 + margins.x, size.y - 30 - margins.w), "◀ ДВИЖЕНИЕ ▶", 13, Color(1, 1, 1, 0.35), true, 0)
 	# огонь с кольцом перезарядки
 	var ready: bool = p.rl <= 0 and p.can_fire()
-	draw_circle(fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
+	cv.draw_circle(fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
 	if not ready and p.rl > 0:
 		var k: float = 1.0 - p.rl / maxf(float(p.rl_max), 0.01)
-		draw_arc(fire_c, fire_r - 4, -PI / 2, -PI / 2 + TAU * k, 64, col_amber, 8.0, true)
-	draw_circle(fire_c, fire_r - 10, col_amber if ready else Color("6c5a2a"))
+		cv.draw_arc(fire_c, fire_r - 4, -PI / 2, -PI / 2 + TAU * k, 64, col_amber, 8.0, true)
+	cv.draw_circle(fire_c, fire_r - 10, col_amber if ready else Color("6c5a2a"))
 	var label := "ОГОНЬ" if ready else ("%.1f" % p.rl if p.rl > 0 else "РЕМОНТ")
 	_text(fire_c + Vector2(0, 9), label, 24, Color("1b1405") if ready else col_text, true, 0)
 	# автоприцел
 	var ac := col_amber if auto_aim else col_dim
-	draw_style_box(UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
+	cv.draw_style_box(UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
 	_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
 	# снайперский прицел
 	var on: bool = battle.sniper
-	draw_circle(zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
-	draw_arc(zoom_c, 40, 0, TAU, 40, col_amber if on else Color(UI.LINE), 2.0, true)
+	cv.draw_circle(zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
+	cv.draw_arc(zoom_c, 40, 0, TAU, 40, col_amber if on else Color(UI.LINE), 2.0, true)
 	var zc := Color("1b1405") if on else col_text
-	draw_arc(zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5, true)
-	draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
+	cv.draw_arc(zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5, true)
+	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
 
@@ -635,13 +708,13 @@ func _draw_cons(p) -> void:
 		var cc: Vector2 = cons_c[c]
 		var cd: float = p.cons[c]
 		var need: bool = cd <= 0.0 and p.cons_needed(c)
-		draw_circle(cc, 30, Color(0.04, 0.05, 0.03, 0.62))
-		draw_arc(cc, 30, 0, TAU, 40, col_amber if need else Color(UI.LINE), 3.0 if need else 2.0, true)
+		cv.draw_circle(cc, 30, Color(0.04, 0.05, 0.03, 0.62))
+		cv.draw_arc(cc, 30, 0, TAU, 40, col_amber if need else Color(UI.LINE), 3.0 if need else 2.0, true)
 		var col := col_text if cd <= 0.0 else col_dim
 		_cons_icon(c, cc, col)
 		if cd > 0.0:
 			var k: float = 1.0 - cd / float(D.CONSUMABLES[c].cd)
-			draw_arc(cc, 26, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
+			cv.draw_arc(cc, 26, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
 		else:
 			_text(cc + Vector2(0, 46), ["1", "2", "3"][["repair", "medkit", "ext"].find(c)], 11, col_dim, true, 3)
@@ -651,16 +724,16 @@ func _cons_icon(kind: String, c: Vector2, col: Color) -> void:
 	match kind:
 		"repair":
 			# гаечный ключ
-			draw_line(c + Vector2(-9, 9), c + Vector2(6, -6), col, 5.0, true)
-			draw_arc(c + Vector2(8, -8), 6, PI * 0.9, PI * 2.4, 16, col, 3.5, true)
+			cv.draw_line(c + Vector2(-9, 9), c + Vector2(6, -6), col, 5.0, true)
+			cv.draw_arc(c + Vector2(8, -8), 6, PI * 0.9, PI * 2.4, 16, col, 3.5, true)
 		"medkit":
-			draw_rect(Rect2(c + Vector2(-4, -12), Vector2(8, 24)), col)
-			draw_rect(Rect2(c + Vector2(-12, -4), Vector2(24, 8)), col)
+			cv.draw_rect(Rect2(c + Vector2(-4, -12), Vector2(8, 24)), col)
+			cv.draw_rect(Rect2(c + Vector2(-12, -4), Vector2(24, 8)), col)
 		"ext":
 			# огнетушитель
-			draw_rect(Rect2(c + Vector2(-6, -6), Vector2(12, 18)), col)
-			draw_rect(Rect2(c + Vector2(-3, -11), Vector2(6, 5)), col)
-			draw_line(c + Vector2(3, -9), c + Vector2(11, -12), col, 2.5, true)
+			cv.draw_rect(Rect2(c + Vector2(-6, -6), Vector2(12, 18)), col)
+			cv.draw_rect(Rect2(c + Vector2(-3, -11), Vector2(6, 5)), col)
+			cv.draw_line(c + Vector2(3, -9), c + Vector2(11, -12), col, 2.5, true)
 
 
 static func _fmt_t(s: float) -> String:
