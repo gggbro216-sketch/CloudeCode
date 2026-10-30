@@ -3,10 +3,17 @@ extends RefCounted
 ## и слияние частей в одну сетку на материал (меньше вызовов отрисовки на телефоне).
 
 
-## Набор сеток, сгруппированных по материалу.
+const Native = preload("res://scripts/native.gd")
+
+
+## Набор сеток, сгруппированных по материалу. С C++ (SteelCore) вершины переносит и разворачивает
+## библиотека, а сетка собирается из готовых массивов; без неё — SurfaceTool по вершине.
 class Group:
 	var sts := {}
 	var extra := false  # писать цвет вершины и UV2 (центр куста для шейдера)
+	var core: Object = Native.shared()
+	var parts := {}  # материал → [[вершины, нормали, uv, цвет, uv2], …] (путь через C++)
+	var arrs := {}  # сетка → её массивы (одну сетку часто ставят много раз)
 
 	func _st(m: Material) -> SurfaceTool:
 		if not sts.has(m):
@@ -17,6 +24,9 @@ class Group:
 
 	## Добавить сетку с преобразованием. flat — плоские нормали (low-poly).
 	func add(mesh: Mesh, xf: Transform3D, m: Material, flat := false, col := Color.WHITE, uv2 := Vector2.ZERO, uv_over = null) -> void:
+		if core:
+			_add_native(mesh, xf, m, flat, col, uv2, uv_over)
+			return
 		var st := _st(m)
 		var arr := mesh.surface_get_arrays(0)
 		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
@@ -64,8 +74,63 @@ class Group:
 					st.set_uv2(uv2)
 				st.add_vertex(xf * verts[i])
 
+	func _add_native(mesh: Mesh, xf: Transform3D, m: Material, flat: bool, col: Color, uv2: Vector2, uv_over) -> void:
+		if not arrs.has(mesh):
+			arrs[mesh] = mesh.surface_get_arrays(0)
+		var arr: Array = arrs[mesh]
+		var b := xf.basis
+		var o := xf.origin
+		var uo: Vector2 = uv_over if uv_over != null else Vector2.ZERO
+		var p := PackedFloat32Array([b.x.x, b.x.y, b.x.z, b.y.x, b.y.y, b.y.z, b.z.x, b.z.y, b.z.z, o.x, o.y, o.z,
+			1.0 if flat else 0.0, 1.0 if uv_over != null else 0.0, uo.x, uo.y])
+		var nv = arr[Mesh.ARRAY_NORMAL]
+		var uv = arr[Mesh.ARRAY_TEX_UV]
+		var iv = arr[Mesh.ARRAY_INDEX]
+		var res: Array = core.geo_add(arr[Mesh.ARRAY_VERTEX], nv if nv != null else PackedVector3Array(),
+			uv if uv != null else PackedVector2Array(), iv if iv != null else PackedInt32Array(), p)
+		if not parts.has(m):
+			parts[m] = []
+		parts[m].append([res[0], res[1], res[2], col, uv2])
+
 	func commit(parent: Node3D, shadows: bool) -> Array:
 		var out: Array = []
+		for m in parts:
+			var v := PackedVector3Array()
+			var n := PackedVector3Array()
+			var uv := PackedVector2Array()
+			var cols := PackedColorArray()
+			var uv2s := PackedVector2Array()
+			for ch in parts[m]:
+				v.append_array(ch[0])
+				n.append_array(ch[1])
+				uv.append_array(ch[2])
+				if extra:
+					var k: int = (ch[0] as PackedVector3Array).size()
+					var cc := PackedColorArray()
+					cc.resize(k)
+					cc.fill(ch[3])
+					cols.append_array(cc)
+					var u2 := PackedVector2Array()
+					u2.resize(k)
+					u2.fill(ch[4])
+					uv2s.append_array(u2)
+			var arrays := []
+			arrays.resize(Mesh.ARRAY_MAX)
+			arrays[Mesh.ARRAY_VERTEX] = v
+			arrays[Mesh.ARRAY_NORMAL] = n
+			arrays[Mesh.ARRAY_TEX_UV] = uv
+			if extra:
+				arrays[Mesh.ARRAY_COLOR] = cols
+				arrays[Mesh.ARRAY_TEX_UV2] = uv2s
+			var mesh := ArrayMesh.new()
+			if not v.is_empty():
+				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.material_override = m
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			parent.add_child(mi)
+			out.append(mi)
 		for m in sts:
 			var mi := MeshInstance3D.new()
 			mi.mesh = sts[m].commit()

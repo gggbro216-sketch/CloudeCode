@@ -14,9 +14,12 @@ var mask: Image  # R — дорога, G — гарь воронок, B — па
 var mask_tex: ImageTexture
 var ao_tex: ImageTexture  # затенение у подножия построек, остовов, кустов
 var noise_img: Image  # шум шейдера земли — по нему же пятна сырого грунта для физики
+var core: Object = null  # C++ этого боя (SteelCore, см. native.gd); null — всё считает GDScript
 
 
 func height(x: float, z: float) -> float:
+	if core:
+		return core.height(x, z)
 	var fx := clampf((x - ORIGIN) / CELL, 0.0, N - 0.001)
 	var fz := clampf((z - ORIGIN) / CELL, 0.0, N - 0.001)
 	var ix := int(fx)
@@ -84,6 +87,38 @@ static func hills_at(p: Vector2, hills: Array) -> float:
 
 
 func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array, ao_points := [], hills := []) -> void:
+	if core:
+		_generate_native(map_key, zones, obst, craters, hills)
+	else:
+		_generate_heights(map_key, zones, obst, craters, hills)
+	_paint_mask(map_key, craters, roads)
+	_paint_ao(obst, ao_points)
+
+
+## То же, что _generate_heights, но в C++ (шум свой, поэтому рельеф другой, но того же характера).
+func _generate_native(map_key: String, zones: Array, obst: Array, craters: Array, hills: Array) -> void:
+	var M: Dictionary = D.MAPS[map_key]
+	var hf := PackedFloat32Array()
+	for hl in hills:
+		hf.append_array([hl.a.x, hl.a.y, hl.b.x, hl.b.y, hl.r, hl.core, hl.h])
+	var zf := PackedFloat32Array()
+	for z in zones:
+		zf.append_array([z.pos.x, z.pos.y, z.r])
+	var of := PackedFloat32Array()
+	for o in obst:
+		var r: Rect2 = o.r
+		of.append_array([r.position.x, r.position.y, r.size.x, r.size.y])
+	var cf := PackedFloat32Array()
+	for cr in craters:
+		cf.append_array([cr.x, cr.y, cr.z])
+	var bases: PackedFloat32Array = core.terrain_generate(PackedInt32Array([randi(), randi(), randi()]), float(M.relief),
+		map_key == "alamein", float(M.get("edge", 1.0)), hf, zf, of, cf, N, ORIGIN, CELL, D.WS)
+	h = core.terrain_heights()
+	for i in obst.size():
+		obst[i].base = bases[i]
+
+
+func _generate_heights(map_key: String, zones: Array, obst: Array, craters: Array, hills: Array) -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	var relief: float = M.relief
 	var ws := D.WS
@@ -159,8 +194,6 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 					h[i] -= rad * 0.22 * (1.0 - d * d)
 				elif d < 1.35:
 					h[i] += rad * 0.06 * sin((d - 1.0) / 0.35 * PI)
-	_paint_mask(map_key, craters, roads)
-	_paint_ao(obst, ao_points)
 
 
 func _brush(r: int, c: Color) -> Image:
@@ -337,23 +370,29 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
-	verts.resize(h.size())
-	norms.resize(h.size())
-	for i in h.size():
-		var x := _vx(i)
-		var z := _vz(i)
-		verts[i] = Vector3(x, h[i], z)
-		norms[i] = normal(x, z, CELL)
 	var idx := PackedInt32Array()
 	var lo := int((-150.0 - ORIGIN) / CELL)
 	var hi := int((D.WS + 150.0 - ORIGIN) / CELL)
-	for iz in N:
-		for ix in N:
-			var a := iz * (N + 1) + ix
-			var b := a + 1
-			var c := a + N + 1
-			var d := c + 1
-			idx.append_array([a, b, c, b, d, c])
+	if core:
+		var arrs: Array = core.terrain_mesh()
+		verts = arrs[0]
+		norms = arrs[1]
+		idx = arrs[2]
+	else:
+		verts.resize(h.size())
+		norms.resize(h.size())
+		for i in h.size():
+			var x := _vx(i)
+			var z := _vz(i)
+			verts[i] = Vector3(x, h[i], z)
+			norms[i] = normal(x, z, CELL)
+		for iz in N:
+			for ix in N:
+				var a := iz * (N + 1) + ix
+				var b := a + 1
+				var c := a + N + 1
+				var d := c + 1
+				idx.append_array([a, b, c, b, d, c])
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
@@ -395,10 +434,13 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	body.collision_mask = 0
 	var n := hi - lo + 1
 	var data := PackedFloat32Array()
-	data.resize(n * n)
-	for iz in n:
-		for ix in n:
-			data[iz * n + ix] = h[(lo + iz) * (N + 1) + lo + ix] / CELL
+	if core:
+		data = core.terrain_collision(lo, hi)
+	else:
+		data.resize(n * n)
+		for iz in n:
+			for ix in n:
+				data[iz * n + ix] = h[(lo + iz) * (N + 1) + lo + ix] / CELL
 	var shape := HeightMapShape3D.new()
 	shape.map_width = n
 	shape.map_depth = n

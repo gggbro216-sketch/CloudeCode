@@ -1,0 +1,10 @@
+[configuration]
+
+entry_symbol = "steel_core_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+linux.x86_64 = "res://native/bin/libsteelcore.linux.x86_64.so"
+android.arm64 = "res://native/bin/libsteelcore.android.arm64.so"

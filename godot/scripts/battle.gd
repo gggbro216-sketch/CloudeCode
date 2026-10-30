@@ -13,6 +13,7 @@ signal leave(again: bool)
 const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
 const Terrain = preload("res://scripts/terrain.gd")
+const Native = preload("res://scripts/native.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const FxScript = preload("res://scripts/fx.gd")
@@ -81,6 +82,7 @@ var reported := {}  # о каких врагах уже доложили
 var said := {}
 
 var terra: Terrain
+var core: Object = null  # C++ этого боя (рельеф, препятствия, пути, видимость); null — всё на GDScript
 var obst: Array = []
 var bushes: Array = []
 var props: Array = []
@@ -178,6 +180,19 @@ var loops := {}  # танк -> [двигатель, гусеницы, башня
 var reload_cue := false
 
 
+## Замеры: раздел → [микросекунд всего, вызовов]. Дёшево, поэтому включены всегда.
+var prof := {}
+
+
+func _prof(k: String, t0: int) -> void:
+	var e = prof.get(k)
+	if e == null:
+		prof[k] = [Time.get_ticks_usec() - t0, 1]
+	else:
+		e[0] += Time.get_ticks_usec() - t0
+		e[1] += 1
+
+
 func setup(cfg: Dictionary) -> void:
 	mode = cfg.mode
 	map_key = cfg.map
@@ -199,24 +214,38 @@ func _ready() -> void:
 	road_mu = 0.5 if surf == "snow" else 0.9
 	year = D.MAPS[map_key].year
 	zones = MapGen.make_zones(mode)
+	var t0 := Time.get_ticks_usec()
 	var data := MapGen.generate(map_key, zones, rng)
+	_prof("load: расстановка", t0)
 	obst = data.obst
 	bushes = data.bushes
 	props = data.props
 	terra = Terrain.new()
+	core = Native.make()
+	terra.core = core
 	var ao_pts: Array = []
 	for b in bushes:
 		ao_pts.append(Vector3(b.pos.x, b.pos.y, float(b.r) * 1.1))
 	for pr in props:
 		ao_pts.append(Vector3(pr.pos.x, pr.pos.y, 9.0 if pr.kind == "fence" else 14.0))
+	t0 = Time.get_ticks_usec()
 	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts, data.hills)
+	_prof("load: рельеф", t0)
 	lanes = data.lanes
+	t0 = Time.get_ticks_usec()
 	_build_hash()
 	_build_nav()
+	_prof("load: сетка путей", t0)
 	_start_nav_thread()
+	t0 = Time.get_ticks_usec()
 	terra.build(self, map_key, hq)
+	_prof("load: сетка рельефа", t0)
 	MapGen.TexLib.bump = hq
+	t0 = Time.get_ticks_usec()
 	var built := MapGen.build(self, data, map_key, zones, terra, hq)
+	_prof("load: 3D карты", t0)
+	if core:
+		core.boxes_set(MapGen.phys_boxes)
 	bush_mat = built.bush_mat
 	_make_env()
 	fx = FxScript.new()
@@ -235,7 +264,9 @@ func _ready() -> void:
 	trk_mm = _track_mm()
 	scorch_mm = _decal_mm(SCORCH, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
 	_make_shell_mm()
+	t0 = Time.get_ticks_usec()
 	_spawn()
+	_prof("load: танки", t0)
 	cam = Camera3D.new()
 	# камеру двигаем каждый кадр сами, по сглаженному положению танка
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -528,6 +559,12 @@ func _build_hash() -> void:
 		_hput(h_bush, Rect2(b.pos - Vector2(b.r, b.r), Vector2(b.r, b.r) * 2.0), b)
 	for pr in props:
 		_hput(h_prop, Rect2(pr.pos - Vector2(pr.r, pr.r), Vector2(pr.r, pr.r) * 2.0), pr)
+	if core:
+		var f := PackedFloat32Array()
+		for o in obst:
+			var r: Rect2 = o.r
+			f.append_array([r.position.x, r.position.y, r.size.x, r.size.y, 1.0 if o.solid else 0.0])
+		core.obst_set(f, HCELL)
 
 
 ## Всё, что лежит в клетках вокруг точки (предмет на стыке клеток может попасться дважды).
@@ -558,6 +595,8 @@ func in_bush(p: Vector2):
 
 
 func blocked_at(p: Vector2, r: float) -> bool:
+	if core:
+		return core.blocked_at(p.x, p.y, r)
 	if p.x < r or p.y < r or p.x > D.WS - r or p.y > D.WS - r:
 		return true
 	for o in _near(h_obst, p, r):
@@ -571,7 +610,11 @@ func ray(from: Vector3, to: Vector3, mask := MASK_WORLD) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
+## Прямая видимость по рельефу и постройкам (без танков). C++ считает по сетке высот и коробкам
+## построек — без физического запроса.
 func clear_line(a: Vector3, b: Vector3) -> bool:
+	if core:
+		return core.los(a, b)
 	return ray(a, b).is_empty()
 
 
@@ -1490,6 +1533,9 @@ func lead_point(from: TankScript, tg: TankScript) -> Vector3:
 
 ## Видимость по прямой: рельеф и дома закрывают обзор, кусты прячут неподвижный танк.
 func _update_spotting() -> void:
+	if core:
+		_update_spotting_native()
+		return
 	for e: TankScript in tanks:
 		if not e.alive:
 			continue
@@ -1513,6 +1559,57 @@ func _update_spotting() -> void:
 							if o == player:
 								spotted_n += 1
 						break
+			e.vis[team] = seen
+			if seen:
+				intel[team][e] = [e.pos, clock]
+			if team == 0 and seen and not reported.has(e) and clock > 3.0:
+				reported[e] = true
+				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", _clock_of(watch, e.pos))
+
+
+## Засвет в C++: все пары разом, без кэша (луч по сетке высот дешёвый).
+func _update_spotting_native() -> void:
+	var n := tanks.size()
+	var f := PackedFloat32Array()
+	f.resize(n * 16)
+	for i in n:
+		var t: TankScript = tanks[i]
+		var top := t.top()
+		var cen := t.center()
+		var k := i * 16
+		f[k] = t.team
+		f[k + 1] = 1.0 if t.alive else 0.0
+		if not t.alive:
+			continue
+		f[k + 2] = t.lit
+		f[k + 3] = t.pos.x
+		f[k + 4] = t.pos.y
+		f[k + 5] = top.x
+		f[k + 6] = top.y + 2.0
+		f[k + 7] = top.z
+		f[k + 8] = top.x
+		f[k + 9] = top.y
+		f[k + 10] = top.z
+		f[k + 11] = cen.x
+		f[k + 12] = cen.y
+		f[k + 13] = cen.z
+		f[k + 14] = float(t.T.spot) * t.spot_k
+		f[k + 15] = 1.0 if in_bush(t.pos) != null or _trees_near(t.pos, 26.0) >= 2 else 0.0
+	var res: PackedInt32Array = core.spot(f, 110.0)
+	for i in n:
+		var e: TankScript = tanks[i]
+		if not e.alive:
+			continue
+		for team in 2:
+			if team == e.team:
+				e.vis[team] = true
+				continue
+			var s := res[i * 2 + team]
+			var seen := s != -1
+			if s >= 0 and team == 0 and not spotter.has(e):
+				spotter[e] = tanks[s]
+				if tanks[s] == player:
+					spotted_n += 1
 			e.vis[team] = seen
 			if seen:
 				intel[team][e] = [e.pos, clock]
@@ -1667,11 +1764,25 @@ const WOOD := {"tree": true, "spruce": true, "apple": true}
 var nav: AStarGrid2D
 var nav_safe: AStarGrid2D
 var nav_n := 0
+var nav_solid := PackedByteArray()  # 1 — клетка занята постройкой
 var cover_cells := PackedByteArray()  # 1 — рядом есть укрытие
 
 
 func _build_nav() -> void:
 	nav_n = int(ceil(D.WS / NAV))
+	if core:
+		var trees := PackedVector2Array()
+		for pr in props:
+			if pr.alive and WOOD.has(pr.kind):
+				trees.append(pr.pos)
+		var bf := PackedFloat32Array()
+		for b in bushes:
+			bf.append_array([b.pos.x, b.pos.y, b.r])
+		var res: Array = core.nav_build(NAV, trees, bf)
+		nav_solid = res[0]
+		cover_cells = res[1]
+		return
+	nav_solid.resize(nav_n * nav_n)
 	nav = _new_grid()
 	nav_safe = _new_grid()
 	cover_cells.resize(nav_n * nav_n)
@@ -1682,6 +1793,7 @@ func _build_nav() -> void:
 			if blocked_at(p, 13.0):
 				nav.set_point_solid(c)
 				nav_safe.set_point_solid(c)
+				nav_solid[y * nav_n + x] = 1
 				continue
 			var slope := 1.0 - terra.normal(p.x, p.y, 14.0).y
 			var w := 1.0 + clampf((slope - 0.06) * 14.0, 0.0, 3.0)
@@ -1734,14 +1846,22 @@ func _trees_near(p: Vector2, r: float) -> int:
 
 ## Ближайшая к c проходимая клетка (если c занята постройкой).
 func _free_cell(c: Vector2i) -> Vector2i:
-	if not nav.is_point_solid(c):
+	if not _solid(c):
 		return c
 	for r in range(1, 8):
 		for k in range(-r, r + 1):
 			for a: Vector2i in [Vector2i(c.x + k, c.y - r), Vector2i(c.x + k, c.y + r), Vector2i(c.x - r, c.y + k), Vector2i(c.x + r, c.y + k)]:
-				if nav.is_in_boundsv(a) and not nav.is_point_solid(a):
+				if _in_nav(a) and not _solid(a):
 					return a
 	return c
+
+
+func _in_nav(c: Vector2i) -> bool:
+	return c.x >= 0 and c.y >= 0 and c.x < nav_n and c.y < nav_n
+
+
+func _solid(c: Vector2i) -> bool:
+	return nav_solid[c.y * nav_n + c.x] == 1
 
 
 ## Ближайшая клетка с укрытием в радиусе r; null — нет.
@@ -1753,7 +1873,7 @@ func _cover_near(p: Vector2, r: float):
 	for dy in range(-n, n + 1):
 		for dx in range(-n, n + 1):
 			var a := Vector2i(c.x + dx, c.y + dy)
-			if not nav.is_in_boundsv(a) or nav.is_point_solid(a) or cover_cells[a.y * nav_n + a.x] == 0:
+			if not _in_nav(a) or _solid(a) or cover_cells[a.y * nav_n + a.x] == 0:
 				continue
 			var q := _cell_pos(a)
 			var d := q.distance_squared_to(p)
@@ -1765,6 +1885,8 @@ func _cover_near(p: Vector2, r: float):
 
 ## Можно ли проехать по прямой (с запасом на ширину танка).
 func _straight(a: Vector2, b: Vector2, r: float) -> bool:
+	if core:
+		return core.straight(a, b, r)
 	var n := int(a.distance_to(b) / 12.0) + 1
 	for s in range(1, n + 1):
 		if blocked_at(a.lerp(b, float(s) / n), r):
@@ -1774,6 +1896,8 @@ func _straight(a: Vector2, b: Vector2, r: float) -> bool:
 
 ## Маршрут A*, спрямлённый: из цепочки клеток остаются точки, между которыми едут по прямой.
 func nav_path(from: Vector2, to: Vector2, safe: bool, r: float) -> PackedVector2Array:
+	if core:
+		return core.nav_path(from, to, safe, r)
 	var g := nav_safe if safe else nav
 	var ids := g.get_id_path(_free_cell(_cell_of(from)), _free_cell(_cell_of(to)), true)
 	var out := PackedVector2Array()
@@ -2321,7 +2445,9 @@ func _bot(b: TankScript, dt: float) -> void:
 		# далёкий от камеры бот, которого не видят и у которого нет цели, думает реже
 		var calm: bool = b.b_tg == null and not b.vis[1 - b.team] and b.pos.distance_squared_to(watch.pos) > 1200.0 * 1200.0
 		b.b_think = randf_range(0.5, 0.6) if calm else randf_range(0.18, 0.24)
+		var t0 := Time.get_ticks_usec()
 		_think(b)
+		_prof("боты: решения", t0)
 	var tg: TankScript = b.b_tg if b.b_tg != null and b.b_tg.alive else null
 	var mv := Vector2.ZERO
 	var facing := false
@@ -2540,14 +2666,19 @@ func _update(dt: float) -> void:
 	for tk: TankScript in tanks:
 		tk.travel_prev[0] = tk.travel[0]
 		tk.travel_prev[1] = tk.travel[1]
+	var t0 := Time.get_ticks_usec()
 	spot_t -= dt
 	if spot_t <= 0:
 		_update_spotting()
 		spot_t = 0.25
+		_prof("засвет", t0)
 	squad_t -= dt
 	if squad_t <= 0.0:
+		t0 = Time.get_ticks_usec()
 		_squads_update()
 		squad_t = 1.0
+		_prof("группы", t0)
+	var t_tanks := Time.get_ticks_usec()
 	for tk: TankScript in tanks:
 		if not tk.alive:
 			tk.update_pop(dt)
@@ -2578,11 +2709,16 @@ func _update(dt: float) -> void:
 			_bot(tk, dt)
 		# дым подбитого — только у видимых и не слишком далёких танков
 		tk.smoke_on(tk.hp < tk.max_hp * 0.35 and (tk.team == 0 or tk.vis[0]) and tk.pos.distance_to(watch.pos) < 1400.0)
+	_prof("танки (езда+боты)", t_tanks)
+	t0 = Time.get_ticks_usec()
 	separate()
 	for tk: TankScript in tanks:
 		_suspend(tk, dt)
 		tk.sync_node()
+	_prof("подвеска, столкновения", t0)
+	t0 = Time.get_ticks_usec()
 	_update_shells(dt)
+	_prof("снаряды", t0)
 	for pr in falling:
 		pr.fall = minf(1.0, pr.fall + dt * 1.4)
 		MapGen.place_prop(pr)
@@ -2631,7 +2767,9 @@ func _physics_process(delta: float) -> void:
 		return
 	var dt := minf(delta, 0.05)
 	for i in speed:
+		var t0 := Time.get_ticks_usec()
 		_update(dt)
+		_prof("шаг логики всего", t0)
 	if over and over_t > 1.8 and not result_shown:
 		_show_result()
 
@@ -2714,7 +2852,9 @@ func simulate(steps: int) -> void:
 	for i in steps:
 		if over:
 			return
+		var t0 := Time.get_ticks_usec()
 		_update(1.0 / 30.0)
+		_prof("шаг логики всего", t0)
 
 
 func set_paused(v: bool) -> void:

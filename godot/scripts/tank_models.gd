@@ -7,6 +7,7 @@ extends RefCounted
 
 const D = preload("res://scripts/data.gd")
 const Geo = preload("res://scripts/geo.gd")
+const Native = preload("res://scripts/native.gd")
 const U := D.UPM
 
 # Цвета неокрашенных деталей (альфа 0 — без камуфляжа).
@@ -552,26 +553,42 @@ static var _cache := {}
 ## Камуфляж: однотонный 4БО (СССР), оливковый (США, Великобритания), тёмно-жёлтый с полосами
 ## (Германия, 1943), «засадный» (1944–1945), «Африканский корпус», пустынный британский,
 ## зимняя побелка поверх зелёной или серой краски.
+## Виды камуфляжа в порядке, который знает C++ (native/src/core.cpp, enum Camo).
+const CAMO_KINDS := ["olive", "german", "desert", "german44", "dak", "british", "grey_winter", "whitewash", "italy",
+	"wash44", "olive_wash", "hungary"]
+
+
 static func camo_texture(kind: String) -> ImageTexture:
 	var key := "camo_" + kind
 	if _cache.has(key):
 		return _cache[key]
 	var S := 256
-	var n1 := FastNoiseLite.new()
-	n1.seed = 11
-	n1.frequency = 0.011
-	n1.fractal_octaves = 3
-	var n2 := FastNoiseLite.new()
-	n2.seed = 37
-	n2.frequency = 0.015
-	n2.fractal_octaves = 3
-	var n3 := FastNoiseLite.new()
-	n3.seed = 5
-	n3.frequency = 0.25
-	var a := n1.get_seamless_image(S, S)
-	var b := n2.get_seamless_image(S, S)
-	var g := n3.get_seamless_image(S, S)
+	# три шума одни на все камуфляжи: строим один раз
+	if not _cache.has("camo_noise"):
+		var n1 := FastNoiseLite.new()
+		n1.seed = 11
+		n1.frequency = 0.011
+		n1.fractal_octaves = 3
+		var n2 := FastNoiseLite.new()
+		n2.seed = 37
+		n2.frequency = 0.015
+		n2.fractal_octaves = 3
+		var n3 := FastNoiseLite.new()
+		n3.seed = 5
+		n3.frequency = 0.25
+		_cache["camo_noise"] = [n1.get_seamless_image(S, S), n2.get_seamless_image(S, S), n3.get_seamless_image(S, S)]
+	var a: Image = _cache["camo_noise"][0]
+	var b: Image = _cache["camo_noise"][1]
+	var g: Image = _cache["camo_noise"][2]
 	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
+	var core: Object = Native.shared()
+	if core and a.get_format() == Image.FORMAT_L8 and b.get_format() == Image.FORMAT_L8 and g.get_format() == Image.FORMAT_L8:
+		var data: PackedByteArray = core.camo(CAMO_KINDS.find(kind), a.get_data(), b.get_data(), g.get_data())
+		var cimg := Image.create_from_data(S, S, false, Image.FORMAT_RGB8, data)
+		cimg.generate_mipmaps()
+		var ct := ImageTexture.create_from_image(cimg)
+		_cache[key] = ct
+		return ct
 	var bases := {"olive": "464a2f", "german": "a8956a", "desert": "c4b38a", "german44": "ad9a68", "dak": "9c8358",
 		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b", "italy": "b9a170",
 		"wash44": "ad9a68", "olive_wash": "464a2f", "hungary": "6b6a42"}
@@ -645,7 +662,11 @@ static func grime_texture() -> ImageTexture:
 	var img := n.get_seamless_image(256, 256)
 	# вертикальные потёки
 	var out := Image.create(256, 256, false, Image.FORMAT_L8)
-	for x in 256:
+	var core: Object = Native.shared()
+	var native: bool = core != null and img.get_format() == Image.FORMAT_L8
+	if native:
+		out = Image.create_from_data(256, 256, false, Image.FORMAT_L8, core.grime(img.get_data(), 256))
+	for x in (0 if native else 256):
 		var streak := 0.0
 		for y in 256:
 			var v := img.get_pixel(x, y).r
@@ -1069,7 +1090,10 @@ static func _shape_of(mis: Array, scale: float) -> ConcavePolygonShape3D:
 	for mi in mis:
 		var mesh: Mesh = mi.mesh if mi is MeshInstance3D else mi
 		var f := mesh.get_faces()
-		if scale != 1.0:
+		var core: Object = Native.shared()
+		if scale != 1.0 and core:
+			f = core.scale_v3(f, scale)
+		elif scale != 1.0:
 			for i in f.size():
 				f[i] *= scale
 		faces.append_array(f)

@@ -985,6 +985,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	var winter: bool = D.MAPS[map_key].get("winter", false)
 	var desert := map_key == "alamein"
 	var g := Geo.Group.new()
+	phys_boxes = PackedFloat32Array()
 	var body := StaticBody3D.new()
 	body.collision_layer = 2
 	body.collision_mask = 0
@@ -1706,6 +1707,9 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 	var chunks := 10
 	var cs := (D.WS + 200.0) / chunks
 	var per := total / (chunks * chunks)
+	var core: Object = terra.core
+	if core:
+		core.mask_set(terra.mask.get_data(), terra.mask.get_width(), terra.SIZE)
 	for cx in chunks:
 		for cz in chunks:
 			var mm := MultiMesh.new()
@@ -1714,7 +1718,12 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 			mm.mesh = tuft
 			mm.instance_count = per
 			var placed := 0
-			for t in per * 3:
+			if core:
+				# C++: те же правила, буфер MultiMesh целиком
+				var res: Array = core.grass_chunk(-100.0 + cx * cs, -100.0 + cz * cs, cs, per, rng.randi())
+				mm.buffer = res[0]
+				placed = res[1]
+			for t in (0 if core else per * 3):
 				if placed >= per:
 					break
 				var p := Vector2(-100.0 + (cx + rng.randf()) * cs, -100.0 + (cz + rng.randf()) * cs)
@@ -1750,7 +1759,12 @@ static func _foliage(c: Color, crown_from: float) -> ShaderMaterial:
 	return m
 
 
+## Коробки построек последней собранной карты: [центр xyz, размер xyz, поворот]* — для C++-видимости.
+static var phys_boxes := PackedFloat32Array()
+
+
 static func _phys(body: StaticBody3D, center: Vector3, size: Vector3, yaw := 0.0) -> void:
+	phys_boxes.append_array([center.x, center.y, center.z, size.x, size.y, size.z, yaw])
 	var cs := CollisionShape3D.new()
 	var bx := BoxShape3D.new()
 	bx.size = size
