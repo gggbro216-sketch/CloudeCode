@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Стальной Штурм"
-config/version="2.0"
+config/version="2.1"
 config/description="Командный 3D-бой танков 5 на 5 для телефона"
 run/main_scene="res://main.tscn"
 config/quit_on_go_back=false

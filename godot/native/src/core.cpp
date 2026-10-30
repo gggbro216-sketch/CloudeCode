@@ -2023,7 +2023,6 @@ METHOD(bush_near) {
 // команды о врагах. Работают по снимку состояния танков (snap) с прошлого шага.
 
 static const float STAGES[7] = { 0.1f, 0.27f, 0.4f, 0.5f, 0.6f, 0.74f, 0.9f };
-static const float LANE_PREF[4][3] = { { 0.6f, 1.0f, 0.2f }, { 1.0f, 0.8f, 0.5f }, { 0.35f, 0.6f, 1.0f }, { 1.0f, 0.75f, 0.25f } };
 enum { CLS_LT, CLS_ST, CLS_TT, CLS_PT };
 enum { ACT_NONE, ACT_ROUTE, ACT_SPOT, ACT_FIGHT, ACT_HOLD };
 enum { SPOT_NONE, SPOT_COVER, SPOT_HULL };
