@@ -955,8 +955,11 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 
 # ---------- Физика в C++ ----------
 
-const PHYS := 52  # чисел на танк в пакете phys_step (порядок — enum PhysField в native/src/core.cpp)
+const PHYS := 68  # чисел на танк в пакете phys_step (порядок — enum PhysField в native/src/core.cpp)
 var phys_buf := PackedFloat32Array()
+
+
+const BOT_ACT := {"route": 1, "spot": 2, "fight": 3}
 
 
 ## Неизменное для C++-физики: характеристики танков, деревья и заборы, грунт.
@@ -972,7 +975,7 @@ func _phys_init() -> void:
 			1.0 if tk.casemate else 0.0, float(T.get("trav", 0.0)), el[0], el[1], T.shell_v, T.tspd,
 			tk.gun_pos0.x, tk.gun_pos0.y, tk.gun_pos0.z, tk.tur_pos0.x, tk.tur_pos0.y, tk.tur_pos0.z,
 			T.disp, float(T.get("stab", 0.0)), T.aim, tk.track_z, tk.track_w,
-			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref])
+			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref, tk.hh, tk.th, 1.0 if T.armored else 0.0])
 	core.tanks_static(st)
 	var pf := PackedFloat32Array()
 	for pr in props:
@@ -1044,6 +1047,25 @@ func _phys_native(dt: float) -> void:
 		P[k + 49] = 1.0 if tk.vis[0] else 0.0
 		P[k + 50] = 1.0 if tk.vis[1] else 0.0
 		P[k + 51] = tk.b_tg.idx if tk.b_tg != null else -1
+		P[k + 52] = 1.0 if tk.bot_cmd else 0.0
+		if tk.bot_cmd:
+			P[k + 53] = BOT_ACT.get(tk.b_act, 0)
+			P[k + 54] = 1.0 if tk.b_spot != null else 0.0
+			if tk.b_spot != null:
+				P[k + 55] = tk.b_spot.x
+				P[k + 56] = tk.b_spot.y
+			P[k + 57] = 1.0 if tk.b_adv else 0.0
+			P[k + 58] = 1.0 if tk.b_los else 0.0
+			P[k + 59] = 1.0 if tk.b_hold else 0.0
+			P[k + 60] = tk.b_side
+			var has_tg: bool = tk.b_tg != null and tk.b_tg.alive
+			var guess = null if has_tg else _foe_guess(tk)
+			P[k + 61] = 1.0 if guess != null else 0.0
+			if guess != null:
+				P[k + 62] = guess.x
+				P[k + 63] = guess.y
+			P[k + 64] = tk.rl
+			P[k + 65] = 1.0 if has_tg and tk.can_fire() else 0.0
 	var res: Array = core.phys_step(dt, P, clock)
 	P = res[0]
 	phys_buf = P
@@ -1078,6 +1100,13 @@ func _phys_native(dt: float) -> void:
 		tk.disp = P[k + 44]
 		tk.aim_cmd = false
 		tk.disp_cmd = false
+		if tk.bot_cmd:
+			tk.bot_cmd = false
+			if P[k + 67] != 0.0:
+				tk.b_path_t = 0.0  # застрял: новый маршрут
+			if P[k + 66] != 0.0 and tk.alive:
+				shoot(tk)
+				tk.b_peek = tk.pos
 	var ev: PackedFloat32Array = res[1]
 	for q in range(0, ev.size(), 5):
 		var tk: TankScript = tanks[int(ev[q + 1])]
@@ -2184,6 +2213,8 @@ func _take_routes() -> void:
 
 
 func _apply_route(b: TankScript, path: PackedVector2Array, to: Vector2, safe: bool) -> void:
+	if core:
+		core.bot_path(b.idx, path)
 	b.b_path = path
 	b.b_pi = 0
 	b.b_path_to = to
@@ -2654,6 +2685,9 @@ func _bot(b: TankScript, dt: float) -> void:
 		var t0 := Time.get_ticks_usec()
 		_think(b)
 		_prof("боты: решения", t0)
+	if core:
+		b.bot_cmd = true  # куда ехать, наведение и огонь — в C++ (_phys_native)
+		return
 	var tg: TankScript = b.b_tg if b.b_tg != null and b.b_tg.alive else null
 	var mv := Vector2.ZERO
 	var facing := false

@@ -90,7 +90,23 @@ struct Core {
 		V3 gun_pos0, tur_pos0;
 		float disp, stab, aim, track_z, track_w;
 		float armor0, armor1, armor2, slope, side_slope, pen, pref;
+		float hh, th, armored;
 	};
+	// покадровое управление ботом (Battle._bot без решений): строфа, объезд, «застрял», маршрут
+	struct Bot {
+		float st = 1.0f, strafe = 1.0f, av = 0.0f, av_dir = 1.0f, pt = 1.0f;
+		V2 last = { -1e6f, -1e6f };
+		int pi = 0;
+		std::vector<V2> path;
+	};
+	std::vector<Bot> bots;
+	uint32_t rng = 0x9e3779b9u;
+	float randf() {
+		rng ^= rng << 13;
+		rng ^= rng >> 17;
+		rng ^= rng << 5;
+		return (rng >> 8) / 16777216.0f;
+	}
 	std::vector<TankStatic> ts;
 	// следы гусениц: где кончился след левой и правой и пройденный вдоль следа путь
 	std::vector<V2> last_mark;

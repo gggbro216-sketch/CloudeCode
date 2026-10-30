@@ -35,7 +35,10 @@ enum PhysField {
 	P_PITCH, P_ROLL, P_PITCH_V, P_ROLL_V, P_BODY_P, P_BODY_R, P_BODY_PV, P_BODY_RV,
 	P_SLIP, P_SOFT, P_THROTTLE, P_ACCEL, P_SP, P_GROUND, P_VMAX,
 	P_AIM, P_AX, P_AY, P_AZ, P_TSPD_K, P_GUN_PITCH, P_GUN_TARGET, P_TUR_RATE,
-	P_DISP_CMD, P_DISP, P_DISP_K, P_AIM_K, P_SHOWN, P_HP, P_VIS0, P_VIS1, P_TG, PHYS
+	P_DISP_CMD, P_DISP, P_DISP_K, P_AIM_K, P_SHOWN, P_HP, P_VIS0, P_VIS1, P_TG,
+	// бот: управление в C++ (решения — GDScript, 5 раз в секунду)
+	P_BOT, P_ACT, P_SPOT_HAS, P_SPOT_X, P_SPOT_Y, P_ADV, P_LOS, P_HOLD, P_SIDE, P_GUESS_HAS, P_GUESS_X, P_GUESS_Y,
+	P_RL, P_CAN_FIRE, P_FIRE, P_STUCK, PHYS
 };
 
 // ---------- Пространственная сетка ----------
@@ -1278,7 +1281,7 @@ METHOD(props_set) {
 }
 
 // Характеристики танков, STATIC чисел на танк (порядок — Battle._phys_init)
-static const int STATIC = 34;
+static const int STATIC = 37;
 METHOD(tanks_static) {
 	SELF;
 	if (!need(a, 1, e)) return;
@@ -1294,7 +1297,14 @@ METHOD(tanks_static) {
 		t.tur_pos0 = { q[19], q[20], q[21] };
 		t.disp = q[22]; t.stab = q[23]; t.aim = q[24]; t.track_z = q[25]; t.track_w = q[26];
 		t.armor0 = q[27]; t.armor1 = q[28]; t.armor2 = q[29]; t.slope = q[30]; t.side_slope = q[31]; t.pen = q[32]; t.pref = q[33];
+		t.hh = q[34]; t.th = q[35]; t.armored = q[36];
 		self->ts.push_back(t);
+	}
+	self->rng ^= (uint32_t)(f.size() * 2654435761u) ^ (uint32_t)(f.empty() ? 1 : f[0] * 1000.0f);
+	self->bots.assign(self->ts.size(), Core::Bot());
+	for (Core::Bot &b : self->bots) {
+		b.strafe = self->randf() < 0.5f ? 1.0f : -1.0f;
+		b.st = 1.0f + 2.0f * self->randf();
 	}
 	self->last_mark.assign(self->ts.size() * 2, V2{ -1e6f, 0.0f });
 	self->mark_v.assign(self->ts.size() * 2, 0.0f);
@@ -1375,6 +1385,177 @@ static void update_disp(const Core::TankStatic &T, float *t, float dt) {
 	}
 }
 
+static const float RANGE = 1100.0f;  // D.RANGE
+
+static inline V2 from_angle(float a) { return { std::cos(a), std::sin(a) }; }
+static inline float dist2(V2 a, V2 b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
+
+// Приведённая толщина брони цели со стороны стрелка (как Battle._armor_toward)
+static float armor_toward(const Core::TankStatic &T, const float *tg, float fx, float fy);
+
+// Покадровое управление ботом (как Battle._bot после решений, с _route_vec, _drive_vec, lead_point):
+// куда ехать, наведение, стрелять ли, объезд препятствий, «застрял».
+static void bot_control(Core *self, std::vector<float> &P, int n, int i, float dt) {
+	float *t = &P[(size_t)i * PHYS];
+	const Core::TankStatic &T = self->ts[i];
+	Core::Bot &B = self->bots[i];
+	V2 pos = { t[P_X], t[P_Y] };
+	int tgi = (int)t[P_TG];
+	const float *G = (tgi >= 0 && tgi < n && P[(size_t)tgi * PHYS + P_ALIVE] != 0.0f) ? &P[(size_t)tgi * PHYS] : nullptr;
+	int act = (int)t[P_ACT];
+	bool casemate = T.casemate != 0.0f, armored = T.armored != 0.0f;
+	V2 mv = { 0, 0 };
+	bool facing = false;
+	float face_off = 0.0f;
+	B.st -= dt;
+	if (B.st <= 0.0f) {
+		B.strafe *= -1.0f;
+		B.st = 2.0f + 2.5f * self->randf();
+	}
+	if (act == 1 && !B.path.empty()) {
+		// по маршруту: точки ближе 34 пропускаем, у последней — стоп
+		while (B.pi < (int)B.path.size() - 1 && dist2(pos, B.path[B.pi]) < 34.0f) B.pi++;
+		V2 dv = { B.path[B.pi].x - pos.x, B.path[B.pi].y - pos.y };
+		float l = std::sqrt(dv.x * dv.x + dv.y * dv.y);
+		if (!(B.pi == (int)B.path.size() - 1 && l < 22.0f) && l > 0.0f) {
+			float k = std::min(1.0f, 0.35f + l / 60.0f) / l;
+			mv = { dv.x * k, dv.y * k };
+		}
+	} else if (act == 2) {
+		if (t[P_SPOT_HAS] != 0.0f) {
+			V2 dv = { t[P_SPOT_X] - pos.x, t[P_SPOT_Y] - pos.y };
+			float l = std::sqrt(dv.x * dv.x + dv.y * dv.y);
+			if (l > 8.0f) {
+				float k = clampf(l / 30.0f, 0.4f, 1.0f) / l;
+				mv = { dv.x * k, dv.y * k };
+			}
+		}
+	} else if (act == 3 && G) {
+		float d = dist2(pos, { G[P_X], G[P_Y] });
+		float ang = std::atan2(G[P_Y] - pos.y, G[P_X] - pos.x);
+		float pref = T.pref + (t[P_HP] < 0.3f ? 180.0f : 0.0f);
+		float fwd = (d > pref + 70.0f && t[P_ADV] != 0.0f) ? 1.0f : (d < pref - 100.0f ? -1.0f : 0.0f);
+		float strafe = 0.6f;
+		if (t[P_RL] < 1.2f) strafe = 0.0f;  // перед выстрелом останавливается, чтобы свестись
+		if (casemate || armored) strafe = 0.0f;
+		V2 a = from_angle(ang), b = from_angle(ang + PI_F / 2.0f);
+		mv = { a.x * fwd + b.x * B.strafe * strafe, a.y * fwd + b.y * B.strafe * strafe };
+	}
+	float mlen = std::sqrt(mv.x * mv.x + mv.y * mv.y);
+	// стоя на месте, САУ держит цель в секторе наводки, а танк с толстым лбом встаёт ромбом
+	if (G && mlen < 0.1f && (casemate || armored)) {
+		float ang = std::atan2(G[P_Y] - pos.y, G[P_X] - pos.x);
+		float off = ang_diff(ang, t[P_HULL]);
+		float keep = casemate ? T.trav * 0.6f : 0.3f;
+		if (!casemate && t[P_LOS] != 0.0f) {
+			off = ang_diff(ang + t[P_SIDE] * 0.42f, t[P_HULL]);
+			keep = 0.12f;
+		}
+		if (std::fabs(off) > keep) {
+			facing = true;
+			face_off = off;
+		}
+	}
+	if (G) {
+		const Core::TankStatic &GT = self->ts[tgi];
+		float d = dist2(pos, { G[P_X], G[P_Y] });
+		float tf = d / T.shell_v * 0.9f;
+		float lx = G[P_X] + G[P_VX] * tf, lz = G[P_Y] + G[P_VY] * tf;
+		float ly = G[P_GROUND] + GT.hh * 0.7f;
+		// цель не пробить в лоб — по гусеницам, чтобы обездвижить
+		if (T.pen * 1.1f < armor_toward(GT, G, pos.x, pos.y)) ly = G[P_GROUND] + GT.th * 0.55f;
+		t[P_AX] = lx;
+		t[P_AY] = ly;
+		t[P_AZ] = lz;
+		aim_tank(T, t, dt);
+		t[P_AIM] = 0.0f;
+		bool aligned = std::fabs(ang_diff(std::atan2(lz - pos.y, lx - pos.x), t[P_TUR])) < 0.03f && std::fabs(t[P_GUN_PITCH] - t[P_GUN_TARGET]) < 0.015f;
+		if (t[P_RL] <= 0.0f && d < RANGE * 0.85f && aligned && t[P_LOS] != 0.0f && t[P_HOLD] == 0.0f && t[P_DISP] < T.disp * 3.0f && t[P_CAN_FIRE] != 0.0f) {
+			t[P_FIRE] = 1.0f;
+		}
+	} else {
+		// башня — туда, где последний раз видели врага, иначе по ходу
+		V2 look;
+		if (t[P_GUESS_HAS] != 0.0f) {
+			look = { t[P_GUESS_X], t[P_GUESS_Y] };
+		} else {
+			V2 dir = mlen > 0.1f ? mv : from_angle(t[P_TUR]);
+			look = { pos.x + dir.x * 200.0f, pos.y + dir.y * 200.0f };
+		}
+		t[P_AX] = look.x;
+		t[P_AY] = self->height(look.x, look.y) + T.hh;
+		t[P_AZ] = look.y;
+		aim_tank(T, t, dt);
+		t[P_AIM] = 0.0f;
+	}
+	float m = mlen;
+	if (m > 0.1f) {
+		float a = std::atan2(mv.y, mv.x);
+		float r = T.W * 0.62f;
+		float probe = 60.0f;
+		if (act == 1 && !B.path.empty()) probe = clampf(dist2(pos, B.path[B.pi]), 20.0f, 60.0f);
+		V2 f0 = from_angle(a);
+		if (B.av <= 0.0f && self->blocked_at(pos.x + f0.x * probe, pos.y + f0.y * probe, r)) {
+			V2 fa = from_angle(a + 0.9f), fb = from_angle(a - 0.9f);
+			bool f1 = !self->blocked_at(pos.x + fa.x * probe, pos.y + fa.y * probe, r);
+			bool f2 = !self->blocked_at(pos.x + fb.x * probe, pos.y + fb.y * probe, r);
+			if (f1 && !f2) B.av_dir = 1.0f;
+			else if (f2 && !f1) B.av_dir = -1.0f;
+			else B.av_dir = self->randf() < 0.5f ? 1.0f : -1.0f;
+			B.av = 1.0f;
+		}
+		if (B.av > 0.0f) {
+			B.av -= dt;
+			a += B.av_dir * 1.1f;
+			V2 na = from_angle(a);
+			float k = std::max(m, 0.5f);
+			mv = { na.x * k, na.y * k };
+		}
+	}
+	B.pt -= dt;
+	if (B.pt <= 0.0f) {
+		if (m > 0.3f && dist2(pos, B.last) < 6.0f && t[P_TRACK_BROKEN] <= 0.0f) {
+			// застрял: объезд и новый маршрут
+			B.av = 1.8f;
+			B.av_dir *= -1.0f;
+			t[P_STUCK] = 1.0f;
+		}
+		B.last = pos;
+		B.pt = 1.5f;
+	}
+	float thr = 0.0f, steer = 0.0f;
+	if (facing) {
+		steer = clampf(face_off / 0.3f, -1.0f, 1.0f);
+	} else {
+		float mm = std::min(1.0f, std::sqrt(mv.x * mv.x + mv.y * mv.y));
+		if (mm >= 0.12f) {
+			float want = std::atan2(mv.y, mv.x);
+			float d = ang_diff(want, t[P_HULL]);
+			float dir = 1.0f;
+			if (std::fabs(d) > PI_F * 0.6f) {
+				d = ang_diff(want + PI_F, t[P_HULL]);
+				dir = -1.0f;
+			}
+			steer = clampf(d / 0.35f, -1.0f, 1.0f) * dir;
+			thr = dir * mm * std::max(0.1f, std::cos(d));
+		}
+	}
+	t[P_CMD] = 1.0f;
+	t[P_THR] = thr;
+	t[P_STEER] = steer;
+	t[P_DISP_CMD] = 1.0f;
+}
+
+// Новый маршрут бота i
+METHOD(bot_path) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int i = (int)a.integer(0);
+	if (i < 0 || i >= (int)self->bots.size()) return;
+	self->bots[i].path = v2s(a, 1);
+	self->bots[i].pi = 0;
+}
+
 // Шаг физики всех танков: (dt, пакет) → [пакет, события [вид, i, j, a, b]*]
 // события: 1 — удар о постройку (a — скорость), 2 — сбито дерево j (a, b — куда падает), 3 — таран i→j (a — скорость сближения)
 METHOD(phys_step) {
@@ -1391,6 +1572,13 @@ METHOD(phys_step) {
 	const float g = GRAVITY;
 	std::vector<float> marks;  // [базис x, y, z, начало (12), свои данные (4)]*
 	float clock = a.n > 2 ? (float)a.num(2) : 0.0f;
+	// --- боты: решения о ходе и огне — все по состоянию на начало шага
+	for (int i = 0; i < n && i < (int)self->ts.size(); i++) {
+		float *t = &P[(size_t)i * PHYS];
+		t[P_FIRE] = 0.0f;
+		t[P_STUCK] = 0.0f;
+		if (t[P_BOT] != 0.0f && t[P_ALIVE] != 0.0f) bot_control(self, P, n, i, dt);
+	}
 	// --- езда
 	for (int i = 0; i < n && i < (int)self->ts.size(); i++) {
 		float *t = &P[(size_t)i * PHYS];
@@ -1847,7 +2035,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },
-		{ "cover_near", cover_near }, { "bush_near", bush_near },
+		{ "cover_near", cover_near }, { "bush_near", bush_near }, { "bot_path", bot_path },
 	};
 	for (auto &m : methods) {
 		register_method(lib, C, m.name, m.m);
