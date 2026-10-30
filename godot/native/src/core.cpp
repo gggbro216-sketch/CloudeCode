@@ -38,7 +38,7 @@ enum PhysField {
 	P_DISP_CMD, P_DISP, P_DISP_K, P_AIM_K, P_SHOWN, P_HP, P_VIS0, P_VIS1, P_TG,
 	// бот: управление в C++ (решения — GDScript, 5 раз в секунду)
 	P_BOT, P_ACT, P_SPOT_HAS, P_SPOT_X, P_SPOT_Y, P_ADV, P_LOS, P_HOLD, P_SIDE, P_GUESS_HAS, P_GUESS_X, P_GUESS_Y,
-	P_RL, P_CAN_FIRE, P_FIRE, P_STUCK, PHYS
+	P_RL, P_CAN_FIRE, P_FIRE, P_STUCK, P_HIT_T, PHYS
 };
 
 // ---------- Пространственная сетка ----------
@@ -745,6 +745,17 @@ METHOD(spot) {
 			}
 		}
 	}
+	// память команд: где и когда видели врага
+	float now = a.n > 2 ? (float)a.num(2) : self->clock;
+	for (int team = 0; team < 2; team++) {
+		if (self->intel[team].size() < (size_t)n) self->intel[team].resize(n);
+		for (int i = 0; i < n; i++) {
+			int32_t v = res[(size_t)i * 2 + team];
+			if (f[(size_t)i * K + 1] != 0.0f && (int)f[(size_t)i * K] != team && v != -1) {
+				self->intel[team][i] = { { f[(size_t)i * K + 3], f[(size_t)i * K + 4] }, now, true };
+			}
+		}
+	}
 	// видимость — и в снимок для выбора целей
 	if (self->snap.size() == (size_t)n * PHYS) {
 		for (int i = 0; i < n; i++) {
@@ -1402,6 +1413,25 @@ static void bot_control(Core *self, std::vector<float> &P, int n, int i, float d
 	V2 pos = { t[P_X], t[P_Y] };
 	int tgi = (int)t[P_TG];
 	const float *G = (tgi >= 0 && tgi < n && P[(size_t)tgi * PHYS + P_ALIVE] != 0.0f) ? &P[(size_t)tgi * PHYS] : nullptr;
+	// решения: из C++ (ai_on) или пришедшие из GDScript в пакете
+	if (self->ai_on && i < (int)self->ai.size()) {
+		const Core::BotAi &A = self->ai[i];
+		t[P_ACT] = (float)A.act;
+		t[P_SPOT_HAS] = A.has_spot ? 1.0f : 0.0f;
+		t[P_SPOT_X] = A.spot.x;
+		t[P_SPOT_Y] = A.spot.y;
+		t[P_ADV] = A.adv ? 1.0f : 0.0f;
+		t[P_LOS] = A.los ? 1.0f : 0.0f;
+		t[P_HOLD] = A.hold ? 1.0f : 0.0f;
+		t[P_SIDE] = A.side;
+		tgi = A.tg;
+		G = (tgi >= 0 && tgi < n && P[(size_t)tgi * PHYS + P_ALIVE] != 0.0f) ? &P[(size_t)tgi * PHYS] : nullptr;
+		V2 gs;
+		bool has_guess = !G && self->foe_guess(pos, (int)t[P_TEAM], gs);
+		t[P_GUESS_HAS] = has_guess ? 1.0f : 0.0f;
+		t[P_GUESS_X] = gs.x;
+		t[P_GUESS_Y] = gs.y;
+	}
 	int act = (int)t[P_ACT];
 	bool casemate = T.casemate != 0.0f, armored = T.armored != 0.0f;
 	V2 mv = { 0, 0 };
@@ -1903,37 +1933,9 @@ static float armor_toward(const Core::TankStatic &T, const float *tg, float fx, 
 METHOD(choose_target) {
 	SELF;
 	if (!need(a, 1, e)) return;
-	int bi = (int)a.integer(0);
-	const std::vector<float> &S = self->snap;
-	int n = (int)(S.size() / PHYS);
-	if (bi < 0 || bi >= n || n > (int)self->ts.size()) {
-		ret_int(r, -1);
-		return;
-	}
-	const float *B = &S[(size_t)bi * PHYS];
-	const Core::TankStatic &BT = self->ts[bi];
-	int team = (int)B[P_TEAM];
-	int best = -1;
-	float bs = 1e9f;
-	for (int oi = 0; oi < n; oi++) {
-		const float *O = &S[(size_t)oi * PHYS];
-		if (O[P_ALIVE] == 0.0f || (int)O[P_TEAM] == team || O[team == 0 ? P_VIS0 : P_VIS1] == 0.0f) continue;
-		float dx = O[P_X] - B[P_X], dy = O[P_Y] - B[P_Y];
-		float sc = std::sqrt(dx * dx + dy * dy) / BT.pref;
-		if (BT.pen * 0.95f < armor_toward(self->ts[oi], O, B[P_X], B[P_Y])) sc += 1.6f;
-		sc += O[P_HP] * 0.8f;
-		for (int ai = 0; ai < n; ai++) {
-			const float *A = &S[(size_t)ai * PHYS];
-			if (ai != bi && A[P_ALIVE] != 0.0f && (int)A[P_TEAM] == team && (int)A[P_TG] == oi) sc -= 0.3f;
-		}
-		if ((int)B[P_TG] == oi) sc -= 0.4f;
-		if (sc < bs) {
-			bs = sc;
-			best = oi;
-		}
-	}
-	ret_int(r, best);
+	ret_int(r, self->choose((int)a.integer(0)));
 }
+
 
 // Бот i сменил цель (−1 — без цели): учесть в снимке для фокуса огня остальных
 METHOD(set_target) {
@@ -2016,6 +2018,587 @@ METHOD(bush_near) {
 	if (found) ret_v2(r, best);
 }
 
+// ---------- Решения ботов целиком (этап 5) ----------
+// Перенос Battle._think, _plan, _find_spot, _squads_update, _lane_power, _move_squad и памяти
+// команды о врагах. Работают по снимку состояния танков (snap) с прошлого шага.
+
+static const float STAGES[7] = { 0.1f, 0.27f, 0.4f, 0.5f, 0.6f, 0.74f, 0.9f };
+static const float LANE_PREF[4][3] = { { 0.6f, 1.0f, 0.2f }, { 1.0f, 0.8f, 0.5f }, { 0.35f, 0.6f, 1.0f }, { 1.0f, 0.75f, 0.25f } };
+enum { CLS_LT, CLS_ST, CLS_TT, CLS_PT };
+enum { ACT_NONE, ACT_ROUTE, ACT_SPOT, ACT_FIGHT, ACT_HOLD };
+enum { SPOT_NONE, SPOT_COVER, SPOT_HULL };
+
+static inline const float *snap_at(const Core *c, int i) { return &c->snap[(size_t)i * PHYS]; }
+static inline V2 pos_of(const float *t) { return { t[P_X], t[P_Y] }; }
+
+int Core::choose(int bi) const {
+	int n = (int)(snap.size() / PHYS);
+	if (bi < 0 || bi >= n || n > (int)ts.size()) return -1;
+	const float *B = snap_at(this, bi);
+	const TankStatic &BT = ts[bi];
+	int team = (int)B[P_TEAM];
+	int best = -1;
+	float bs = 1e9f;
+	for (int oi = 0; oi < n; oi++) {
+		const float *O = snap_at(this, oi);
+		if (O[P_ALIVE] == 0.0f || (int)O[P_TEAM] == team || O[team == 0 ? P_VIS0 : P_VIS1] == 0.0f) continue;
+		float sc = dist2(pos_of(B), pos_of(O)) / BT.pref;
+		if (BT.pen * 0.95f < armor_toward(ts[oi], O, B[P_X], B[P_Y])) sc += 1.6f;
+		sc += O[P_HP] * 0.8f;
+		for (int ai_ = 0; ai_ < n; ai_++) {
+			const float *A = snap_at(this, ai_);
+			if (ai_ != bi && A[P_ALIVE] != 0.0f && (int)A[P_TEAM] == team && (int)A[P_TG] == oi) sc -= 0.3f;
+		}
+		if ((int)B[P_TG] == oi) sc -= 0.4f;
+		if (sc < bs) {
+			bs = sc;
+			best = oi;
+		}
+	}
+	return best;
+}
+
+bool Core::foe_near(int i, float r) const {
+	if ((size_t)(i + 1) * PHYS > snap.size()) return false;
+	const float *B = snap_at(this, i);
+	int team = (int)B[P_TEAM];
+	int n = (int)(snap.size() / PHYS);
+	for (int e = 0; e < n && e < (int)intel[team].size(); e++) {
+		const Intel &it = intel[team][e];
+		if (it.has && snap_at(this, e)[P_ALIVE] != 0.0f && clock - it.t < 15.0f && dist2(pos_of(B), it.pos) < r) return true;
+	}
+	return false;
+}
+
+bool Core::foe_guess(V2 bp, int team, V2 &out) const {
+	if (team < 0 || team > 1) return false;
+	int n = (int)(snap.size() / PHYS);  // на первом шаге снимка ещё нет — тогда и памяти нет
+	float bd = 1100.0f;
+	bool found = false;
+	for (int e = 0; e < n && e < (int)intel[team].size(); e++) {
+		const Intel &it = intel[team][e];
+		if (!it.has || snap_at(this, e)[P_ALIVE] == 0.0f || clock - it.t > 30.0f) continue;
+		float d = dist2(bp, it.pos);
+		if (d < bd) {
+			bd = d;
+			out = it.pos;
+			found = true;
+		}
+	}
+	return found;
+}
+
+bool Core::covered(V2 p) const {
+	if (nn == 0) return false;
+	int cx = cell_index(p.x / nav_cell, 0, nn - 1), cy = cell_index(p.y / nav_cell, 0, nn - 1);
+	return cover[(size_t)cy * nn + cx] == 1;
+}
+
+bool Core::cover_near(V2 p, float rr, V2 &out) const {
+	if (nn == 0 || !finite2(p.x, p.y)) return false;
+	int cx = cell_index(p.x / nav_cell, 0, nn - 1), cy = cell_index(p.y / nav_cell, 0, nn - 1);
+	int k = (int)(rr / nav_cell);
+	float bd = 1e9f;
+	bool found = false;
+	for (int dy = -k; dy <= k; dy++) {
+		for (int dx = -k; dx <= k; dx++) {
+			int x = cx + dx, y = cy + dy;
+			if (x < 0 || y < 0 || x >= nn || y >= nn) continue;
+			size_t c = (size_t)y * nn + x;
+			if (solid[c] || !cover[c]) continue;
+			V2 q = { (x + 0.5f) * nav_cell, (y + 0.5f) * nav_cell };
+			float d = (q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y);
+			if (d < bd) {
+				bd = d;
+				out = q;
+				found = true;
+			}
+		}
+	}
+	return found;
+}
+
+bool Core::bush_near(V2 p, float rr, int bi, V2 &out) const {
+	int n = (int)(snap.size() / PHYS);
+	int team = bi >= 0 && bi < n ? (int)snap_at(this, bi)[P_TEAM] : -1;
+	float bd = rr * rr;
+	bool found = false;
+	const Hash &h = bush_hash;
+	for (int i = h.key(p.x - rr, false); i <= h.key(p.x + rr, false); i++) {
+		for (int j = h.key(p.y - rr, true); j <= h.key(p.y + rr, true); j++) {
+			const std::vector<int> *cl = h.at(i, j);
+			if (!cl) continue;
+			for (int b : *cl) {
+				float bx = bushes[b * 3], by = bushes[b * 3 + 1];
+				float d = (p.x - bx) * (p.x - bx) + (p.y - by) * (p.y - by);
+				if (d >= bd) continue;
+				bool taken = false;
+				for (int oi = 0; oi < n && !taken; oi++) {
+					const float *O = snap_at(this, oi);
+					if (oi == bi || O[P_ALIVE] == 0.0f || (int)O[P_TEAM] != team) continue;
+					float ox = O[P_X] - bx, oy = O[P_Y] - by;
+					taken = ox * ox + oy * oy < 900.0f;
+				}
+				if (!taken) {
+					bd = d;
+					out = { bx, by };
+					found = true;
+				}
+			}
+		}
+	}
+	return found;
+}
+
+bool Core::ally_near(V2 p, int team, float r, int bi) const {
+	int n = (int)(snap.size() / PHYS);
+	for (int oi = 0; oi < n; oi++) {
+		const float *O = snap_at(this, oi);
+		if (oi != bi && O[P_ALIVE] != 0.0f && (int)O[P_TEAM] == team) {
+			float dx = O[P_X] - p.x, dy = O[P_Y] - p.y;
+			if (dx * dx + dy * dy < r * r) return true;
+		}
+	}
+	return false;
+}
+
+// Место рядом: hull — где цель видит только башню («корпус за гребнем»), иначе — где не видит вовсе
+bool Core::find_spot(int i, V3 eye, bool hull, V2 &out) {
+	const float *B = snap_at(this, i);
+	const TankStatic &T = ts[i];
+	float r = T.W * 0.62f;
+	V2 bp = pos_of(B);
+	float to = std::atan2(eye.z - bp.y, eye.x - bp.x);
+	float base = hull ? to : to + PI_F;
+	float bd = 1e9f;
+	bool found = false;
+	float height = ai[i].height;
+	for (int k = 0; k < 13; k++) {
+		V2 p = bp;
+		if (k > 0) {
+			float a = base + ((float)k - 6.5f) * (hull ? 0.3f : 0.45f);
+			V2 f = from_angle(a);
+			float rr = 25.0f + (float)(k % 3) * 30.0f;
+			p = { bp.x + f.x * rr, bp.y + f.y * rr };
+			if (p.x < 150.0f || p.y < 150.0f || p.x > ws - 150.0f || p.y > ws - 150.0f || blocked_at(p.x, p.y, r)) continue;
+		}
+		float g = this->height(p.x, p.y);
+		V3 top = { p.x, g + height * 0.92f, p.y };
+		if (hull) {
+			if (!los(eye, top) || los(eye, { p.x, g + height * 0.42f, p.y })) continue;
+		} else if (los(eye, top)) {
+			continue;
+		}
+		float d = dist2(bp, p);
+		if (d < bd) {
+			bd = d;
+			out = p;
+			found = true;
+		}
+		if (k == 0) break;
+	}
+	return found;
+}
+
+V2 Core::stage_point(int team, int lane, int stage) const {
+	float t = STAGES[std::min(std::max(stage, 0), 6)];
+	float y = team == 0 ? (ws - 300.0f) + (300.0f - (ws - 300.0f)) * t : 300.0f + ((ws - 300.0f) - 300.0f) * t;
+	return { lane_x[std::min(std::max(lane, 0), 2)], y };
+}
+
+int Core::alive_count(int team) const {
+	int n = (int)(snap.size() / PHYS), c = 0;
+	for (int i = 0; i < n; i++) {
+		const float *t = snap_at(this, i);
+		if (t[P_ALIVE] != 0.0f && (int)t[P_TEAM] == team) c++;
+	}
+	return c;
+}
+
+int Core::lane_of(float x) const {
+	int best = 1;
+	float bd = 1e9f;
+	for (int ln = 0; ln < 3; ln++) {
+		float d = std::fabs(x - lane_x[ln]);
+		if (d < bd) {
+			bd = d;
+			best = ln;
+		}
+	}
+	return best;
+}
+
+// Силы на направлении: боевой вес × прочность; свои — по месту, враги — по памяти команды
+V2 Core::lane_power(int team, int lane, bool autopilot) const {
+	int n = (int)(snap.size() / PHYS);
+	float ours = 0.0f, theirs = 0.0f;
+	for (int i = 0; i < n && i < (int)ai.size(); i++) {
+		const float *t = snap_at(this, i);
+		if (t[P_ALIVE] == 0.0f) continue;
+		float w = ai[i].pts * (0.4f + 0.6f * t[P_HP]);
+		if ((int)t[P_TEAM] == team) {
+			int ln = (!ai[i].player || autopilot) ? ai[i].lane : lane_of(t[P_X]);
+			if (ln == lane) ours += w;
+		} else if (i < (int)intel[team].size() && intel[team][i].has) {
+			const Intel &it = intel[team][i];
+			if (clock - it.t < 25.0f && lane_of(it.pos.x) == lane) theirs += w;
+		}
+	}
+	return { ours, theirs };
+}
+
+// Куда ехать без цели: защита базы, точки режима, рубеж своей группы, засада, разведка
+V2 Core::plan(int i) {
+	const float *B = snap_at(this, i);
+	BotAi &A = ai[i];
+	int my = (int)B[P_TEAM], en = 1 - my;
+	int stage = squads[my][A.lane].stage;
+	V2 off = A.off;
+	V2 bp = pos_of(B);
+	A.zone = -1;
+	auto zp = [&](int z, float k) { return V2{ zones[z].x + off.x * k, zones[z].y + off.y * k }; };
+	if (mode == 0 && zones.size() >= 2) {
+		int own = zones[0].side == my ? 0 : 1, foe = own == 0 ? 1 : 0;
+		float d_own = dist2(bp, { zones[own].x, zones[own].y });
+		// захват своей базы сбивают ближние, а при сильном захвате — все, кто успеет
+		if (zones[own].prog[en] > 0.0f && (A.def || d_own < 1100.0f || (zones[own].prog[en] > 35.0f && d_own < 2100.0f))) {
+			A.zone = own;
+			return zp(own, 0.4f);
+		}
+		if (A.def && clock < 150.0f) {
+			V2 sp = stage_point(my, 1, 0);
+			return { sp.x + off.x, sp.y + off.y };
+		}
+		// к концу боя вся команда идёт на базу врага
+		if (stage >= max_stage() || alive_count(en) <= 1 || clock > time_limit * 0.72f) {
+			A.zone = foe;
+			return zp(foe, 0.4f);
+		}
+	} else if (mode == 1 && !zones.empty()) {
+		if ((stage >= 3 && clock > 75.0f) || zones[0].prog[en] > 0.0f || alive_count(en) <= 1) {
+			A.zone = 0;
+			return zp(0, 0.4f);
+		}
+	} else if (mode == 2) {
+		for (int z = 0; z < (int)zones.size(); z++) {
+			if (zones[z].side == my && zones[z].prog[en] > 0.0f && dist2(bp, { zones[z].x, zones[z].y }) < 900.0f) {
+				A.zone = z;
+				return zp(z, 0.4f);
+			}
+		}
+		int lz = -1;
+		float bd = 1e9f;
+		for (int z = 0; z < (int)zones.size(); z++) {
+			float d = std::fabs(zones[z].x - lane_x[A.lane]);
+			if (d < bd) {
+				bd = d;
+				lz = z;
+			}
+		}
+		if (lz >= 0 && stage >= 3 && (zones[lz].side != my || zones[lz].n[en] > 0)) {
+			A.zone = lz;
+			return zp(lz, 0.4f);
+		}
+	}
+	if (A.cls == CLS_LT) {
+		// разведчик: куст впереди группы; засветили — откатывается на рубеж назад
+		if (clock < A.back_t) {
+			V2 sp = stage_point(my, A.lane, std::max(stage - 1, 0));
+			return { sp.x + off.x, sp.y + off.y };
+		}
+		V2 fp = stage_point(my, A.lane, std::min(stage + 1, 4));
+		V2 bsh;
+		if (bush_near(fp, 280.0f, i, bsh)) return bsh;
+		return { fp.x + off.x, fp.y + off.y };
+	}
+	if (A.cls == CLS_PT) {
+		// ПТ: засада в кусте или в лесу на рубеж позади группы
+		V2 op = stage_point(my, A.lane, std::max(stage - 1, 0));
+		V2 bsh;
+		if (bush_near(op, 260.0f, i, bsh)) return bsh;
+		V2 cv;
+		if (cover_near({ op.x + off.x, op.y + off.y }, 150.0f, cv)) return cv;
+		return { op.x + off.x, op.y + off.y };
+	}
+	V2 sp = stage_point(my, A.lane, stage);
+	return { sp.x + off.x, sp.y + off.y };
+}
+
+// Дуло орудия по позе с прошлого шага (как tank.muzzle(), без отката)
+static V3 muzzle_of(const Core::TankStatic &T, const float *t, float barrel) {
+	M3 bh = M3::rot(1, -t[P_HULL]) * M3::rot(2, t[P_PITCH] + t[P_BODY_P]) * M3::rot(0, t[P_ROLL] + t[P_BODY_R]);
+	M3 g = bh * M3::rot(1, -(t[P_TUR] - t[P_HULL]));
+	M3 gb = g * M3::rot(2, t[P_GUN_PITCH]);
+	V3 o1 = bh.mul(T.tur_pos0), o2 = g.mul(T.gun_pos0), o3 = gb.mul({ barrel, 0.0f, 0.0f });
+	return { t[P_X] + o1.x + o2.x + o3.x, t[P_GROUND] + o1.y + o2.y + o3.y, t[P_Y] + o1.z + o2.z + o3.z };
+}
+
+// Решения бота (как Battle._think): цель, укрытие, засада, «корпус за гребнем», маршрут.
+// true — нужен маршрут в route_to.
+bool Core::think(int i, V2 &route_to, bool &route_safe) {
+	const float *B = snap_at(this, i);
+	const TankStatic &T = ts[i];
+	BotAi &A = ai[i];
+	int team = (int)B[P_TEAM], en = 1 - team;
+	V2 bp = pos_of(B);
+	int nt = choose(i);
+	if (nt != A.tg) {
+		A.has_peek = false;
+		A.has_spot = false;
+		A.spot_kind = SPOT_NONE;
+	}
+	A.tg = nt;
+	snap[(size_t)i * PHYS + P_TG] = (float)nt;
+	const float *G = nt >= 0 ? snap_at(this, nt) : nullptr;
+	bool spotted = B[en == 0 ? P_VIS0 : P_VIS1] != 0.0f;
+	bool danger = spotted && (clock - B[P_HIT_T] < 8.0f || foe_near(i, 1000.0f));
+	A.hold = false;
+	A.adv = !danger || covered(bp);
+	if (A.cls == CLS_LT && spotted && clock > A.back_t + 4.0f && foe_near(i, 750.0f)) A.back_t = clock + 7.0f + 4.0f * randf();
+	if (G) {
+		const TankStatic &GT = ts[nt];
+		V3 cen = { G[P_X], G[P_GROUND] + GT.hh * 0.6f, G[P_Y] };
+		A.los = los(muzzle_of(T, B, A.barrel), cen);
+		float spd = std::sqrt(B[P_VX] * B[P_VX] + B[P_VY] * B[P_VY]);
+		if (A.los && (!A.has_peek || spd < 4.0f)) {
+			A.peek = bp;
+			A.has_peek = true;
+		}
+	}
+	// разведчик после засвета откатывается; в конце стандартного боя все, кроме сцепившихся вплотную, — на базу
+	bool rush = mode == 0 && clock > time_limit * 0.72f && G && dist2(pos_of(G), bp) > 250.0f;
+	if (G && !(A.cls == CLS_LT && clock < A.back_t) && !rush) {
+		float d = dist2(bp, pos_of(G));
+		V3 eye = { G[P_X], G[P_GROUND] + ai[nt].height, G[P_Y] };  // верх цели + 2
+		bool low = B[P_HP] < 0.3f;
+		if (A.zone >= 0 && A.zone < (int)zones.size()) {
+			const Zone &z = zones[A.zone];
+			float dx = bp.x - z.x, dy = bp.y - z.y;
+			if (dx * dx + dy * dy < z.r * z.r && z.side != team) {
+				A.act = ACT_HOLD;
+				return false;
+			}
+		}
+		// засада: ПТ и разведчик в кусте или лесу стоят и не выдают себя дальними выстрелами
+		bool hidden = in_bush(bp.x, bp.y) || trees_near(bp.x, bp.y, 26.0f) >= 2;
+		if ((A.cls == CLS_PT || A.cls == CLS_LT) && hidden && !spotted) {
+			bool base_threat = false;
+			for (const Zone &z : zones) {
+				if (z.side == team && z.prog[en] > 0.0f) base_threat = true;
+			}
+			float tg_hp = G[P_HP] * ai[nt].max_hp;
+			A.hold = !base_threat && d > (A.cls == CLS_LT ? 300.0f : 450.0f) && tg_hp > A.dmg * 1.3f && !ally_near(pos_of(G), team, 380.0f, i);
+			if (A.los || dist2(plan(i), bp) < 200.0f) {
+				A.act = ACT_HOLD;
+				return false;
+			}
+		}
+		// перезарядка: за укрытие
+		bool casemate = T.casemate != 0.0f, armored = T.armored != 0.0f;
+		bool hide = A.los && d < 1000.0f && B[P_RL] > 1.4f && B[P_IMMOBILE] == 0.0f && B[P_TRACK_BROKEN] <= 0.0f &&
+				(low || (A.reload >= 3.5f && !armored && !casemate) || (A.cls == CLS_PT && spotted && A.reload >= 4.0f));
+		if (hide) {
+			if (A.spot_kind != SPOT_COVER || clock > A.spot_t) {
+				A.has_spot = find_spot(i, eye, false, A.spot);
+				A.spot_kind = SPOT_COVER;
+				A.spot_t = clock + 2.5f;
+			}
+			if (A.has_spot) {
+				A.act = ACT_SPOT;
+				return false;
+			}
+		} else if (A.spot_kind == SPOT_COVER) {
+			A.has_spot = false;
+			A.spot_kind = SPOT_NONE;
+		}
+		// корпус за гребнем: башенный танк ищет место, откуда противнику видна только башня
+		if (A.los && !casemate && A.cls != CLS_LT && d > 220.0f && !hide) {
+			if (A.spot_kind != SPOT_HULL || clock > A.spot_t) {
+				A.has_spot = find_spot(i, eye, true, A.spot);
+				A.spot_kind = SPOT_HULL;
+				A.spot_t = clock + 3.0f;
+			}
+			if (A.has_spot) {
+				A.act = ACT_SPOT;
+				return false;
+			}
+		}
+		if (A.los) {
+			A.act = ACT_FIGHT;
+			return false;
+		}
+		if (d < T.pref + 300.0f) {
+			// из пушки цель не видна: выехать туда, откуда видел её, или подобраться маршрутом
+			route_to = pos_of(G);
+			if (A.has_peek && dist2(A.peek, bp) > 25.0f) route_to = A.peek;
+			route_safe = danger;
+			A.act = ACT_ROUTE;
+			return true;
+		}
+	}
+	if (!G) A.los = false;
+	// без цели: план группы; под огнём на открытом месте — сначала в ближайшее укрытие
+	V2 goal = plan(i);
+	A.goal = goal;
+	if (danger && clock - B[P_HIT_T] < 6.0f && !covered(bp)) {
+		V2 cv;
+		if (cover_near(bp, 175.0f, cv)) goal = cv;
+	}
+	if (dist2(bp, goal) < 30.0f) {
+		A.act = ACT_HOLD;
+		return false;
+	}
+	route_to = goal;
+	route_safe = danger;
+	A.act = ACT_ROUTE;
+	return true;
+}
+
+// Раз в секунду: идти ли группам вперёд, держаться или отходить
+void Core::squads_update(bool autopilot) {
+	bool late = clock > time_limit * 0.6f;
+	int n = (int)(snap.size() / PHYS);
+	for (int team = 0; team < 2; team++) {
+		for (int ln = 0; ln < 3; ln++) {
+			Squad &sq = squads[team][ln];
+			std::vector<int> mem;
+			for (int i = 0; i < n && i < (int)ai.size(); i++) {
+				const float *t = snap_at(this, i);
+				if (t[P_ALIVE] != 0.0f && (int)t[P_TEAM] == team && (!ai[i].player || autopilot) && ai[i].lane == ln) mem.push_back(i);
+			}
+			if (mem.empty()) continue;
+			V2 pw = lane_power(team, ln, autopilot);
+			sq.t += 1.0f;
+			V2 sp = stage_point(team, ln, sq.stage);
+			int near_n = 0;
+			for (int i : mem) {
+				if (dist2(pos_of(snap_at(this, i)), { sp.x + ai[i].off.x, sp.y + ai[i].off.y }) < 190.0f) near_n++;
+			}
+			int top = max_stage();
+			int m = (int)mem.size();
+			bool losing = (pw.y > pw.x * 1.7f && (m < sq.n0 || clock > 60.0f)) || (pw.y > pw.x && m * 2 < sq.n0);
+			auto move_squad = [&](int stage) {
+				// группа уходит в центр; если там никого, центр продолжает с её рубежа
+				Squad &msq = squads[team][1];
+				bool alive_mid = false;
+				for (int i = 0; i < n && i < (int)ai.size(); i++) {
+					const float *t = snap_at(this, i);
+					if (t[P_ALIVE] != 0.0f && (int)t[P_TEAM] == team && !ai[i].player && ai[i].lane == 1) alive_mid = true;
+				}
+				if (!alive_mid) {
+					msq.stage = std::max(0, stage);
+					msq.t = 0.0f;
+				}
+				for (int i : mem) ai[i].lane = 1;
+				msq.n0 += m;
+				sq.n0 = 0;
+			};
+			if (losing) {
+				if (sq.stage > 1 && sq.t > 6.0f) {
+					sq.stage--;
+					sq.t = 0.0f;
+				} else if (ln != 1 && sq.stage <= 1) {
+					move_squad(sq.stage);
+				}
+			} else if (sq.stage >= top && pw.y == 0.0f && ln != 1 && mode == 0) {
+				move_squad(top - 2);
+			} else if (sq.stage < top && (near_n * 5 >= m * 3 || sq.t > (late ? 12.0f : 30.0f)) && (pw.y == 0.0f || pw.x >= pw.y * (late ? 0.85f : 1.25f))) {
+				sq.stage++;
+				sq.t = 0.0f;
+			}
+		}
+	}
+}
+
+// Решения ботов: (режим, длительность боя, x направлений [3], на танк [класс, оборона, игрок, вес, прочность,
+// урон, перезарядка, высота, ствол, направление, место в строю x, y, фланг]*) — после Battle._assign_lanes
+static const int AI_STATIC = 13;
+METHOD(ai_init) {
+	SELF;
+	if (!need(a, 4, e)) return;
+	self->mode = (int)a.integer(0);
+	self->time_limit = (float)a.num(1);
+	std::vector<float> lx = f32(a, 2), f = f32(a, 3);
+	for (int k = 0; k < 3 && k < (int)lx.size(); k++) self->lane_x[k] = lx[k];
+	self->ai.clear();
+	for (size_t k = 0; k + AI_STATIC <= f.size(); k += AI_STATIC) {
+		const float *q = &f[k];
+		Core::BotAi b;
+		b.cls = (int)q[0]; b.def = q[1] != 0.0f; b.player = q[2] != 0.0f; b.pts = q[3]; b.max_hp = q[4];
+		b.dmg = q[5]; b.reload = q[6]; b.height = q[7]; b.barrel = q[8]; b.lane = (int)q[9];
+		b.off = { q[10], q[11] }; b.side = q[12];
+		self->ai.push_back(b);
+	}
+	for (int team = 0; team < 2; team++) {
+		self->intel[team].assign(self->ai.size(), Core::Intel());
+	}
+	self->ai_on = true;
+}
+
+// Численность групп на старте: [команда 0: высота, центр, застройка, команда 1: …]
+METHOD(ai_squads) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<int32_t> c = i32(a, 0);
+	for (int team = 0; team < 2; team++) {
+		for (int ln = 0; ln < 3; ln++) {
+			self->squads[team][ln] = Core::Squad();
+			if ((size_t)(team * 3 + ln) < c.size()) self->squads[team][ln].n0 = c[team * 3 + ln];
+		}
+	}
+}
+
+// Базы: [x, y, r, сторона, захват 0, захват 1, танков 0, танков 1]*
+METHOD(zones_set) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<float> f = f32(a, 0);
+	self->zones.clear();
+	for (size_t k = 0; k + 8 <= f.size(); k += 8) {
+		self->zones.push_back({ f[k], f[k + 1], f[k + 2], (int)f[k + 3], { f[k + 4], f[k + 5] }, { (int)f[k + 6], (int)f[k + 7] } });
+	}
+}
+
+// Решения бота i: (i, время боя) → [цель, нужен маршрут, куда x, y, под огнём]
+METHOD(think) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int i = (int)a.integer(0);
+	self->clock = (float)a.num(1);
+	int n = (int)(self->snap.size() / PHYS);
+	float out[5] = { -1, 0, 0, 0, 0 };
+	if (i >= 0 && i < n && i < (int)self->ai.size() && i < (int)self->ts.size()) {
+		V2 to = { 0, 0 };
+		bool safe = false;
+		bool req = self->think(i, to, safe);
+		out[0] = (float)self->ai[i].tg;
+		out[1] = req ? 1.0f : 0.0f;
+		out[2] = to.x;
+		out[3] = to.y;
+		out[4] = safe ? 1.0f : 0.0f;
+	}
+	ret_f32(r, out, 5);
+}
+
+// Состояние решений бота (для проверок): [действие, цель, видит, засада, сближаться, есть место, направление]
+METHOD(ai_state) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int i = (int)a.integer(0);
+	if (i < 0 || i >= (int)self->ai.size()) return;
+	const Core::BotAi &A = self->ai[i];
+	float out[7] = { (float)A.act, (float)A.tg, A.los ? 1.0f : 0.0f, A.hold ? 1.0f : 0.0f, A.adv ? 1.0f : 0.0f, A.has_spot ? 1.0f : 0.0f, (float)A.lane };
+	ret_f32(r, out, 7);
+}
+
+// Группы: (время боя, автопилот игрока)
+METHOD(squads_step) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	self->clock = (float)a.num(0);
+	self->squads_update(a.boolean(1));
+}
+
 // ---------- Регистрация ----------
 
 static void *create_core() { return new Core(); }
@@ -2036,6 +2619,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },
 		{ "cover_near", cover_near }, { "bush_near", bush_near }, { "bot_path", bot_path },
+		{ "ai_init", ai_init }, { "ai_squads", ai_squads }, { "zones_set", zones_set }, { "think", think }, { "squads_step", squads_step }, { "ai_state", ai_state },
 	};
 	for (auto &m : methods) {
 		register_method(lib, C, m.name, m.m);

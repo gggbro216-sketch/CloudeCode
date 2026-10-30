@@ -955,11 +955,12 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 
 # ---------- Физика в C++ ----------
 
-const PHYS := 68  # чисел на танк в пакете phys_step (порядок — enum PhysField в native/src/core.cpp)
+const PHYS := 69  # чисел на танк в пакете phys_step (порядок — enum PhysField в native/src/core.cpp)
 var phys_buf := PackedFloat32Array()
 
 
 const BOT_ACT := {"route": 1, "spot": 2, "fight": 3}
+var core_ai := false  # решения ботов считает C++ (ai_init прошёл)
 
 
 ## Неизменное для C++-физики: характеристики танков, деревья и заборы, грунт.
@@ -986,6 +987,22 @@ func _phys_init() -> void:
 	var nd := nimg.get_data() if nimg and nimg.get_format() == Image.FORMAT_L8 else PackedByteArray()
 	core.ground_set({"sand": 1, "snow": 2, "urban": 3}.get(surf, 0), soft_base, mu_base, road_mu, nd, nimg.get_width() if nimg else 0)
 	phys_buf.resize(tanks.size() * PHYS)
+	# решения ботов: классы, направления и места в строю — из _assign_lanes
+	var cls := {"ЛТ": 0, "СТ": 1, "ТТ": 2, "ПТ": 3}
+	var lane := {"hill": 0, "mid": 1, "town": 2}
+	var af := PackedFloat32Array()
+	for tk: TankScript in tanks:
+		af.append_array([cls.get(tk.b_cls, 1), 1.0 if tk.role == "def" else 0.0, 1.0 if tk.is_player else 0.0,
+			D.pts(tk.type_key, year), tk.max_hp, tk.T.dmg, tk.T.reload, tk.height, tk.barrel, lane.get(tk.b_lane, 1),
+			tk.b_off.x, tk.b_off.y, tk.b_side])
+	core.ai_init({"standard": 0, "encounter": 1, "supremacy": 2}.get(mode, 0), D.TIME_LIMIT,
+		PackedFloat32Array([_lane_x("hill"), _lane_x("mid"), _lane_x("town")]), af)
+	var sq := PackedInt32Array()
+	for team in 2:
+		for ln in ["hill", "mid", "town"]:
+			sq.append(int(squads[team].get(ln, {"n0": 0}).n0))
+	core.ai_squads(sq)
+	core_ai = true
 
 
 ## Езда (по накопленным командам), расталкивание и подвеска всех танков одним вызовом C++;
@@ -1048,7 +1065,8 @@ func _phys_native(dt: float) -> void:
 		P[k + 50] = 1.0 if tk.vis[1] else 0.0
 		P[k + 51] = tk.b_tg.idx if tk.b_tg != null else -1
 		P[k + 52] = 1.0 if tk.bot_cmd else 0.0
-		if tk.bot_cmd:
+		P[k + 68] = tk.hit_t
+		if tk.bot_cmd and not core_ai:
 			P[k + 53] = BOT_ACT.get(tk.b_act, 0)
 			P[k + 54] = 1.0 if tk.b_spot != null else 0.0
 			if tk.b_spot != null:
@@ -1058,14 +1076,14 @@ func _phys_native(dt: float) -> void:
 			P[k + 58] = 1.0 if tk.b_los else 0.0
 			P[k + 59] = 1.0 if tk.b_hold else 0.0
 			P[k + 60] = tk.b_side
-			var has_tg: bool = tk.b_tg != null and tk.b_tg.alive
-			var guess = null if has_tg else _foe_guess(tk)
+			var guess = null if tk.b_tg != null and tk.b_tg.alive else _foe_guess(tk)
 			P[k + 61] = 1.0 if guess != null else 0.0
 			if guess != null:
 				P[k + 62] = guess.x
 				P[k + 63] = guess.y
+		if tk.bot_cmd:
 			P[k + 64] = tk.rl
-			P[k + 65] = 1.0 if has_tg and tk.can_fire() else 0.0
+			P[k + 65] = 1.0 if tk.b_tg != null and tk.b_tg.alive and tk.can_fire() else 0.0
 	var res: Array = core.phys_step(dt, P, clock)
 	P = res[0]
 	phys_buf = P
@@ -1832,7 +1850,7 @@ func _update_spotting_native() -> void:
 		f[k + 13] = cen.z
 		f[k + 14] = float(t.T.spot) * t.spot_k
 		f[k + 15] = 1.0 if _hidden(t.pos) else 0.0
-	var res: PackedInt32Array = core.spot(f, 110.0)
+	var res: PackedInt32Array = core.spot(f, 110.0, clock)
 	for i in n:
 		var e: TankScript = tanks[i]
 		if not e.alive:
@@ -2337,6 +2355,9 @@ func _lane_power(team: int, ln: String) -> Vector2:
 
 ## Раз в секунду: решает, идти ли группам вперёд, держаться или отходить.
 func _squads_update() -> void:
+	if core:
+		core.squads_step(clock, autopilot)
+		return
 	var late := clock > D.TIME_LIMIT * 0.6
 	for team in 2:
 		for ln in squads[team]:
@@ -2580,6 +2601,14 @@ func _find_spot(b: TankScript, eye: Vector3, hull: bool):
 
 ## Решения бота (5 раз в секунду): цель, укрытие, засада, маршрут.
 func _think(b: TankScript) -> void:
+	if core:
+		# решения целиком в C++: цель, укрытие, засада, «корпус за гребнем», план группы
+		var r: PackedFloat32Array = core.think(b.idx, clock)
+		var ti := int(r[0])
+		b.b_tg = tanks[ti] if ti >= 0 else null
+		if r[1] != 0.0:
+			_set_route(b, Vector2(r[2], r[3]), r[4] != 0.0)
+		return
 	var T := b.T
 	var en := 1 - b.team
 	var nt := _choose_target(b)
@@ -2924,6 +2953,11 @@ func _update(dt: float) -> void:
 		_squads_update()
 		squad_t = 1.0
 		_prof("группы", t0)
+	if core_ai:
+		var zf := PackedFloat32Array()
+		for z in zones:
+			zf.append_array([z.pos.x, z.pos.y, z.r, z.side, z.prog[0], z.prog[1], z.n[0], z.n[1]])
+		core.zones_set(zf)
 	var t_tanks := Time.get_ticks_usec()
 	for tk: TankScript in tanks:
 		if not tk.alive:

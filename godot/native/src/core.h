@@ -100,6 +100,37 @@ struct Core {
 		std::vector<V2> path;
 	};
 	std::vector<Bot> bots;
+
+	// ---- решения ботов (этап 5): Battle._think/_plan/_squads_update/_lane_power, память о врагах ----
+	struct BotAi {
+		int cls = 1, lane = 1, act = 0, spot_kind = 0, tg = -1, zone = -1;  // cls: 0 ЛТ, 1 СТ, 2 ТТ, 3 ПТ; lane: 0 высота, 1 центр, 2 застройка
+		bool def = false, player = false, has_spot = false, has_peek = false, hold = false, adv = true, los = false;
+		V2 off = { 0, 0 }, spot = { 0, 0 }, peek = { 0, 0 }, goal = { 0, 0 };
+		float side = 1.0f, back_t = 0.0f, spot_t = 0.0f, pts = 5.0f, max_hp = 1.0f, dmg = 100.0f, reload = 3.0f, height = 20.0f, barrel = 30.0f;
+	};
+	std::vector<BotAi> ai;
+	bool ai_on = false;
+	int mode = 0;  // 0 стандартный, 1 встречный, 2 превосходство
+	float time_limit = 420.0f, clock = 0.0f;
+	float lane_x[3] = { 0, 0, 0 };
+	struct Squad {
+		int stage = 0, n0 = 0;
+		float t = 0.0f;
+	};
+	Squad squads[2][3];
+	struct Zone {
+		float x, y, r;
+		int side;
+		float prog[2];
+		int n[2];
+	};
+	std::vector<Zone> zones;
+	struct Intel {
+		V2 pos;
+		float t = -1e9f;
+		bool has = false;
+	};
+	std::vector<Intel> intel[2];  // команда → по танку: где и когда видели
 	uint32_t rng = 0x9e3779b9u;
 	float randf() {
 		rng ^= rng << 13;
@@ -119,6 +150,23 @@ struct Core {
 	V2 ground_at(float px, float py) const;  // (сцепление, мягкость)
 	V2 resolve(float &px, float &py, float r) const;  // выталкивание из построек
 	bool in_bush(float px, float py) const;
+	// решения ботов (по снимку snap)
+	int choose(int i) const;
+	bool foe_guess(V2 bp, int team, V2 &out) const;
+	bool foe_near(int i, float r) const;
+	bool covered(V2 p) const;
+	bool cover_near(V2 p, float r, V2 &out) const;
+	bool bush_near(V2 p, float r, int bi, V2 &out) const;
+	bool ally_near(V2 p, int team, float r, int bi) const;
+	bool find_spot(int i, V3 eye, bool hull, V2 &out);
+	V2 stage_point(int team, int lane, int stage) const;
+	int max_stage() const { return mode == 0 ? 6 : 4; }
+	int alive_count(int team) const;
+	int lane_of(float x) const;
+	V2 lane_power(int team, int lane, bool autopilot) const;
+	V2 plan(int i);
+	bool think(int i, V2 &route_to, bool &route_safe);
+	void squads_update(bool autopilot);
 	int trees_near(float px, float py, float r) const;
 	float height(float x, float z) const;
 	bool terrain_clear(V3 a, V3 b) const;
