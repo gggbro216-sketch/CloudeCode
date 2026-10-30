@@ -112,10 +112,11 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 		if out > -150.0:
 			var k := smoothstep(-150.0, 450.0, out)
 			v += k * (90.0 + (ridge.get_noise_2d(x, z) * 0.5 + 0.5) * 140.0) * float(M.get("edge", 1.0))
-		# сглаживаем зоны старта
-		if z < 420.0 or z > ws - 420.0:
+		# сглаживаем зоны старта; переход к холмам длинный, чтобы на краю не вырос уступ,
+		# на который не въедет слабосильная машина
+		if z < 660.0 or z > ws - 660.0:
 			var dz := minf(absf(z - 260.0), absf(z - (ws - 260.0)))
-			v = lerpf(v, v * 0.25, 1.0 - smoothstep(60.0, 220.0, dz))
+			v = lerpf(v, v * 0.25, 1.0 - smoothstep(60.0, 400.0, dz))
 		h[i] = v
 	# ровные площадки под зонами захвата; зона на высоте — площадка на её вершине
 	for z in zones:

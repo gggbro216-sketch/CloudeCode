@@ -799,6 +799,11 @@ func drive(tk: TankScript, dt: float, thr: float, steer: float) -> void:
 	if absf(thr) > 0.05:
 		var target := thr * (vmax if thr > 0 else vrev) * (1.0 - absf(steer) * 0.25)
 		var push: float = float(T.accel) * tk.accel_k * (1.0 - 0.55 * soft) * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0) * 0.6)
+		# на подъёме выручает низкая передача: на малой скорости тяги хватает на склон,
+		# пока его держит сцепление (на ровном месте разгон прежний)
+		var up := slope_f * signf(thr)
+		if up > 0.0:
+			push += minf(g * up * cos_f, push * 1.5) * (1.0 - clampf(absf(v_f) / maxf(vmax, 1.0), 0.0, 1.0))
 		a = clampf((target - v_f) * 2.5, -push * 2.5, push)
 	else:
 		a = -signf(v_f) * minf(absf(v_f) * 3.0, 0.4 * g)  # торможение двигателем и фрикционами
