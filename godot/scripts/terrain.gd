@@ -1,12 +1,12 @@
 extends RefCounted
-## Рельеф: карта высот (холмы, горы по краю, площадки под постройки и зоны, воронки),
+## Рельеф: карта высот (шум, высоты и овраги карты, горы по краю, площадки под постройки и зоны, воронки),
 ## быстрая выборка высоты и нормали, сетка с коллизией и шейдер земли.
 
 const D = preload("res://scripts/data.gd")
 
 const ORIGIN := -700.0  # рельеф шире игровой зоны: по краям поднимаются горы
-const SIZE := 3600.0
-const N := 180
+const SIZE := 4260.0  # D.WS + 2 × 700
+const N := 213  # шаг сетки — 20 единиц
 const CELL := SIZE / N
 
 var h := PackedFloat32Array()
@@ -69,7 +69,21 @@ func _window(r: Rect2) -> Array:
 	return [x0, x1, z0, z1]
 
 
-func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array, ao_points := []) -> void:
+## Вклад высот и оврагов карты в точке. Каждая — отрезок a–b с радиусом r и высотой h (h < 0 — овраг):
+## ровная вершина до core·r, дальше плавный склон.
+static func hills_at(p: Vector2, hills: Array) -> float:
+	var v := 0.0
+	for hl in hills:
+		var r: float = hl.r
+		var c := Geometry2D.get_closest_point_to_segment(p, hl.a, hl.b)
+		var d := p.distance_to(c)
+		if d < r:
+			var t := clampf((d / r - float(hl.core)) / (1.0 - float(hl.core)), 0.0, 1.0)
+			v += float(hl.h) * (1.0 - t * t * (3.0 - 2.0 * t))
+	return v
+
+
+func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array, ao_points := [], hills := []) -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	var relief: float = M.relief
 	var ws := D.WS
@@ -91,6 +105,8 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 		var v := big.get_noise_2d(x, z) * relief + small.get_noise_2d(x, z) * relief * 0.08
 		if map_key == "alamein":
 			v = absf(big.get_noise_2d(x, z)) * relief * 1.3 - relief * 0.3 + small.get_noise_2d(x, z) * 1.5
+		if not hills.is_empty() and x > -300.0 and z > -300.0 and x < ws + 300.0 and z < ws + 300.0:
+			v += hills_at(Vector2(x, z), hills)
 		# горы за краем игровой зоны
 		var out := maxf(maxf(-x, x - ws), maxf(-z, z - ws))
 		if out > -150.0:
@@ -101,11 +117,12 @@ func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads:
 			var dz := minf(absf(z - 260.0), absf(z - (ws - 260.0)))
 			v = lerpf(v, v * 0.25, 1.0 - smoothstep(60.0, 220.0, dz))
 		h[i] = v
-	# ровные площадки под зонами захвата
+	# ровные площадки под зонами захвата; зона на высоте — площадка на её вершине
 	for z in zones:
 		var zp: Vector2 = z.pos
 		var zr: float = float(z.r) + 110.0
-		var target := height(zp.x, zp.y) * 0.4
+		var on_hill := hills_at(zp, hills)
+		var target := (height(zp.x, zp.y) - on_hill) * 0.4 + on_hill
 		var w := _window(Rect2(zp - Vector2(zr, zr), Vector2(zr, zr) * 2))
 		for iz in range(w[2], w[3] + 1):
 			for ix in range(w[0], w[1] + 1):
@@ -167,7 +184,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	rng.randomize()
 	if map_key == "prokhorovka" or map_key == "normandy":
 		# поля с бороздами
-		for f in 14:
+		for f in 24:
 			var fx := int((rng.randf() * D.WS - ORIGIN) * k)
 			var fz := int((rng.randf() * D.WS - ORIGIN) * k)
 			var fw := int((150 + rng.randf() * 260) * k)
@@ -177,7 +194,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	if map_key == "berlin":
 		# пыль и битый кирпич в кварталах и на пустырях
 		var dust := _brush(int(60 * k), Color(0, 0, 0.8, 0.7))
-		for f in 60:
+		for f in 100:
 			var px := int((rng.randf() * D.WS - ORIGIN) * k)
 			var pz := int((rng.randf() * D.WS - ORIGIN) * k)
 			mask.blend_rect(dust, Rect2i(0, 0, dust.get_width(), dust.get_height()), Vector2i(px, pz))
@@ -241,47 +258,10 @@ func _paint_ao(obst: Array, points: Array) -> void:
 	ao_tex = ImageTexture.create_from_image(img)
 
 
-## Детальная текстура грунта (альбедо и рельеф) для мелкого масштаба под гусеницами.
+## Детальная текстура грунта (яркость и рельеф) для мелкого масштаба под гусеницами:
+## трава, рябь песка, снежные заструги, брусчатка (запечены tools/make_textures.py).
 static func _detail(surf: String) -> Array:
-	var S := 256
-	var n := FastNoiseLite.new()
-	n.seed = 77
-	n.frequency = 0.06
-	n.fractal_octaves = 4
-	var fine := FastNoiseLite.new()
-	fine.seed = 9
-	fine.frequency = 0.35
-	var a := n.get_seamless_image(S, S)
-	var b := fine.get_seamless_image(S, S)
-	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
-	var h := Image.create(S, S, false, Image.FORMAT_RGB8)
-	for y in S:
-		for x in S:
-			var va := a.get_pixel(x, y).r
-			var vb := b.get_pixel(x, y).r
-			var v := 0.0
-			match surf:
-				"sand":
-					# рябь барханов
-					v = 0.5 + 0.35 * sin((x + va * 40.0) * 0.32) + (vb - 0.5) * 0.3
-				"snow":
-					v = 0.5 + (va - 0.5) * 0.6 + (vb - 0.5) * 0.15
-				"urban":
-					# брусчатка: скруглённые камни рядами со сдвигом, пыль в швах
-					var cx := float((x + (8 if (y / 16) % 2 == 1 else 0)) % 16) - 7.5
-					var cy := float(y % 16) - 7.5
-					var d := maxf(absf(cx), absf(cy)) / 7.5
-					v = 0.62 - smoothstep(0.7, 1.0, d) * 0.45 + (va - 0.5) * 0.35 + (vb - 0.5) * 0.12
-				_:
-					# трава: короткие штрихи стеблей поверх комковатой земли
-					v = 0.4 + (va - 0.5) * 0.5 + pow(vb, 3.0) * 0.8
-			v = clampf(v, 0.0, 1.0)
-			img.set_pixel(x, y, Color(v, v, v))
-			h.set_pixel(x, y, Color(v, v, v))
-	img.generate_mipmaps()
-	h.bump_map_to_normal_map(3.0 if surf == "grass" or surf == "urban" else 2.0)
-	h.generate_mipmaps()
-	return [ImageTexture.create_from_image(img), ImageTexture.create_from_image(h)]
+	return [load("res://assets/textures/ground_%s.png" % surf), load("res://assets/textures/ground_%s_n.png" % surf)]
 
 
 const SHADER := """
@@ -292,7 +272,7 @@ uniform sampler2D mask_tex : filter_linear_mipmap;
 uniform sampler2D ao_tex : filter_linear_mipmap;
 uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D detail_tex : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D detail_nrm : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D detail_nrm : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 c_g1 : source_color;
 uniform vec3 c_g2 : source_color;
 uniform vec3 c_rock : source_color;
@@ -339,8 +319,12 @@ void fragment() {
 	vec3 bare = mix(c_rock, c_g2, 0.35) * (0.8 + 0.3 * n_mid);
 	c = mix(c, mix(bare, vec3(dot(bare, vec3(0.333))), 0.35), hi * 0.75 * (1.0 - snow));
 	ALBEDO = c;
-	NORMAL_MAP = texture(detail_nrm, wpos.xz * 0.11).rgb;
-	NORMAL_MAP_DEPTH = mix(1.0, 0.4, road) * (1.0 - rock * 0.5);
+	// мелкий рельеф грунта в мировых осях (у сетки рельефа нет касательных)
+	vec3 tn = vec3(texture(detail_nrm, wpos.xz * 0.11).xy * 2.0 - 1.0, 0.0);
+	tn.xy *= mix(1.0, 0.4, road) * (1.0 - rock * 0.5);
+	tn.z = sqrt(max(0.0, 1.0 - dot(tn.xy, tn.xy)));
+	vec3 wn = normalize(wnrm);
+	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(vec3(tn.x + wn.x, abs(tn.z) * wn.y, tn.y + wn.z)), 0.0)).xyz);
 	ROUGHNESS = mix(1.0, 0.55, snow * (1.0 - road));
 	SPECULAR = snow * 0.4;
 }

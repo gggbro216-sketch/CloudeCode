@@ -84,6 +84,7 @@ var terra: Terrain
 var obst: Array = []
 var bushes: Array = []
 var props: Array = []
+var lanes: Dictionary = {}  # x направлений атаки: hill — фланг с высотой, town — с застройкой, mid — центр
 var falling: Array = []
 var zones: Array = []
 var tanks: Array = []
@@ -176,8 +177,12 @@ func _ready() -> void:
 		ao_pts.append(Vector3(b.pos.x, b.pos.y, float(b.r) * 1.1))
 	for pr in props:
 		ao_pts.append(Vector3(pr.pos.x, pr.pos.y, 9.0 if pr.kind == "fence" else 14.0))
-	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts)
+	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts, data.hills)
+	lanes = data.lanes
+	_build_hash()
+	_build_nav()
 	terra.build(self, map_key, hq)
+	MapGen.TexLib.bump = hq
 	var built := MapGen.build(self, data, map_key, zones, terra, hq)
 	bush_mat = built.bush_mat
 	_make_env()
@@ -189,7 +194,7 @@ func _ready() -> void:
 	# дальние пожары; над Берлином весной 1945-го дымов больше
 	for i in (8 if map_key == "berlin" else 3):
 		var a := randf() * TAU
-		var p := Vector2(D.WS / 2, D.WS / 2) + Vector2.from_angle(a) * randf_range(1300.0, 1500.0)
+		var p := Vector2(D.WS / 2, D.WS / 2) + Vector2.from_angle(a) * D.WS * randf_range(0.6, 0.7)
 		fx.smoke_column(Vector3(p.x, terra.height(p.x, p.y), p.y), true)
 	sfx = SfxScript.new()
 	add_child(sfx)
@@ -402,7 +407,7 @@ func _spawn() -> void:
 		for i in list.size():
 			# игрок в центре строя, остальные расходятся в стороны
 			var slot := (i + 1) / 2 * (1 if i % 2 == 1 else -1)
-			var p := Vector2(ws / 2 + slot * 150.0, y + (-30.0 if team == 0 else 30.0) * (i % 2))
+			var p := Vector2(ws / 2 + slot * 165.0, y + (-30.0 if team == 0 else 30.0) * (i % 2))
 			var me := team == 0 and i == 0
 			var nat := D.operator(list[i], map_key, history)
 			var tk := _add_tank(list[i], team, p, "Вы" if me else names[nat].pop_back(), me)
@@ -413,14 +418,7 @@ func _spawn() -> void:
 			elif (team == 0 and i == 1) or (team == 1 and i == 0):
 				tk.role = "def"
 			tk.b_side = -1.0 if p.x < ws / 2 else 1.0
-		# самый быстрый танк команды (не тяжёлый) идёт в обход по флангу
-		var fast: TankScript = null
-		for tk: TankScript in tanks:
-			if tk.team == team and not tk.is_player and tk.role == "atk" and float(tk.T.kmh) >= 44.0 and float(tk.T.mass) < 40.0:
-				if fast == null or float(tk.T.kmh) > float(fast.T.kmh):
-					fast = tk
-		if fast:
-			fast.role = "flank"
+		_assign_lanes(team)
 
 
 func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) -> TankScript:
@@ -463,15 +461,60 @@ static func turn_toward(cur: float, target: float, step: float) -> float:
 	return target if absf(d) <= step else cur + signf(d) * step
 
 
-func in_rect(p: Vector2):
+# Постройки, кусты и деревья разложены по клеткам 100 × 100: проверка точки смотрит
+# только соседние клетки, а не всю карту.
+const HCELL := 100.0
+var h_obst := {}  # клетка → постройки
+var h_bush := {}
+var h_prop := {}
+
+
+static func _hkey(p: Vector2) -> Vector2i:
+	return Vector2i(floori(p.x / HCELL), floori(p.y / HCELL))
+
+
+static func _hput(h: Dictionary, r: Rect2, item) -> void:
+	var a := _hkey(r.position)
+	var b := _hkey(r.end)
+	for x in range(a.x, b.x + 1):
+		for y in range(a.y, b.y + 1):
+			var k := Vector2i(x, y)
+			if not h.has(k):
+				h[k] = []
+			h[k].append(item)
+
+
+func _build_hash() -> void:
 	for o in obst:
+		_hput(h_obst, o.r, o)
+	for b in bushes:
+		_hput(h_bush, Rect2(b.pos - Vector2(b.r, b.r), Vector2(b.r, b.r) * 2.0), b)
+	for pr in props:
+		_hput(h_prop, Rect2(pr.pos - Vector2(pr.r, pr.r), Vector2(pr.r, pr.r) * 2.0), pr)
+
+
+## Всё, что лежит в клетках вокруг точки (предмет на стыке клеток может попасться дважды).
+func _near(h: Dictionary, p: Vector2, r: float) -> Array:
+	var a := _hkey(p - Vector2(r, r))
+	var b := _hkey(p + Vector2(r, r))
+	if a == b:
+		return h.get(a, [])
+	var out: Array = []
+	for x in range(a.x, b.x + 1):
+		for y in range(a.y, b.y + 1):
+			out.append_array(h.get(Vector2i(x, y), []))
+	return out
+
+
+func in_rect(p: Vector2):
+	for o in h_obst.get(_hkey(p), []):
 		if (o.r as Rect2).has_point(p):
 			return o
 	return null
 
 
 func in_bush(p: Vector2):
-	for b in bushes:
+	for b in h_bush.get(_hkey(p), []):
 		if p.distance_squared_to(b.pos) < float(b.r) * float(b.r):
 			return b
 	return null
@@ -480,7 +523,7 @@ func in_bush(p: Vector2):
 func blocked_at(p: Vector2, r: float) -> bool:
 	if p.x < r or p.y < r or p.x > D.WS - r or p.y > D.WS - r:
 		return true
-	for o in obst:
+	for o in _near(h_obst, p, r):
 		if (o.r as Rect2).grow(r).has_point(p):
 			return true
 	return false
@@ -650,7 +693,7 @@ static func radius(tk: TankScript) -> float:
 func resolve(tk: TankScript) -> Vector2:
 	var r := radius(tk)
 	var before := tk.pos
-	for o in obst:
+	for o in _near(h_obst, tk.pos, r):
 		var R: Rect2 = o.r
 		var c := Vector2(clampf(tk.pos.x, R.position.x, R.end.x), clampf(tk.pos.y, R.position.y, R.end.y))
 		var d := tk.pos - c
@@ -681,7 +724,7 @@ func resolve(tk: TankScript) -> Vector2:
 ## Деревья и заборы: тяжёлый или быстрый танк их валит, медленный упирается.
 func _props_collide(tk: TankScript) -> void:
 	var r := radius(tk)
-	for pr in props:
+	for pr in _near(h_prop, tk.pos, r + 10.0):
 		if not pr.alive:
 			continue
 		var d: Vector2 = tk.pos - pr.pos
@@ -1000,8 +1043,11 @@ func shoot(tk: TankScript) -> void:
 	var rel := ang_diff(tk.tur, tk.hull)
 	tk.kick(cos(rel) * 0.4 * kick, -sin(rel) * 0.4 * kick)
 	tk.vel -= Vector2.from_angle(tk.tur) * kick * 2.0
-	if tk.team == 1:
-		tk.lit = maxf(tk.lit, 2.0)
+	# вспышку выстрела видят враги поблизости
+	for o: TankScript in tanks:
+		if o.alive and o.team != tk.team and o.pos.distance_squared_to(tk.pos) < 800.0 * 800.0:
+			tk.lit = maxf(tk.lit, 2.0)
+			break
 	fx.muzzle(p, dir, float(tk.T.caliber))
 	fx.shot_dust(Vector3(tk.pos.x, tk.ground + 2.0, tk.pos.y))
 	if tk.is_player:
@@ -1115,6 +1161,7 @@ func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
 		sfx.play3d("hit_nopen", hp)
 		if by.team == 0 and tk.team == 1:
 			tk.lit = maxf(tk.lit, 2.0)
+		tk.hit_t = clock
 		_mark_hit(tk, hp, dir, 1, cal)
 		_outer_damage(tk, by, th.part, local, zone, float(s.dmg))
 		return
@@ -1280,6 +1327,7 @@ func _damage(tk: TankScript, amount: float, by: TankScript, tag: String) -> void
 		return
 	var real := minf(amount, ceilf(tk.hp))
 	tk.hp -= amount
+	tk.hit_t = clock
 	by.dmg_dealt += real
 	if by.team == 0 and tk.team == 1:
 		tk.lit = maxf(tk.lit, 2.0)
@@ -1376,7 +1424,7 @@ func _update_spotting() -> void:
 				continue
 			var seen := e.lit > 0
 			if not seen:
-				var bush: bool = in_bush(e.pos) != null
+				var bush: bool = in_bush(e.pos) != null or _trees_near(e.pos, 26.0) >= 2
 				for o: TankScript in tanks:
 					if not o.alive or o.team != team:
 						continue
@@ -1392,6 +1440,8 @@ func _update_spotting() -> void:
 								spotted_n += 1
 						break
 			e.vis[team] = seen
+			if seen:
+				intel[team][e] = [e.pos, clock]
 			if team == 0 and seen and not reported.has(e) and clock > 3.0:
 				reported[e] = true
 				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", _clock_of(watch, e.pos))
@@ -1513,64 +1563,432 @@ func _cam_origin(w: TankScript) -> Vector3:
 	return o
 
 
-# ---------- ИИ ----------
+# ---------- ИИ: маршруты ----------
+# Сетка 25 × 25 единиц: клетки у построек непроходимы, крутые склоны и лес дороже.
+# Вторая сетка — для движения под огнём: открытое поле там втрое дороже клеток
+# рядом с укрытием (дом, куст, лес).
 
-func _roam(b: TankScript) -> void:
-	b.b_zone = null
-	var lo := 380.0 if b.team == 0 else D.WS - 1000.0
-	var x := randf_range(260.0, D.WS - 260.0)
-	if b.role == "flank" and clock < 140.0:
-		# быстрый танк в начале боя обходит по своему флангу
-		x = randf_range(220.0, 520.0) if b.b_side < 0.0 else randf_range(D.WS - 520.0, D.WS - 220.0)
-		lo = 500.0 if b.team == 0 else D.WS - 1100.0
-	b.b_goal = Vector2(x, randf_range(lo, lo + 620.0))
-	b.b_gt = randf_range(10.0, 18.0)
-
-
-func _go_zone(b: TankScript, z) -> void:
-	b.b_zone = z
-	b.b_goal = z.pos + Vector2.from_angle(randf() * TAU) * randf_range(0.0, float(z.r) * 0.5)
-	b.b_gt = 3.0
+const NAV := 25.0
+const WOOD := {"tree": true, "spruce": true, "apple": true}
+var nav: AStarGrid2D
+var nav_safe: AStarGrid2D
+var nav_n := 0
+var cover_cells := PackedByteArray()  # 1 — рядом есть укрытие
 
 
-func _pick_goal(b: TankScript) -> void:
+func _build_nav() -> void:
+	nav_n = int(ceil(D.WS / NAV))
+	nav = _new_grid()
+	nav_safe = _new_grid()
+	cover_cells.resize(nav_n * nav_n)
+	for y in nav_n:
+		for x in nav_n:
+			var c := Vector2i(x, y)
+			var p := _cell_pos(c)
+			if blocked_at(p, 13.0):
+				nav.set_point_solid(c)
+				nav_safe.set_point_solid(c)
+				continue
+			var slope := 1.0 - terra.normal(p.x, p.y, 14.0).y
+			var w := 1.0 + clampf((slope - 0.06) * 14.0, 0.0, 3.0)
+			var trees := _trees_near(p, 30.0)
+			var cov := trees >= 2 or in_bush(p) != null
+			if not cov:
+				for o in _near(h_obst, p, 45.0):
+					if o.solid and (o.r as Rect2).grow(45.0).has_point(p):
+						cov = true
+						break
+			cover_cells[y * nav_n + x] = 1 if cov else 0
+			w += 0.3 * mini(trees, 3)
+			nav.set_point_weight_scale(c, w)
+			nav_safe.set_point_weight_scale(c, w * (1.0 if cov else 3.0))
+
+
+func _new_grid() -> AStarGrid2D:
+	var g := AStarGrid2D.new()
+	g.region = Rect2i(0, 0, nav_n, nav_n)
+	g.cell_size = Vector2(NAV, NAV)
+	g.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	g.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	g.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	g.update()
+	return g
+
+
+func _cell_of(p: Vector2) -> Vector2i:
+	return Vector2i(clampi(int(p.x / NAV), 0, nav_n - 1), clampi(int(p.y / NAV), 0, nav_n - 1))
+
+
+static func _cell_pos(c: Vector2i) -> Vector2:
+	return (Vector2(c) + Vector2(0.5, 0.5)) * NAV
+
+
+## Есть ли рядом укрытие: дом, куст, лес.
+func covered(p: Vector2) -> bool:
+	var c := _cell_of(p)
+	return cover_cells[c.y * nav_n + c.x] == 1
+
+
+## Живые деревья (не голые стволы) в радиусе: лес прячет танк, как куст.
+func _trees_near(p: Vector2, r: float) -> int:
+	var n := 0
+	for pr in _near(h_prop, p, r):
+		if pr.alive and WOOD.has(pr.kind) and pr.pos.distance_squared_to(p) < r * r:
+			n += 1
+	return n
+
+
+## Ближайшая к c проходимая клетка (если c занята постройкой).
+func _free_cell(c: Vector2i) -> Vector2i:
+	if not nav.is_point_solid(c):
+		return c
+	for r in range(1, 8):
+		for k in range(-r, r + 1):
+			for a: Vector2i in [Vector2i(c.x + k, c.y - r), Vector2i(c.x + k, c.y + r), Vector2i(c.x - r, c.y + k), Vector2i(c.x + r, c.y + k)]:
+				if nav.is_in_boundsv(a) and not nav.is_point_solid(a):
+					return a
+	return c
+
+
+## Ближайшая клетка с укрытием в радиусе r; null — нет.
+func _cover_near(p: Vector2, r: float):
+	var c := _cell_of(p)
+	var best = null
+	var bd := 1e9
+	var n := int(r / NAV)
+	for dy in range(-n, n + 1):
+		for dx in range(-n, n + 1):
+			var a := Vector2i(c.x + dx, c.y + dy)
+			if not nav.is_in_boundsv(a) or nav.is_point_solid(a) or cover_cells[a.y * nav_n + a.x] == 0:
+				continue
+			var q := _cell_pos(a)
+			var d := q.distance_squared_to(p)
+			if d < bd:
+				bd = d
+				best = q
+	return best
+
+
+## Можно ли проехать по прямой (с запасом на ширину танка).
+func _straight(a: Vector2, b: Vector2, r: float) -> bool:
+	var n := int(a.distance_to(b) / 12.0) + 1
+	for s in range(1, n + 1):
+		if blocked_at(a.lerp(b, float(s) / n), r):
+			return false
+	return true
+
+
+## Маршрут A*, спрямлённый: из цепочки клеток остаются точки, между которыми едут по прямой.
+func nav_path(from: Vector2, to: Vector2, safe: bool, r: float) -> PackedVector2Array:
+	var g := nav_safe if safe else nav
+	var ids := g.get_id_path(_free_cell(_cell_of(from)), _free_cell(_cell_of(to)), true)
+	var out := PackedVector2Array()
+	if ids.size() < 2:
+		out.append(to)
+		return out
+	var pts := PackedVector2Array()
+	for id in ids:
+		pts.append(_cell_pos(id))
+	if not blocked_at(to, r):
+		pts[pts.size() - 1] = to
+	var cur := from
+	var k := 1
+	while k < pts.size():
+		var far := k
+		for j in range(mini(pts.size() - 1, k + 14), k, -1):
+			if _straight(cur, pts[j], r * 0.8):
+				far = j
+				break
+		out.append(pts[far])
+		cur = pts[far]
+		k = far + 1
+	return out
+
+
+## Задать боту маршрут; не пересчитывается, пока цель та же и маршрут свежий.
+func _set_route(b: TankScript, to: Vector2, safe: bool) -> void:
+	if not b.b_path.is_empty() and b.b_path_to.distance_to(to) < 50.0 and safe == b.b_path_safe and clock < b.b_path_t:
+		return
+	b.b_path = nav_path(b.pos, to, safe, radius(b))
+	b.b_pi = 0
+	b.b_path_to = to
+	b.b_path_safe = safe
+	b.b_path_t = clock + randf_range(5.0, 8.0)
+
+
+func _route_vec(b: TankScript) -> Vector2:
+	if b.b_path.is_empty():
+		return Vector2.ZERO
+	while b.b_pi < b.b_path.size() - 1 and b.pos.distance_to(b.b_path[b.b_pi]) < 34.0:
+		b.b_pi += 1
+	var dv := b.b_path[b.b_pi] - b.pos
+	var l := dv.length()
+	if b.b_pi == b.b_path.size() - 1 and l < 22.0:
+		return Vector2.ZERO
+	return dv / l * minf(1.0, 0.35 + l / 60.0)
+
+
+# ---------- ИИ: тактика команды ----------
+# Команда делится на группы по трём направлениям. Группа идёт рубежами: на следующий —
+# когда большинство дошло до текущего (отставших ждут, но не дольше 30 с) и своих там
+# больше, чем замеченных врагов. Проигранное направление группа оставляет и отходит в центр,
+# выигранное — разворачивается во фланг центру. Каждая команда помнит, где видела врагов.
+
+const STAGES := [0.1, 0.27, 0.4, 0.5, 0.6, 0.74, 0.9]  # рубежи: доля пути от своего края к чужому
+const LANE_PREF := {  # склонность классов к направлениям: высота, центр, застройка
+	"ЛТ": {"hill": 0.6, "mid": 1.0, "town": 0.2}, "СТ": {"hill": 1.0, "mid": 0.8, "town": 0.5},
+	"ТТ": {"hill": 0.35, "mid": 0.6, "town": 1.0}, "ПТ": {"hill": 1.0, "mid": 0.75, "town": 0.25}}
+var squads := [{}, {}]  # команда → направление → {stage, t, n0}
+var intel := [{}, {}]  # команда → враг → [где видели, когда]
+var squad_t := 0.0
+
+
+## Распределяет ботов по направлениям: каждый — куда склонен его класс,
+## но одно направление не забивается, пока другие пусты.
+func _assign_lanes(team: int) -> void:
+	var cnt := {"hill": 0, "mid": 0, "town": 0}
+	var bots: Array = []
+	for tk: TankScript in tanks:
+		if tk.team != team:
+			continue
+		tk.b_cls = "ПТ" if String(tk.T.short) == "САУ" else String(tk.T.short)
+		tk.b_off = Vector2(randf_range(-90, 90), randf_range(-50, 50))
+		if tk.is_player:
+			cnt.mid += 1
+		else:
+			bots.append(tk)
+	bots.shuffle()
+	for tk: TankScript in bots:
+		var best := "mid"
+		var bs := -1e9
+		var pref: Dictionary = LANE_PREF.get(tk.b_cls, LANE_PREF["СТ"])
+		for ln in cnt:
+			var sc: float = float(pref[ln]) - 0.55 * float(cnt[ln]) + randf_range(-0.2, 0.2)
+			if sc > bs:
+				bs = sc
+				best = ln
+		tk.b_lane = best
+		tk.b_side = -1.0 if _lane_x(best) < D.WS * 0.5 else 1.0
+		cnt[best] += 1
+	for ln in cnt:
+		squads[team][ln] = {"stage": 0, "t": 0.0, "n0": cnt[ln]}
+
+
+func _lane_x(ln: String) -> float:
+	return float(lanes.get(ln, D.WS * 0.5))
+
+
+func _lane_of(x: float) -> String:
+	var best := "mid"
+	var bd := 1e9
+	for ln in ["hill", "mid", "town"]:
+		var d := absf(x - _lane_x(ln))
+		if d < bd:
+			bd = d
+			best = ln
+	return best
+
+
+## Последний рубеж: в «Превосходстве» и встречном бою группы держатся у точек.
+func _max_stage() -> int:
+	return STAGES.size() - 1 if mode == "standard" else 4
+
+
+## Точка рубежа направления для команды.
+func stage_point(team: int, ln: String, stage: int) -> Vector2:
+	var t: float = STAGES[clampi(stage, 0, STAGES.size() - 1)]
+	var y := lerpf(D.WS - 300.0, 300.0, t) if team == 0 else lerpf(300.0, D.WS - 300.0, t)
+	return Vector2(_lane_x(ln), y)
+
+
+## Силы на направлении: боевой вес × прочность. Свои — по месту, враги — по памяти команды.
+func _lane_power(team: int, ln: String) -> Vector2:
+	var ours := 0.0
+	var theirs := 0.0
+	for tk: TankScript in tanks:
+		if not tk.alive:
+			continue
+		var w := float(D.pts(tk.type_key, year)) * (0.4 + 0.6 * tk.hp / tk.max_hp)
+		if tk.team == team:
+			if (tk.b_lane if not tk.is_player or autopilot else _lane_of(tk.pos.x)) == ln:
+				ours += w
+		elif intel[team].has(tk):
+			var it: Array = intel[team][tk]
+			if clock - float(it[1]) < 25.0 and _lane_of((it[0] as Vector2).x) == ln:
+				theirs += w
+	return Vector2(ours, theirs)
+
+
+## Раз в секунду: решает, идти ли группам вперёд, держаться или отходить.
+func _squads_update() -> void:
+	var late := clock > D.TIME_LIMIT * 0.6
+	for team in 2:
+		for ln in squads[team]:
+			var sq: Dictionary = squads[team][ln]
+			var mem: Array = []
+			for tk: TankScript in tanks:
+				if tk.alive and tk.team == team and (not tk.is_player or autopilot) and tk.b_lane == ln:
+					mem.append(tk)
+			if mem.is_empty():
+				continue
+			var pw := _lane_power(team, ln)
+			sq.t += 1.0
+			var sp := stage_point(team, ln, sq.stage)
+			var near := 0
+			for tk: TankScript in mem:
+				if tk.pos.distance_to(sp + tk.b_off) < 190.0:
+					near += 1
+			var top := _max_stage()
+			var losing: bool = (pw.y > pw.x * 1.7 and (mem.size() < int(sq.n0) or clock > 60.0)) or (pw.y > pw.x and mem.size() * 2 < int(sq.n0))
+			if losing:
+				# направление проиграно: отход на рубеж назад, с ближнего — в центр
+				if sq.stage > 1 and sq.t > 6.0:
+					sq.stage -= 1
+					sq.t = 0.0
+				elif ln != "mid" and sq.stage <= 1:
+					_move_squad(team, ln, mem, int(sq.stage))
+			elif sq.stage >= top and pw.y == 0.0 and ln != "mid" and mode == "standard":
+				# направление взято: группа разворачивается во фланг центру
+				_move_squad(team, ln, mem, top - 2)
+			elif sq.stage < top and (near * 5 >= mem.size() * 3 or sq.t > (12.0 if late else 30.0)) \
+					and (pw.y == 0.0 or pw.x >= pw.y * (0.85 if late else 1.25)):
+				sq.stage += 1
+				sq.t = 0.0
+
+
+## Группа уходит в центр; если там никого, центр продолжает с её рубежа.
+func _move_squad(team: int, from: String, mem: Array, stage: int) -> void:
+	var msq: Dictionary = squads[team]["mid"]
+	var alive := false
+	for tk: TankScript in tanks:
+		if tk.alive and tk.team == team and not tk.is_player and tk.b_lane == "mid":
+			alive = true
+	if not alive:
+		msq.stage = maxi(0, stage)
+		msq.t = 0.0
+	for tk: TankScript in mem:
+		tk.b_lane = "mid"
+		tk.b_path_t = 0.0
+	msq.n0 = int(msq.n0) + mem.size()
+	squads[team][from].n0 = 0
+
+
+## Видел ли кто-то из команды врага рядом недавно.
+func _foe_near(b: TankScript, r: float) -> bool:
+	for e in intel[b.team]:
+		var it: Array = intel[b.team][e]
+		if e.alive and clock - float(it[1]) < 15.0 and b.pos.distance_to(it[0]) < r:
+			return true
+	return false
+
+
+## Последнее известное место ближайшего врага (туда бот заранее поворачивает башню).
+func _foe_guess(b: TankScript):
+	var best = null
+	var bd := 1100.0
+	for e in intel[b.team]:
+		var it: Array = intel[b.team][e]
+		if not e.alive or clock - float(it[1]) > 30.0:
+			continue
+		var d := b.pos.distance_to(it[0])
+		if d < bd:
+			bd = d
+			best = it[0]
+	return best
+
+
+## Есть ли рядом с точкой союзник (кроме b).
+func _ally_near(p: Vector2, team: int, r: float, b: TankScript) -> bool:
+	for o: TankScript in tanks:
+		if o != b and o.alive and o.team == team and o.pos.distance_squared_to(p) < r * r:
+			return true
+	return false
+
+
+## Куст ближе всего к точке, в радиусе r, ещё не занятый своим.
+func _bush_near(p: Vector2, r: float, b: TankScript):
+	var best = null
+	var bd := r * r
+	for bsh in _near(h_bush, p, r):
+		var d: float = p.distance_squared_to(bsh.pos)
+		if d >= bd:
+			continue
+		var taken := false
+		for o: TankScript in tanks:
+			if o != b and o.alive and o.team == b.team and o.pos.distance_squared_to(bsh.pos) < 900.0:
+				taken = true
+				break
+		if not taken:
+			bd = d
+			best = bsh.pos
+	return best
+
+
+func _lane_zone(ln: String):
+	var best = null
+	var bd := 1e9
+	for z in zones:
+		var d := absf(z.pos.x - _lane_x(ln))
+		if d < bd:
+			bd = d
+			best = z
+	return best
+
+
+## Куда ехать без цели: защита базы, точки режима, рубеж своей группы, засада, разведка.
+func _plan(b: TankScript) -> Vector2:
 	var my := b.team
 	var en := 1 - my
+	var stage: int = squads[my].get(b.b_lane, {"stage": 0}).stage
+	b.b_zone = null
 	if mode == "standard":
 		var own = zones[0] if zones[0].side == my else zones[1]
 		var foe = zones[1] if own == zones[0] else zones[0]
 		var d_own: float = b.pos.distance_to(own.pos)
 		# захват своей базы сбивают ближние, а при сильном захвате — все, кто успеет
-		if own.prog[en] > 0 and (b.role == "def" or d_own < 900.0 or (own.prog[en] > 35.0 and d_own < 1700.0)):
-			_go_zone(b, own)
-			return
-		if b.role == "def" and clock < 150:
-			b.b_zone = null
-			b.b_goal = own.pos + Vector2(randf_range(-400.0, 400.0), (-1.0 if my == 0 else 1.0) * randf_range(250.0, 550.0))
-			b.b_gt = randf_range(6.0, 10.0)
-			return
-		if clock > 100 or alive_count(en) <= 2:
-			_go_zone(b, foe)
-		else:
-			_roam(b)
-		return
-	if mode == "encounter":
-		_go_zone(b, zones[0])
-		return
-	var best = null
-	var bd := 1e9
-	for z in zones:
-		var d: float = b.pos.distance_to(z.pos)
-		if z.side == my:
-			d += -200.0 if z.n[en] > 0 else 1500.0
-		if d < bd:
-			bd = d
-			best = z
-	if best != null:
-		_go_zone(b, best)
+		if own.prog[en] > 0 and (b.role == "def" or d_own < 1100.0 or (own.prog[en] > 35.0 and d_own < 2100.0)):
+			b.b_zone = own
+			return own.pos + b.b_off * 0.4
+		if b.role == "def" and clock < 150.0:
+			return stage_point(my, "mid", 0) + b.b_off
+		# к концу боя вся команда идёт на базу врага, чтобы не кончить ничьей
+		if stage >= _max_stage() or alive_count(en) <= 1 or clock > D.TIME_LIMIT * 0.72:
+			b.b_zone = foe
+			return foe.pos + b.b_off * 0.4
+	elif mode == "encounter":
+		var z = zones[0]
+		# на точку — не раньше, чем группы сойдутся в центре: первым минутам место для боя
+		if (stage >= 3 and clock > 75.0) or z.prog[en] > 0 or alive_count(en) <= 1:
+			b.b_zone = z
+			return z.pos + b.b_off * 0.4
 	else:
-		_roam(b)
+		for z in zones:
+			if z.side == my and z.prog[en] > 0 and b.pos.distance_to(z.pos) < 900.0:
+				b.b_zone = z
+				return z.pos + b.b_off * 0.4
+		var lz = _lane_zone(b.b_lane)
+		if stage >= 3 and (lz.side != my or lz.n[en] > 0):
+			b.b_zone = lz
+			return lz.pos + b.b_off * 0.4
+	if b.b_cls == "ЛТ":
+		# разведчик: куст впереди группы; засветили — откатывается на рубеж назад
+		if clock < b.b_back_t:
+			return stage_point(my, b.b_lane, maxi(stage - 1, 0)) + b.b_off
+		var fp := stage_point(my, b.b_lane, mini(stage + 1, 4))
+		var bsh = _bush_near(fp, 280.0, b)
+		return bsh if bsh != null else fp + b.b_off
+	if b.b_cls == "ПТ":
+		# ПТ: засада в кусте или в лесу на рубеж позади группы
+		var op := stage_point(my, b.b_lane, maxi(stage - 1, 0))
+		var bsh = _bush_near(op, 260.0, b)
+		if bsh != null:
+			return bsh
+		var cv = _cover_near(op + b.b_off, 150.0)
+		return cv if cv != null else op + b.b_off
+	return stage_point(my, b.b_lane, stage) + b.b_off
 
+
+# ---------- ИИ: бой ----------
 
 ## Приведённая толщина брони цели со стороны стрелка: лоб или борт — по тому, как цель к нему стоит.
 static func _armor_toward(tg: TankScript, from: Vector2) -> float:
@@ -1608,129 +2026,221 @@ func _choose_target(b: TankScript) -> TankScript:
 	return best
 
 
-## Укрытие от цели поблизости: место, куда можно проехать и где холм или дом закрывают танк
-## от её глаз целиком. null — укрыться негде.
-func _find_cover(b: TankScript, tg: TankScript):
-	var away := (b.pos - tg.pos).angle()
-	var eye := tg.top() + Vector3(0, 2, 0)
+## Место рядом: hull — где цель видит только башню («корпус за гребнем»), иначе — где не видит
+## танк вовсе. null — такого места нет.
+func _find_spot(b: TankScript, eye: Vector3, hull: bool):
 	var r := radius(b)
+	var to := (Vector2(eye.x, eye.z) - b.pos).angle()
+	var base := to if hull else to + PI
 	var best = null
 	var bd := 1e9
-	for i in 10:
-		var a := away + (float(i) - 4.5) * 0.42
-		var p := b.pos + Vector2.from_angle(a) * (40.0 + float(i % 2) * 40.0)
-		if p.x < 150.0 or p.y < 150.0 or p.x > D.WS - 150.0 or p.y > D.WS - 150.0 or blocked_at(p, r):
-			continue
-		var top := Vector3(p.x, terra.height(p.x, p.y) + b.height * 0.85, p.y)
-		if clear_line(eye, top):
+	for i in 13:
+		var p := b.pos
+		if i > 0:
+			var a := base + (float(i) - 6.5) * (0.3 if hull else 0.45)
+			p = b.pos + Vector2.from_angle(a) * (25.0 + float(i % 3) * 30.0)
+			if p.x < 150.0 or p.y < 150.0 or p.x > D.WS - 150.0 or p.y > D.WS - 150.0 or blocked_at(p, r):
+				continue
+		var g := terra.height(p.x, p.y)
+		var top := Vector3(p.x, g + b.height * 0.92, p.y)
+		if hull:
+			if not clear_line(eye, top) or clear_line(eye, Vector3(p.x, g + b.height * 0.42, p.y)):
+				continue
+		elif clear_line(eye, top):
 			continue
 		var d := b.pos.distance_to(p)
 		if d < bd:
 			bd = d
 			best = p
+		if i == 0:
+			break
 	return best
+
+
+## Решения бота (5 раз в секунду): цель, укрытие, засада, маршрут.
+func _think(b: TankScript) -> void:
+	var T := b.T
+	var en := 1 - b.team
+	var nt := _choose_target(b)
+	if nt != b.b_tg:
+		b.b_peek = null
+		b.b_spot = null
+		b.b_spot_kind = ""
+	b.b_tg = nt
+	var tg: TankScript = nt
+	var spotted: bool = b.vis[en]
+	var danger := spotted and (clock - b.hit_t < 8.0 or _foe_near(b, 1000.0))
+	b.b_hold = false
+	b.b_adv = not danger or covered(b.pos)
+	if b.b_cls == "ЛТ" and spotted and clock > b.b_back_t + 4.0 and _foe_near(b, 750.0):
+		b.b_back_t = clock + randf_range(7.0, 11.0)
+	if tg:
+		b.b_los = clear_line(b.muzzle(), tg.center())
+		if b.b_los and (b.b_peek == null or b.vel.length() < 4.0):
+			b.b_peek = b.pos
+	# разведчик после засвета откатывается, отстреливаясь, — решения о бое не принимает;
+	# в конце стандартного боя все, кроме сцепившихся вплотную, едут на базу и стреляют на ходу
+	var rush := mode == "standard" and clock > D.TIME_LIMIT * 0.72 and tg != null and tg.pos.distance_to(b.pos) > 250.0
+	if tg and not (b.b_cls == "ЛТ" and clock < b.b_back_t) and not rush:
+		var d := b.pos.distance_to(tg.pos)
+		var eye := tg.top() + Vector3(0, 2, 0)
+		var low := b.hp < b.max_hp * 0.3
+		if b.b_zone != null and in_zone(b, b.b_zone) and b.b_zone.side != b.team:
+			b.b_act = "hold"
+			return
+		# засада: ПТ и разведчик в кусте или в лесу стоят и не выдают себя дальними выстрелами
+		var hidden := in_bush(b.pos) != null or _trees_near(b.pos, 26.0) >= 2
+		if (b.b_cls == "ПТ" or b.b_cls == "ЛТ") and hidden and not spotted:
+			# огонь открывает, когда цель подошла, добивает или уже бьётся с нашими, или когда захватывают базу
+			var base_threat := false
+			for z in zones:
+				if z.side == b.team and z.prog[en] > 0:
+					base_threat = true
+			b.b_hold = not base_threat and d > (300.0 if b.b_cls == "ЛТ" else 450.0) and tg.hp > float(T.dmg) * 1.3 \
+				and not _ally_near(tg.pos, b.team, 380.0, b)
+			if b.b_los or _plan(b).distance_to(b.pos) < 200.0:
+				b.b_act = "hold"
+				return
+		# перезарядка: за укрытие (лёгкая броня и долгая перезарядка, мало прочности или засвеченная ПТ)
+		var hide: bool = b.b_los and d < 1000.0 and b.rl > 1.4 and not b.immobile and b.track_broken <= 0.0 \
+			and (low or (float(T.reload) >= 3.5 and not T.armored and not b.casemate) or (b.b_cls == "ПТ" and spotted and float(T.reload) >= 4.0))
+		if hide:
+			if b.b_spot_kind != "cover" or clock > b.b_spot_t:
+				b.b_spot = _find_spot(b, eye, false)
+				b.b_spot_kind = "cover"
+				b.b_spot_t = clock + 2.5
+			if b.b_spot != null:
+				b.b_act = "spot"
+				return
+		elif b.b_spot_kind == "cover":
+			b.b_spot = null
+			b.b_spot_kind = ""
+		# корпус за гребнем: башенный танк ищет рядом место, откуда противнику видна только башня
+		if b.b_los and not b.casemate and b.b_cls != "ЛТ" and d > 220.0 and not hide:
+			if b.b_spot_kind != "hull" or clock > b.b_spot_t:
+				b.b_spot = _find_spot(b, eye, true)
+				b.b_spot_kind = "hull"
+				b.b_spot_t = clock + 3.0
+			if b.b_spot != null:
+				b.b_act = "spot"
+				return
+		if b.b_los:
+			b.b_act = "fight"
+			return
+		if d < float(T.pref) + 300.0:
+			# из пушки цель не видна: выехать туда, откуда видел её, или подобраться маршрутом
+			var to: Vector2 = tg.pos
+			if b.b_peek != null and (b.b_peek as Vector2).distance_to(b.pos) > 25.0:
+				to = b.b_peek
+			_set_route(b, to, danger)
+			b.b_act = "route"
+			return
+	if tg == null:
+		b.b_los = false
+	# без цели: план группы; под огнём на открытом месте — сначала в ближайшее укрытие
+	var goal := _plan(b)
+	b.b_goal = goal
+	if danger and clock - b.hit_t < 6.0 and not covered(b.pos):
+		var cv = _cover_near(b.pos, 175.0)
+		if cv != null:
+			goal = cv
+	if b.pos.distance_to(goal) < 30.0:
+		b.b_act = "hold"
+	else:
+		_set_route(b, goal, danger)
+		b.b_act = "route"
 
 
 func _bot(b: TankScript, dt: float) -> void:
 	var T := b.T
 	_bot_cons(b, dt)
+	b.b_think -= dt
+	if b.b_think <= 0.0:
+		b.b_think = randf_range(0.18, 0.24)
+		_think(b)
+	var tg: TankScript = b.b_tg if b.b_tg != null and b.b_tg.alive else null
 	var mv := Vector2.ZERO
 	var facing := false
 	var face_off := 0.0
-	b.b_tg_t -= dt
-	if b.b_tg_t <= 0.0 or b.b_tg == null or not b.b_tg.alive or not b.b_tg.vis[b.team]:
-		var nt := _choose_target(b)
-		if nt != b.b_tg:
-			b.b_los_t = 0.0
-			b.b_cover = null
-		b.b_tg = nt
-		b.b_tg_t = randf_range(0.8, 1.4)
-	var tg: TankScript = b.b_tg
 	b.b_st -= dt
 	if b.b_st <= 0:
 		b.b_strafe *= -1.0
 		b.b_st = randf_range(2.0, 4.5)
-	b.b_los_t -= dt
+	match b.b_act:
+		"route":
+			mv = _route_vec(b)
+		"spot":
+			if b.b_spot != null:
+				var dv: Vector2 = (b.b_spot as Vector2) - b.pos
+				if dv.length() > 8.0:
+					mv = dv.normalized() * clampf(dv.length() / 30.0, 0.4, 1.0)
+		"fight":
+			if tg:
+				var d := b.pos.distance_to(tg.pos)
+				var ang := (tg.pos - b.pos).angle()
+				var pref: float = float(T.pref) + (180.0 if b.hp < b.max_hp * 0.3 else 0.0)
+				var fwd := 1.0 if d > pref + 70.0 and b.b_adv else (-1.0 if d < pref - 100.0 else 0.0)
+				var strafe := 0.6
+				if b.rl < 1.2:
+					strafe = 0.0  # перед выстрелом останавливается, чтобы свестись
+				if b.casemate or T.armored:
+					strafe = 0.0
+				mv = Vector2.from_angle(ang) * fwd + Vector2.from_angle(ang + PI / 2) * b.b_strafe * strafe
+	# стоя на месте, САУ держит цель в секторе наводки, а танк с толстым лбом встаёт ромбом
+	if tg and mv.length() < 0.1 and (b.casemate or T.armored):
+		var ang := (tg.pos - b.pos).angle()
+		var off := ang_diff(ang, b.hull)
+		var keep: float = float(T.trav) * 0.6 if b.casemate else 0.3
+		if not b.casemate and b.b_los:
+			off = ang_diff(ang + b.b_side * 0.42, b.hull)
+			keep = 0.12
+		if absf(off) > keep:
+			facing = true
+			face_off = off
 	if tg:
 		var d := b.pos.distance_to(tg.pos)
-		var ang := (tg.pos - b.pos).angle()
-		var low := b.hp < b.max_hp * 0.3
-		var pref: float = float(T.pref) + (180.0 if low else 0.0)
-		if b.b_los_t <= 0:
-			b.b_los = clear_line(b.muzzle(), tg.center())
-			b.b_los_t = 0.3
-		var fwd := 1.0 if d > pref + 70.0 or not b.b_los else (-1.0 if d < pref - 100.0 else 0.0)
-		var strafe := 0.6
-		if b.b_los and b.rl < 1.2:
-			strafe = 0.0  # перед выстрелом останавливается, чтобы свестись
-		if b.b_zone != null and in_zone(b, b.b_zone) and b.b_zone.side != b.team:
-			fwd = 0.0
-		# танк еле жив или без толстой брони с долгой перезарядкой: прячется за холм или дом
-		# и выезжает к выстрелу (бронированные машины и САУ держат позицию лбом к противнику)
-		var hide: bool = b.b_los and d < 900.0 and b.rl > 1.4 and not b.immobile and (low or (float(T.reload) >= 3.5 and not T.armored and not b.casemate))
-		b.b_cover_t -= dt
-		if hide and (b.b_cover == null or b.b_cover_t <= 0.0):
-			b.b_cover = _find_cover(b, tg)
-			b.b_cover_t = 2.5
-		if hide and b.b_cover != null and b.track_broken <= 0.0:
-			var cv: Vector2 = b.b_cover
-			var dv := cv - b.pos
-			mv = dv / maxf(dv.length(), 1.0) if dv.length() > 12.0 else Vector2.ZERO
-		else:
-			if b.casemate or T.armored:
-				# САУ держит цель в секторе наводки, а танк с толстым лбом не подставляет борт
-				# и встаёт ромбом — лоб под углом к противнику
-				strafe = 0.0
-				var off := ang_diff(ang, b.hull)
-				var keep: float = float(T.trav) * 0.6 if b.casemate else 0.3
-				if not b.casemate and b.b_los:
-					off = ang_diff(ang + b.b_side * 0.42, b.hull)
-					keep = 0.12
-				if fwd == 0.0 and absf(off) > keep:
-					facing = true
-					face_off = off
-			mv = Vector2.from_angle(ang) * fwd + Vector2.from_angle(ang + PI / 2) * b.b_strafe * strafe
 		# цель не пробить в лоб — бьёт по гусеницам, чтобы обездвижить
 		var lp := lead_point(b, tg)
 		if float(T.pen) * 1.1 < _armor_toward(tg, b.pos):
 			lp.y = tg.ground + tg.th * 0.55
 		_aim_at(b, lp, dt)
 		var aligned := absf(ang_diff((Vector2(lp.x, lp.z) - b.pos).angle(), b.tur)) < 0.03 and absf(b.gun_pitch - b.gun_target) < 0.015
-		if b.rl <= 0 and d < D.RANGE * 0.85 and aligned and b.b_los and b.disp < float(T.disp) * 3.0 and b.can_fire():
+		if b.rl <= 0 and d < D.RANGE * 0.85 and aligned and b.b_los and not b.b_hold and b.disp < float(T.disp) * 3.0 and b.can_fire():
 			shoot(b)
+			b.b_peek = b.pos
 	else:
-		b.b_gt -= dt
-		if b.b_gt <= 0 or (b.b_zone == null and b.pos.distance_to(b.b_goal) < 120.0):
-			_pick_goal(b)
-		var dv := b.b_goal - b.pos
-		var l := dv.length()
-		if not (b.b_zone != null and l < 30.0):
-			mv = dv / maxf(l, 0.001)
-		var look := b.pos + (mv if mv.length() > 0.1 else Vector2.from_angle(b.tur)) * 200.0
-		_aim_at(b, Vector3(look.x, b.ground + b.hh, look.y), dt)
+		# башня — туда, где последний раз видели врага, иначе по ходу
+		var guess = _foe_guess(b)
+		var look: Vector2 = guess if guess != null else b.pos + (mv if mv.length() > 0.1 else Vector2.from_angle(b.tur)) * 200.0
+		_aim_at(b, Vector3(look.x, terra.height(look.x, look.y) + b.hh, look.y), dt)
 	var m := mv.length()
 	if m > 0.1:
 		var a := mv.angle()
 		var r := radius(b)
-		if b.b_av <= 0 and blocked_at(b.pos + Vector2.from_angle(a) * 60.0, r):
-			var f1 := not blocked_at(b.pos + Vector2.from_angle(a + 0.9) * 60.0, r)
-			var f2 := not blocked_at(b.pos + Vector2.from_angle(a - 0.9) * 60.0, r)
+		var probe := 60.0
+		if b.b_act == "route" and not b.b_path.is_empty():
+			probe = clampf(b.pos.distance_to(b.b_path[b.b_pi]), 20.0, 60.0)
+		if b.b_av <= 0 and blocked_at(b.pos + Vector2.from_angle(a) * probe, r):
+			var f1 := not blocked_at(b.pos + Vector2.from_angle(a + 0.9) * probe, r)
+			var f2 := not blocked_at(b.pos + Vector2.from_angle(a - 0.9) * probe, r)
 			if f1 and not f2:
 				b.b_av_dir = 1.0
 			elif f2 and not f1:
 				b.b_av_dir = -1.0
 			else:
 				b.b_av_dir = 1.0 if randf() < 0.5 else -1.0
-			b.b_av = 1.2
+			b.b_av = 1.0
 		if b.b_av > 0:
 			b.b_av -= dt
 			a += b.b_av_dir * 1.1
-			mv = Vector2.from_angle(a)
+			mv = Vector2.from_angle(a) * maxf(m, 0.5)
 	b.b_pt -= dt
 	if b.b_pt <= 0:
 		if m > 0.3 and b.pos.distance_to(b.b_last) < 6.0 and b.track_broken <= 0.0:
+			# застрял: объезд и новый маршрут
 			b.b_av = 1.8
 			b.b_av_dir *= -1.0
+			b.b_path_t = 0.0
 		b.b_last = b.pos
 		b.b_pt = 1.5
 	if facing:
@@ -1866,6 +2376,10 @@ func _update(dt: float) -> void:
 	if spot_t <= 0:
 		_update_spotting()
 		spot_t = 0.25
+	squad_t -= dt
+	if squad_t <= 0.0:
+		_squads_update()
+		squad_t = 1.0
 	for tk: TankScript in tanks:
 		if not tk.alive:
 			tk.update_pop(dt)
@@ -2144,6 +2658,13 @@ func _sync_sound(tk: TankScript) -> void:
 	var lp: Array = loops.get(tk, [])
 	if lp.is_empty() or not tk.alive:
 		return
+	# далёкие моторы не слышны: их петли стоят и не нагружают микшер
+	var far := cam.global_position.distance_squared_to(tk.center()) > 1300.0 * 1300.0
+	for p in lp:
+		if p:
+			(p as AudioStreamPlayer3D).stream_paused = far or paused
+	if far:
+		return
 	var v := clampf(absf(tk.sp) / float(tk.T.speed), 0.0, 1.0)
 	var eng_load := clampf(absf(tk.throttle), 0.0, 1.0)
 	var eng: AudioStreamPlayer3D = lp[0]
@@ -2155,6 +2676,7 @@ func _sync_sound(tk: TankScript) -> void:
 	var tv := clampf(maxf(absf(tk.sp), absf(tk.yaw_rate) * float(tk.T.W) * 0.5) / float(tk.T.speed), 0.0, 1.0)
 	trk.pitch_scale = 0.6 + tv * 0.9
 	trk.volume_db = linear_to_db(maxf(tv, 0.001)) - 2.0 - (10.0 if speed > 1 else 0.0)
+	trk.stream_paused = paused or tv < 0.02
 	if lp[2] != null:
 		var turp: AudioStreamPlayer3D = lp[2]
 		var tr := clampf(tk.tur_rate / maxf(float(tk.T.tspd), 0.01), 0.0, 1.0)

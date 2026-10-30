@@ -4,13 +4,13 @@ extends RefCounted
 ## и переводятся в единицы карты через UPM.
 
 const UPM := 7.5  # единиц карты в одном метре
-const WS := 2200.0  # сторона игровой зоны (~290 м)
+const WS := 2860.0  # сторона игровой зоны (~380 м)
 const RANGE := 1100.0  # дальность полёта снаряда
 const GRAVITY := 9.81 * UPM  # ускорение свободного падения, ед/с²
 const SHELL_SCALE := 2.2  # скорость снаряда в игре = м/с × это число (ед/с)
 const TIME_LIMIT := 420.0  # 7 минут на бой
 const SUP_GOAL := 600.0  # очки для победы в «Превосходстве»
-const CAP_RATE := 3.5  # процентов захвата в секунду на танк (до трёх танков)
+const CAP_RATE := 2.2  # процентов захвата в секунду на танк (до трёх танков): тремя — 15 с
 const SPEED_K := 0.8  # в игре танки едут на 20 % медленнее исторической скорости
 
 const ALLY := "6cd04f"
@@ -334,6 +334,7 @@ const MODES := {
 # date/year — когда шло сражение; allies/axis — кто воевал (_g — в родительном падеже); nations — страны
 # сторон (по ним окраска и позывные); roster — какие машины участвовали (в исторических составах
 # в бой идут только они); season — для окраски: winter, desert, summer, late; brief — текст брифинга.
+# winter — снег на крышах и побелка машин.
 # Цвета земли для шейдера: трава/песок/снег (две тени), скала, дорога, грязь, гарь.
 # grip — сопротивление грунта (1 — дорога), surf — материал поверхности для текстур.
 # edge — высота холмов за краем поля (1 — горы); cover — облачность; fog — начало и конец дымки; sun — наклон и азимут солнца, °.
@@ -359,7 +360,7 @@ const MAPS := {
 		"dust": "c8aa78", "mini": "a08250", "relief": 30.0, "grip": 0.74, "weather": "haze"},
 	"stalingrad": {"name": "Сталинград", "desc": "Руины зимнего города", "surf": "snow",
 		"date": "зима 1942–1943", "year": 1942, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
-		"nations": {"allies": ["СССР"], "axis": ["Германия"]}, "season": "winter",
+		"nations": {"allies": ["СССР"], "axis": ["Германия"]}, "season": "winter", "winter": true,
 		"roster": {"allies": ["t34_76", "kv1", "kv2"], "axis": ["pz3", "pz4", "stug", "pz38t"]},
 		"brief": "Сталинград, зима 1942–1943 года. Бои идут за каждый дом разрушенного города. 19 ноября Красная армия начала операцию «Уран» и окружила 6-ю армию Паулюса; 2 февраля 1943 года её остатки капитулировали. Улицы завалены обломками, из-за угла можно получить снаряд в борт.",
 		"sky_top": "8a97a4", "sky_hor": "c6cbd0", "fog": "bcc2c7", "sun": "e8eef5", "sun_e": 0.75, "amb": 0.55,
@@ -385,6 +386,15 @@ const MAPS := {
 		"cover": 0.72, "fog_near": 320.0, "fog_far": 1400.0, "sun_rot": [-30.0, 28.0],
 		"g1": "5c554a", "g2": "726a5c", "rock": "6c6862", "road": "57554f", "dirt": "4c4238", "scorch": "201d1a",
 		"dust": "8c8272", "mini": "5a5650", "relief": 5.0, "grip": 0.88, "edge": 0.3},
+	"ardennes": {"name": "Арденны", "desc": "Заснеженные еловые леса, гребень и бельгийская деревня", "surf": "snow",
+		"date": "декабрь 1944", "year": 1944, "allies": "США", "axis": "Германия", "allies_g": "США", "axis_g": "Германии",
+		"nations": {"allies": ["США"], "axis": ["Германия"]}, "season": "winter", "winter": true,
+		"roster": {"allies": ["sherman", "firefly", "stuart"], "axis": ["pz4", "stug", "panther", "tiger2", "jagdpanther", "hetzer"]},
+		"brief": "Бельгия, декабрь 1944 года. 16 декабря три германские армии внезапно ударили по растянутому фронту американцев в заснеженных Арденнах, рассчитывая прорваться к Антверпену. Низкие облака прижали к земле авиацию союзников. Окружённая в Бастони 101-я воздушно-десантная дивизия на предложение сдаться ответила одним словом: «Nuts!» — а 26 декабря к городу пробились танки 4-й бронетанковой дивизии Паттона. Бои идут на лесных опушках, у деревень и на перекрёстках дорог.",
+		"sky_top": "8b96a2", "sky_hor": "c8cdd2", "fog": "c0c6cb", "sun": "e6ecf3", "sun_e": 0.7, "amb": 0.58,
+		"cover": 0.82, "fog_near": 280.0, "fog_far": 1350.0, "sun_rot": [-24.0, 150.0],
+		"g1": "cdd5dc", "g2": "eef2f5", "rock": "6c7076", "road": "8b8681", "dirt": "5a4e44", "scorch": "2a2826",
+		"dust": "e6ebef", "mini": "a4adb5", "relief": 18.0, "grip": 0.8, "edge": 0.75, "weather": "snow"},
 }
 
 # Позывные по странам (не меньше 2 × TEAM_MAX). У британцев и американцев — фонетический алфавит
@@ -682,7 +692,8 @@ static func operator(key: String, map_key: String, history: bool) -> String:
 ## СССР — 4БО, зимой побелка, в Берлине белые полосы на башне и крест на крыше;
 ## Германия — серая с побелкой (1942, зима), «Африканский корпус», тёмно-жёлтая с полосами (1943),
 ## трёхцветный «засадный» камуфляж (1944–1945); США — оливковая со звездой;
-## Великобритания — пустынная с бело-красно-белой полосой или оливковая с белой звездой союзников.
+## Великобритания — пустынная с бело-красно-белой полосой или оливковая с белой звездой союзников;
+## зимой 1944-го немцы и американцы — с побелкой поверх своей окраски.
 static func paint(key: String, map_key: String, history: bool) -> Dictionary:
 	var nat := operator(key, map_key, history)
 	var season: String = MAPS[map_key].season if MAPS.has(map_key) else "summer"
@@ -694,7 +705,8 @@ static func paint(key: String, map_key: String, history: bool) -> Dictionary:
 			return {"camo": "green", "emblem": "ussr", "band": season == "late"}
 		"Германия":
 			if season == "winter":
-				return {"camo": "grey_winter", "emblem": "germany"}
+				# в 1942-м — побелка по серой краске, в 1944-м — по «засадному» камуфляжу
+				return {"camo": "wash44" if year >= 1944 else "grey_winter", "emblem": "germany"}
 			if season == "desert":
 				return {"camo": "dak", "emblem": "germany"}
 			return {"camo": "german44" if year >= 1944 else "german", "emblem": "germany"}
@@ -704,4 +716,5 @@ static func paint(key: String, map_key: String, history: bool) -> Dictionary:
 			return {"camo": "british", "emblem": "usa"}
 		"Италия":
 			return {"camo": "italy", "emblem": "italy"}
-	return {"camo": "olive", "emblem": "usa"}
+	# американцы в Арденнах белили танки известью и простынями — местами
+	return {"camo": "olive_wash" if season == "winter" else "olive", "emblem": "usa"}

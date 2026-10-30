@@ -494,7 +494,8 @@ static func camo_texture(kind: String) -> ImageTexture:
 	var g := n3.get_seamless_image(S, S)
 	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
 	var bases := {"olive": "464a2f", "german": "a8956a", "desert": "c4b38a", "german44": "ad9a68", "dak": "9c8358",
-		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b", "italy": "b9a170"}
+		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b", "italy": "b9a170",
+		"wash44": "ad9a68", "olive_wash": "464a2f"}
 	var base := Color(bases.get(kind, "3f4c2b"))
 	for y in S:
 		for x in S:
@@ -512,7 +513,7 @@ static func camo_texture(kind: String) -> ImageTexture:
 				# британская пустынная окраска: светлый камень с резкими тёмно-оливковыми пятнами
 				c = c.lerp(Color("5c5a40"), smoothstep(0.6, 0.63, va) * 0.9)
 				c = c.darkened((vb - 0.5) * 0.12)
-			elif kind == "german44":
+			elif kind == "german44" or kind == "wash44":
 				# «засадный» камуфляж 1944 г.: крупные пятна оливкового и красно-коричневого
 				# по тёмно-жёлтому, на тёмных пятнах — мелкие светлые крапины
 				var s1 := smoothstep(0.56, 0.6, va)
@@ -529,14 +530,17 @@ static func camo_texture(kind: String) -> ImageTexture:
 				# «Африканский корпус»: жёлто-коричневый с серо-зелёными пятнами
 				c = c.lerp(Color("6b6a52"), smoothstep(0.62, 0.66, vb) * 0.85)
 				c = c.darkened((va - 0.5) * 0.15)
-			elif kind == "grey_winter" or kind == "whitewash":
-				# зимняя побелка поверх заводской краски: мелом кистью, стёрта местами до металла
-				var wash := smoothstep(0.36, 0.52, va * 0.75 + vg * 0.25)
-				c = c.darkened((vb - 0.5) * 0.15)
-				c = c.lerp(Color("dcdfdc").darkened((vg - 0.5) * 0.12), wash * 0.92)
-			else:
+			elif kind != "grey_winter" and kind != "whitewash":
 				c = c.darkened((va - 0.5) * 0.22)
 				c = c.lightened(clampf((vb - 0.7) * 0.6, 0.0, 0.12))
+			if kind == "grey_winter" or kind == "whitewash" or kind == "wash44" or kind == "olive_wash":
+				# зимняя побелка поверх заводской краски: мелом кистью, стёрта местами до металла;
+				# в 1944-м белили наспех — заводская краска видна шире
+				var wash := smoothstep(0.36, 0.52, va * 0.75 + vg * 0.25)
+				if kind == "wash44" or kind == "olive_wash":
+					wash = smoothstep(0.44, 0.58, va * 0.7 + vb * 0.15 + vg * 0.15)
+				c = c.darkened((vb - 0.5) * 0.15)
+				c = c.lerp(Color("dcdfdc").darkened((vg - 0.5) * 0.12), wash * 0.92)
 			c = c.lightened((vg - 0.5) * 0.08)
 			img.set_pixel(x, y, c)
 	img.generate_mipmaps()
