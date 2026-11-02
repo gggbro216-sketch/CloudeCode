@@ -3268,6 +3268,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 	register_battle(lib, C);
 	register_mapgen(lib, C);
 	register_mapbuild(lib, C);
+	register_tankbuild(lib, C);
 }
 
 void register_list(GDExtensionClassLibraryPtr lib, const char *cls, const MethodDef *defs, size_t n) {

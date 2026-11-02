@@ -50,3 +50,13 @@ struct Group {
 
 // Ответ GDScript: [номера материалов, (вершины, нормали, uv, индексы[, цвета, uv2])×материалов]
 void ret_group(GDExtensionVariantPtr r, const Group &g);
+
+// ---------- Двумерная геометрия движка и сетки по профилям (как Geometry2D и Geo в GDScript) ----------
+std::vector<int> triangulate(const std::vector<V2> &poly);  // Geometry2D.triangulate_polygon (ear clipping)
+std::vector<V2> convex_hull(std::vector<V2> pts);  // Geometry2D.convex_hull
+bool polygon_clockwise(const std::vector<V2> &poly);  // Geometry2D.is_polygon_clockwise
+Prim geo_loft(const std::vector<V2> &profile, double y0, double w0, double y1, double w1);
+Prim geo_frustum(const std::vector<V2> &poly, double h, double top, double shift, bool smooth);
+Prim geo_belt(const std::vector<V2> &profile, double width, double thick, double link);
+Prim geo_prism(const std::vector<V2> &profile, double width);
+std::vector<V2> geo_oval(double front, double back, double half_w, int seg = 16);

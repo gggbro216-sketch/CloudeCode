@@ -20,6 +20,7 @@ static GDExtensionInterfaceArrayOperatorIndex array_index;
 static GDExtensionInterfaceClassdbGetMethodBind get_method_bind;
 static GDExtensionInterfaceObjectMethodBindPtrcall bind_ptrcall;
 static GDExtensionInterfaceVariantDestroy variant_destroy;
+static GDExtensionInterfaceGlobalGetSingleton global_singleton;
 
 // Доступ к элементам упакованных массивов по типу.
 typedef void *(*IndexFn)(GDExtensionTypePtr, GDExtensionInt);
@@ -69,6 +70,7 @@ void load(GDExtensionInterfaceGetProcAddress p_get_proc) {
 	PROC(get_method_bind, GDExtensionInterfaceClassdbGetMethodBind, "classdb_get_method_bind");
 	PROC(bind_ptrcall, GDExtensionInterfaceObjectMethodBindPtrcall, "object_method_bind_ptrcall");
 	PROC(variant_destroy, GDExtensionInterfaceVariantDestroy, "variant_destroy");
+	PROC(global_singleton, GDExtensionInterfaceGlobalGetSingleton, "global_get_singleton");
 	from_type[GDEXTENSION_VARIANT_TYPE_OBJECT] = get_from_type(GDEXTENSION_VARIANT_TYPE_OBJECT);
 	to_type[GDEXTENSION_VARIANT_TYPE_OBJECT] = get_to_type(GDEXTENSION_VARIANT_TYPE_OBJECT);
 
@@ -82,7 +84,7 @@ void load(GDExtensionInterfaceGetProcAddress p_get_proc) {
 	SN sn_resize = name("resize");
 	const GDExtensionVariantType arrays[] = { GDEXTENSION_VARIANT_TYPE_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY,
 		GDEXTENSION_VARIANT_TYPE_PACKED_INT32_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT32_ARRAY,
-		GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR3_ARRAY,
+		GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT64_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR3_ARRAY,
 		GDEXTENSION_VARIANT_TYPE_PACKED_COLOR_ARRAY };
 	for (GDExtensionVariantType t : arrays) {
 		from_type[t] = get_from_type(t);
@@ -101,6 +103,8 @@ void load(GDExtensionInterfaceGetProcAddress p_get_proc) {
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY] = (IndexConstFn)p_get_proc("packed_byte_array_operator_index_const");
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_INT32_ARRAY] = (IndexConstFn)p_get_proc("packed_int32_array_operator_index_const");
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT32_ARRAY] = (IndexConstFn)p_get_proc("packed_float32_array_operator_index_const");
+	index_fn[GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT64_ARRAY] = (IndexFn)p_get_proc("packed_float64_array_operator_index");
+	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT64_ARRAY] = (IndexConstFn)p_get_proc("packed_float64_array_operator_index_const");
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY] = (IndexConstFn)p_get_proc("packed_vector2_array_operator_index_const");
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR3_ARRAY] = (IndexConstFn)p_get_proc("packed_vector3_array_operator_index_const");
 	index_const_fn[GDEXTENSION_VARIANT_TYPE_PACKED_COLOR_ARRAY] = (IndexConstFn)p_get_proc("packed_color_array_operator_index_const");
@@ -208,6 +212,7 @@ std::vector<int32_t> i32(const Args &a, int i) { return read<int32_t>(a, i, GDEX
 std::vector<uint8_t> bytes(const Args &a, int i) { return read<uint8_t>(a, i, GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY); }
 std::vector<V2> v2s(const Args &a, int i) { return read<V2>(a, i, GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY); }
 std::vector<V3> v3s(const Args &a, int i) { return read<V3>(a, i, GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR3_ARRAY); }
+std::vector<double> f64(const Args &a, int i) { return read<double>(a, i, GDEXTENSION_VARIANT_TYPE_PACKED_FLOAT64_ARRAY); }
 
 // ---------- Ответы ----------
 
@@ -369,6 +374,37 @@ static inline void pcall(MB m, Obj o, const GDExtensionConstTypePtr *args) {
 	if (m && o) {
 		bind_ptrcall((GDExtensionMethodBindPtr)m, (GDExtensionObjectPtr)o, args, nullptr);
 	}
+}
+
+// Geometry2D.intersect_polygons(a, b)[0] (Clipper2 движка): первый многоугольник пересечения или пусто.
+std::vector<V2> intersect_polygons(const std::vector<V2> &a, const std::vector<V2> &b) {
+	static MB m = method("Geometry2D", "intersect_polygons", 3637387053);
+	static Obj single = nullptr;
+	if (!single) {
+		SN n = name("Geometry2D");
+		single = global_singleton(&n);
+	}
+	std::vector<V2> out;
+	if (!m || !single) return out;
+	Packed pa(GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY), pb(GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY);
+	pa.resize((int64_t)a.size());
+	pb.resize((int64_t)b.size());
+	if (!a.empty()) std::memcpy(pa.data(), a.data(), a.size() * sizeof(V2));
+	if (!b.empty()) std::memcpy(pb.data(), b.data(), b.size() * sizeof(V2));
+	alignas(8) uint8_t arr[8];
+	ctor0[GDEXTENSION_VARIANT_TYPE_ARRAY](arr, nullptr);
+	GDExtensionConstTypePtr args[2] = { pa.self(), pb.self() };
+	bind_ptrcall((GDExtensionMethodBindPtr)m, (GDExtensionObjectPtr)single, args, arr);
+	int64_t n = 0;
+	m_size[GDEXTENSION_VARIANT_TYPE_ARRAY](arr, nullptr, &n, 0);
+	if (n > 0) {
+		Packed r(GDEXTENSION_VARIANT_TYPE_PACKED_VECTOR2_ARRAY, array_index(arr, 0));
+		int64_t k = r.size();
+		out.resize((size_t)k);
+		if (k > 0) std::memcpy(out.data(), r.cdata(), (size_t)k * sizeof(V2));
+	}
+	dtor[GDEXTENSION_VARIANT_TYPE_ARRAY](arr);
+	return out;
 }
 
 void call_v3(MB m, Obj o, V3 v) {

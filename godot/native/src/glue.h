@@ -60,6 +60,7 @@ std::vector<int32_t> i32(const Args &a, int i);
 std::vector<uint8_t> bytes(const Args &a, int i);
 std::vector<V2> v2s(const Args &a, int i);
 std::vector<V3> v3s(const Args &a, int i);
+std::vector<double> f64(const Args &a, int i);
 
 // Ответы.
 void ret_float(GDExtensionVariantPtr r, double v);
@@ -102,6 +103,7 @@ void call_xf(MB m, Obj o, const float b[9], V3 origin);
 void call_param(MB m, Obj o, const Name &n, double v);  // ShaderMaterial.set_shader_parameter(имя, число)
 void call_int_xf(MB m, Obj o, int64_t i, const float b[9], V3 origin);  // MultiMesh.set_instance_transform
 void call_int_color(MB m, Obj o, int64_t i, const float c[4]);  // MultiMesh.set_instance_custom_data
+std::vector<V2> intersect_polygons(const std::vector<V2> &a, const std::vector<V2> &b);  // Geometry2D (Clipper2), первый
 
 // Регистрация класса и методов.
 typedef void (*Method)(void *self, const Args &a, GDExtensionVariantPtr r, GDExtensionCallError *e);

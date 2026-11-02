@@ -141,6 +141,41 @@ class Group:
 		return out
 
 
+## Сетка из группы, собранной в C++: [номера материалов, (вершины, нормали, uv, индексы[, цвета, uv2])×частей].
+## Гладкие части делят вершины между треугольниками (индексы), плоские — по три вершины на грань.
+static func part_mesh(grp: Array, i: int, extra := false) -> ArrayMesh:
+	var per := 6 if extra else 4
+	var v: PackedVector3Array = grp[1 + i * per]
+	var mesh := ArrayMesh.new()
+	if v.is_empty():
+		return mesh
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = v
+	arrays[Mesh.ARRAY_NORMAL] = grp[2 + i * per]
+	arrays[Mesh.ARRAY_TEX_UV] = grp[3 + i * per]
+	arrays[Mesh.ARRAY_INDEX] = grp[4 + i * per]
+	if extra:
+		arrays[Mesh.ARRAY_COLOR] = grp[5 + i * per]
+		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Узлы сеток группы из C++ (как Geo.Group.commit): по одной на материал.
+static func commit_arrays(parent: Node3D, grp: Array, mats: Array, shadows: bool, extra := false) -> Array:
+	var out: Array = []
+	var ids: PackedInt32Array = grp[0]
+	for i in ids.size():
+		var mi := MeshInstance3D.new()
+		mi.mesh = part_mesh(grp, i, extra)
+		mi.material_override = mats[ids[i]]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mi)
+		out.append(mi)
+	return out
+
+
 static func box(size: Vector3) -> BoxMesh:
 	var b := BoxMesh.new()
 	b.size = size
@@ -195,8 +230,32 @@ static func quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3
 	tri(st, a, c, d, n)
 
 
+## Сетки по профилям в C++ (SteelCore.geo_profile); false — SurfaceTool в GDScript (для сверки).
+static var native_profiles := true
+
+
+static func _profile(kind: int, poly: PackedVector2Array, nums: Array) -> ArrayMesh:
+	var core: Object = Native.shared()
+	if not native_profiles or core == null or not core.has_method("geo_profile"):
+		return null
+	var res: Array = core.geo_profile(kind, poly, PackedFloat64Array(nums))
+	var mesh := ArrayMesh.new()
+	if (res[0] as PackedVector3Array).is_empty():
+		return mesh
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = res[0]
+	arrays[Mesh.ARRAY_NORMAL] = res[1]
+	arrays[Mesh.ARRAY_TEX_UV] = res[2]
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
 ## Призма: боковой профиль (x вперёд, y вверх) вытянут по ширине (ось z).
 static func prism(profile: PackedVector2Array, width: float) -> ArrayMesh:
+	var nm := _profile(0, profile, [width])
+	if nm:
+		return nm
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var hw := width / 2.0
@@ -225,6 +284,9 @@ static func prism(profile: PackedVector2Array, width: float) -> ArrayMesh:
 ## Усечённая призма: многоугольник вида сверху (x, z), высота h, верх сужен в top раз.
 ## smooth — сглаженные боковые нормали (литые башни).
 static func frustum(poly: PackedVector2Array, h: float, top: float, shift := 0.0, smooth := false) -> ArrayMesh:
+	var nm := _profile(1, poly, [h, top, shift, 1.0 if smooth else 0.0])
+	if nm:
+		return nm
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := poly.size()
@@ -288,6 +350,9 @@ static func _tri_n(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, na: Vect
 ## Корпус с наклонными бортами: боковой профиль (x, y) вытянут по z, ширина меняется
 ## линейно от w0 на высоте y0 до w1 на высоте y1.
 static func loft(profile: PackedVector2Array, y0: float, w0: float, y1: float, w1: float) -> ArrayMesh:
+	var nm := _profile(2, profile, [y0, w0, y1, w1])
+	if nm:
+		return nm
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var hw := func(y: float) -> float: return lerpf(w0, w1, clampf((y - y0) / maxf(y1 - y0, 0.001), 0.0, 1.0)) / 2.0
@@ -325,6 +390,9 @@ static func loft(profile: PackedVector2Array, y0: float, w0: float, y1: float, w
 ## Гусеничная лента по замкнутому профилю (x, y): наружная поверхность с UV для прокрутки
 ## траков и боковины толщиной thick.
 static func belt(profile: PackedVector2Array, width: float, thick: float, link: float) -> ArrayMesh:
+	var nm := _profile(3, profile, [width, thick, link])
+	if nm:
+		return nm
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var hw := width / 2.0

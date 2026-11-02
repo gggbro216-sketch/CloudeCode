@@ -541,3 +541,309 @@ void ret_group(GDExtensionVariantPtr r, const Group &g) {
 	}
 	out.to_variant(r);
 }
+
+// ---------- Двумерная геометрия (core/math/triangulate.cpp, geometry_2d.h Godot) ----------
+
+static inline float cross2(V2 a, V2 b) { return a.x * b.y - a.y * b.x; }
+static inline V2 nrm2(V2 v) {
+	float l = v.x * v.x + v.y * v.y;
+	if (l != 0.0f) {
+		l = std::sqrt(l);
+		v.x /= l;
+		v.y /= l;
+	}
+	return v;
+}
+
+static const float CMP_EPS = 0.00001f;
+
+static bool inside_tri(float Ax, float Ay, float Bx, float By, float Cx, float Cy, float Px, float Py, bool include_edges) {
+	float ax = Cx - Bx, ay = Cy - By, bx = Ax - Cx, by = Ay - Cy, cx = Bx - Ax, cy = By - Ay;
+	float apx = Px - Ax, apy = Py - Ay, bpx = Px - Bx, bpy = Py - By, cpx = Px - Cx, cpy = Py - Cy;
+	float aCROSSbp = ax * bpy - ay * bpx;
+	float cCROSSap = cx * apy - cy * apx;
+	float bCROSScp = bx * cpy - by * cpx;
+	if (include_edges) return aCROSSbp > 0.0f && bCROSScp > 0.0f && cCROSSap > 0.0f;
+	return aCROSSbp >= 0.0f && bCROSScp >= 0.0f && cCROSSap >= 0.0f;
+}
+
+static bool snip(const std::vector<V2> &c, int u, int v, int w, int n, const std::vector<int> &V, bool relaxed) {
+	float Ax = c[V[u]].x, Ay = c[V[u]].y, Bx = c[V[v]].x, By = c[V[v]].y, Cx = c[V[w]].x, Cy = c[V[w]].y;
+	float threshold = relaxed ? -CMP_EPS : CMP_EPS;
+	if (threshold > (((Bx - Ax) * (Cy - Ay)) - ((By - Ay) * (Cx - Ax)))) return false;
+	for (int p = 0; p < n; p++) {
+		if (p == u || p == v || p == w) continue;
+		if (inside_tri(Ax, Ay, Bx, By, Cx, Cy, c[V[p]].x, c[V[p]].y, relaxed)) return false;
+	}
+	return true;
+}
+
+std::vector<int> triangulate(const std::vector<V2> &contour) {
+	std::vector<int> result;
+	int n = (int)contour.size();
+	if (n < 3) return result;
+	std::vector<int> V(n);
+	float A = 0.0f;
+	for (int p = n - 1, q = 0; q < n; p = q++) A += cross2(contour[p], contour[q]);
+	A *= 0.5f;
+	for (int v = 0; v < n; v++) V[v] = 0.0f < A ? v : (n - 1) - v;
+	bool relaxed = false;
+	int nv = n;
+	int count = 2 * nv;
+	for (int v = nv - 1; nv > 2;) {
+		if (0 >= (count--)) {
+			if (relaxed) return std::vector<int>();  // плохой многоугольник: как движок — пусто
+			count = 2 * nv;
+			relaxed = true;
+		}
+		int u = v;
+		if (nv <= u) u = 0;
+		v = u + 1;
+		if (nv <= v) v = 0;
+		int w = v + 1;
+		if (nv <= w) w = 0;
+		if (snip(contour, u, v, w, nv, V, relaxed)) {
+			result.push_back(V[u]);
+			result.push_back(V[v]);
+			result.push_back(V[w]);
+			for (int s = v, t = v + 1; t < nv; s++, t++) V[s] = V[t];
+			nv--;
+			count = 2 * nv;
+		}
+	}
+	return result;
+}
+
+std::vector<V2> convex_hull(std::vector<V2> P) {
+	int n = (int)P.size(), k = 0;
+	std::vector<V2> H((size_t)2 * n);
+	std::sort(P.begin(), P.end(), [](V2 a, V2 b) { return a.x == b.x ? a.y < b.y : a.x < b.x; });
+	auto vc = [](V2 o, V2 a, V2 b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); };
+	for (int i = 0; i < n; ++i) {
+		while (k >= 2 && vc(H[k - 2], H[k - 1], P[i]) <= 0) k--;
+		H[k++] = P[i];
+	}
+	for (int i = n - 2, t = k + 1; i >= 0; i--) {
+		while (k >= t && vc(H[k - 2], H[k - 1], P[i]) <= 0) k--;
+		H[k++] = P[i];
+	}
+	H.resize(k);
+	return H;
+}
+
+bool polygon_clockwise(const std::vector<V2> &p) {
+	int c = (int)p.size();
+	if (c < 3) return false;
+	float sum = 0.0f;
+	for (int i = 0; i < c; i++) {
+		const V2 &v1 = p[i];
+		const V2 &v2 = p[(i + 1) % c];
+		sum += (v2.x - v1.x) * (v2.y + v1.y);
+	}
+	return sum > 0.0f;
+}
+
+// ---------- Сетки по профилям (Geo.prism, frustum, loft, belt; SurfaceTool без индексов) ----------
+
+namespace {
+inline V3 v3d(double x, double y, double z) { return { (float)x, (float)y, (float)z }; }
+inline V3 sub3(V3 a, V3 b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
+inline V3 add3(V3 a, V3 b) { return { a.x + b.x, a.y + b.y, a.z + b.z }; }
+inline V3 crs(V3 a, V3 b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
+inline float dt3(V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+
+struct ST {
+	Prim p;
+	void vert(V3 v, V3 n, V2 uv) {
+		p.v.push_back(v);
+		p.n.push_back(n);
+		p.uv.push_back(uv);
+	}
+	// Geo.tri: треугольник лицом по нормали (лицевая сторона Godot — по часовой)
+	void tri(V3 a, V3 b, V3 c, V3 n, V2 uva = { 0, 0 }, V2 uvb = { 0, 0 }, V2 uvc = { 0, 0 }) {
+		if (dt3(crs(sub3(b, a), sub3(c, a)), n) > 0.0f) {
+			std::swap(b, c);
+			std::swap(uvb, uvc);
+		}
+		vert(a, n, uva);
+		vert(b, n, uvb);
+		vert(c, n, uvc);
+	}
+	void quad(V3 a, V3 b, V3 c, V3 d, V3 n) {
+		tri(a, b, c, n);
+		tri(a, c, d, n);
+	}
+	void tri_n(V3 a, V3 b, V3 c, V3 na, V3 nb, V3 nc, V3 face) {
+		if (dt3(crs(sub3(b, a), sub3(c, a)), face) > 0.0f) {
+			std::swap(b, c);
+			std::swap(nb, nc);
+		}
+		vert(a, na, { 0, 0 });
+		vert(b, nb, { 0, 0 });
+		vert(c, nc, { 0, 0 });
+	}
+};
+
+V2 centroid(const std::vector<V2> &pr) {
+	V2 c = { 0, 0 };
+	for (V2 q : pr) {
+		c.x += q.x;
+		c.y += q.y;
+	}
+	float k = (float)pr.size();
+	return { c.x / k, c.y / k };
+}
+
+// нормаль ребра a→b наружу (от центра)
+V2 edge_out(V2 a, V2 b, V2 cen) {
+	V2 e = { b.x - a.x, b.y - a.y };
+	V2 n2 = nrm2({ e.y, -e.x });
+	V2 mid = { (a.x + b.x) / 2.0f - cen.x, (a.y + b.y) / 2.0f - cen.y };
+	if (n2.x * mid.x + n2.y * mid.y < 0.0f) n2 = { -n2.x, -n2.y };
+	return n2;
+}
+} // namespace
+
+Prim geo_prism(const std::vector<V2> &profile, double width) {
+	ST st;
+	if (profile.size() < 3) return st.p;
+	double hw = width / 2.0;
+	V2 cen = centroid(profile);
+	std::vector<int> tris = triangulate(profile);
+	for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+		V2 a = profile[tris[i]], b = profile[tris[i + 1]], c = profile[tris[i + 2]];
+		st.tri(v3d(a.x, a.y, hw), v3d(b.x, b.y, hw), v3d(c.x, c.y, hw), { 0, 0, 1 });
+		st.tri(v3d(a.x, a.y, -hw), v3d(b.x, b.y, -hw), v3d(c.x, c.y, -hw), { 0, 0, -1 });
+	}
+	size_t n = profile.size();
+	for (size_t i = 0; i < n; i++) {
+		V2 a = profile[i], b = profile[(i + 1) % n];
+		V2 n2 = edge_out(a, b, cen);
+		st.quad(v3d(a.x, a.y, hw), v3d(b.x, b.y, hw), v3d(b.x, b.y, -hw), v3d(a.x, a.y, -hw), { n2.x, n2.y, 0 });
+	}
+	return st.p;
+}
+
+Prim geo_frustum(const std::vector<V2> &poly, double h, double top, double shift, bool smooth) {
+	ST st;
+	int n = (int)poly.size();
+	if (n < 3) return st.p;
+	std::vector<V3> low, high;
+	for (V2 q : poly) {
+		low.push_back(v3d(q.x, 0, q.y));
+		high.push_back(v3d(q.x * top + shift, h, q.y * top));
+	}
+	std::vector<int> tris = triangulate(poly);
+	for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+		st.tri(high[tris[i]], high[tris[i + 1]], high[tris[i + 2]], { 0, 1, 0 });
+		st.tri(low[tris[i]], low[tris[i + 1]], low[tris[i + 2]], { 0, -1, 0 });
+	}
+	auto nz = [](V3 v) {
+		float l = v.x * v.x + v.y * v.y + v.z * v.z;
+		if (l == 0.0f) return V3{ 0, 0, 0 };
+		l = std::sqrt(l);
+		return V3{ v.x / l, v.y / l, v.z / l };
+	};
+	std::vector<V3> fn;
+	for (int i = 0; i < n; i++) {
+		V3 a = low[i], b = low[(i + 1) % n], d = high[i];
+		V3 nr = nz(crs(sub3(b, a), sub3(d, a)));
+		V3 c4 = high[(i + 1) % n];
+		V3 s4 = add3(add3(add3(a, b), d), c4);
+		V3 mid = { s4.x / 4.0f, s4.y / 4.0f, s4.z / 4.0f };
+		if (dt3(nr, { mid.x, 0, mid.z }) < 0.0f) nr = { -nr.x, -nr.y, -nr.z };
+		fn.push_back(nr);
+	}
+	for (int i = 0; i < n; i++) {
+		int j = (i + 1) % n;
+		V3 a = low[i], b = low[j], c = high[j], d = high[i];
+		V3 nf = fn[i];
+		if (!smooth) {
+			st.quad(a, b, c, d, nf);
+			continue;
+		}
+		V3 na = nz(add3(fn[(i - 1 + n) % n], nf));
+		V3 nb = nz(add3(nf, fn[j]));
+		st.tri_n(a, b, c, na, nb, nb, nf);
+		st.tri_n(a, c, d, na, nb, na, nf);
+	}
+	return st.p;
+}
+
+Prim geo_loft(const std::vector<V2> &profile, double y0, double w0, double y1, double w1) {
+	ST st;
+	if (profile.size() < 3) return st.p;
+	auto hw = [&](double y) {
+		double t = (y - y0) / std::max(y1 - y0, 0.001);
+		t = t < 0.0 ? 0.0 : (t > 1.0 ? 1.0 : t);
+		return (w0 + (w1 - w0) * t) / 2.0;
+	};
+	V2 cen = centroid(profile);
+	std::vector<int> tris = triangulate(profile);
+	for (double s : { 1.0, -1.0 }) {
+		for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+			V3 v[3];
+			for (int k = 0; k < 3; k++) {
+				V2 q = profile[tris[i + k]];
+				v[k] = v3d(q.x, q.y, s * hw(q.y));
+			}
+			V3 raw = crs(sub3(v[1], v[0]), sub3(v[2], v[0]));
+			float l = raw.x * raw.x + raw.y * raw.y + raw.z * raw.z;
+			V3 nr = { 0, 0, 0 };
+			if (l != 0.0f) {
+				l = std::sqrt(l);
+				nr = { raw.x / l, raw.y / l, raw.z / l };
+			}
+			if (nr.z * s < 0.0) nr = { -nr.x, -nr.y, -nr.z };
+			st.tri(v[0], v[1], v[2], nr);
+		}
+	}
+	size_t n = profile.size();
+	for (size_t i = 0; i < n; i++) {
+		V2 a = profile[i], b = profile[(i + 1) % n];
+		V2 n2 = edge_out(a, b, cen);
+		double za = hw(a.y), zb = hw(b.y);
+		st.quad(v3d(a.x, a.y, za), v3d(b.x, b.y, zb), v3d(b.x, b.y, -zb), v3d(a.x, a.y, -za), { n2.x, n2.y, 0 });
+	}
+	return st.p;
+}
+
+Prim geo_belt(const std::vector<V2> &profile, double width, double thick, double link) {
+	ST st;
+	size_t n = profile.size();
+	if (n < 2) return st.p;
+	double hw = width / 2.0;
+	V2 cen = centroid(profile);
+	double u = 0.0;
+	for (size_t i = 0; i < n; i++) {
+		V2 a = profile[i], b = profile[(i + 1) % n];
+		V2 e = { b.x - a.x, b.y - a.y };
+		V2 nr = edge_out(a, b, cen);
+		double u2 = u + (double)std::sqrt(e.x * e.x + e.y * e.y) / link;
+		V3 n3 = { nr.x, nr.y, 0 };
+		V2 p0 = { (float)u, 0 }, p1 = { (float)u2, 0 }, p2 = { (float)u2, 1 }, p3 = { (float)u, 1 };
+		st.tri(v3d(a.x, a.y, hw), v3d(b.x, b.y, hw), v3d(b.x, b.y, -hw), n3, p0, p1, p2);
+		st.tri(v3d(a.x, a.y, hw), v3d(b.x, b.y, -hw), v3d(a.x, a.y, -hw), n3, p0, p2, p3);
+		float tk = (float)thick;
+		V2 ai = { a.x - nr.x * tk, a.y - nr.y * tk }, bi = { b.x - nr.x * tk, b.y - nr.y * tk };
+		for (double s : { 1.0, -1.0 }) {
+			double z = hw * s;
+			V3 sn = v3d(0, 0, s);
+			V2 q0 = { (float)u, 0.02f }, q1 = { (float)u2, 0.02f };
+			st.tri(v3d(a.x, a.y, z), v3d(b.x, b.y, z), v3d(bi.x, bi.y, z), sn, q0, q1, q1);
+			st.tri(v3d(a.x, a.y, z), v3d(bi.x, bi.y, z), v3d(ai.x, ai.y, z), sn, q0, q1, q0);
+		}
+		u = u2;
+	}
+	return st.p;
+}
+
+std::vector<V2> geo_oval(double front, double back, double half_w, int seg) {
+	std::vector<V2> out;
+	for (int i = 0; i < seg; i++) {
+		double a = 6.283185307179586 * i / seg;
+		double rx = std::cos(a) > 0 ? front : back;
+		out.push_back({ (float)(std::cos(a) * rx), (float)(std::sin(a) * half_w) });
+	}
+	return out;
+}

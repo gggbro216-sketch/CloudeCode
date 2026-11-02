@@ -1733,38 +1733,6 @@ static func _prop_mats(map_key: String, M: Dictionary) -> Dictionary:
 	}
 
 
-## Сетка из группы, собранной в C++: [номера материалов, (вершины, нормали, uv, индексы[, цвета, uv2])×частей].
-## Гладкие части делят вершины между треугольниками (индексы), плоские — по три вершины на грань.
-static func _part_mesh(grp: Array, i: int, extra := false) -> ArrayMesh:
-	var per := 6 if extra else 4
-	var v: PackedVector3Array = grp[1 + i * per]
-	var mesh := ArrayMesh.new()
-	if v.is_empty():
-		return mesh
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = v
-	arrays[Mesh.ARRAY_NORMAL] = grp[2 + i * per]
-	arrays[Mesh.ARRAY_TEX_UV] = grp[3 + i * per]
-	arrays[Mesh.ARRAY_INDEX] = grp[4 + i * per]
-	if extra:
-		arrays[Mesh.ARRAY_COLOR] = grp[5 + i * per]
-		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
-
-
-## Узлы сеток группы из C++ (как Geo.Group.commit): по одной на материал.
-static func _commit_native(parent: Node3D, grp: Array, mats: Array, shadows: bool, extra := false) -> void:
-	var ids: PackedInt32Array = grp[0]
-	for i in ids.size():
-		var mi := MeshInstance3D.new()
-		mi.mesh = _part_mesh(grp, i, extra)
-		mi.material_override = mats[ids[i]]
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		parent.add_child(mi)
-
-
 ## Сборка в C++: здесь только материалы, узлы, коллизия и трава.
 static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, map_key: String, zones: Array, terra, hq: bool,
 		M: Dictionary, wall_mats: Array, rng: RandomNumberGenerator, seed: int) -> Dictionary:
@@ -1803,7 +1771,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 		body.add_child(cs)
 	# кусты и ели
 	var bmat := _bush_mat()
-	_commit_native(parent, res[1], [bmat], hq, true)
+	Geo.commit_arrays(parent, res[1], [bmat], hq, true)
 	# деревья и заборы: MultiMesh на часть, буфер (поза и оттенок) — из C++
 	var pm := _prop_mats(map_key, M)
 	var groups: Array = res[4]
@@ -1821,7 +1789,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 			var mm := MultiMesh.new()
 			mm.transform_format = MultiMesh.TRANSFORM_3D
 			mm.use_colors = true
-			mm.mesh = _part_mesh(kg[j], 0)
+			mm.mesh = Geo.part_mesh(kg[j], 0)
 			mm.instance_count = count
 			mm.buffer = buf
 			var mmi := MultiMeshInstance3D.new()
@@ -1843,7 +1811,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 			pr.mms.append([mm, i])
 	# камешки в пустыне: участки 4×4, дальние не рисуются
 	if desert:
-		var pebble := _part_mesh(res[8], 0)
+		var pebble := Geo.part_mesh(res[8], 0)
 		var cs := (D.WS + 400.0) / 4.0
 		var per := (1500 if hq else 680) / 16
 		var pb: Array = res[7]
@@ -1870,7 +1838,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 	_zone_nodes(parent, zones, terra)
 	var mats: Array = [M.plaster, M.brick, M.roof, M.concrete, M.concrete_d, M.wood, M.steel, M.rust, M.charred, M.sand,
 		M.rubble, M.rock, M.snow, M.canvas, M.olive, M.pole, M.earth, M.leaves, M.hay, M.adobe, M.crate, wall_mats[0], wall_mats[1]]
-	_commit_native(parent, res[0], mats, hq)
+	Geo.commit_arrays(parent, res[0], mats, hq)
 	var smokes: Array = []
 	for sp: Vector3 in (res[3] as PackedVector3Array):
 		smokes.append(sp)

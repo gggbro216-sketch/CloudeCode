@@ -880,6 +880,11 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	var info := model_info(key)
 	if not info.is_empty():
 		return _build_model(root, key, info, shadows, paint_cfg)
+	var core: Object = Native.shared()
+	if native_models and core and core.has_method("tank_build"):
+		var res: Array = core.tank_build(_native_spec(key, year, paint_cfg))
+		if float(res[8]) >= 0.0:
+			return _build_native(root, key, shadows, year, paint_cfg, res)
 	var S: Dictionary = SPECS[key]
 	var TT := D.spec(key, year)
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
@@ -992,21 +997,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		_emblems(hull, emblem, Vector3(-L * 0.08, ey, ez), 0.7, tilt)
 
 	# пятно тени под танком
-	var blob := MeshInstance3D.new()
-	var bq := QuadMesh.new()
-	bq.size = Vector2(L * 1.25, W * 1.35) * U
-	var bm := StandardMaterial3D.new()
-	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	bm.albedo_texture = _blob()
-	bm.disable_receive_shadows = true
-	blob.mesh = bq
-	blob.material_override = bm
-	blob.rotation = Vector3(-PI / 2, 0, 0)
-	blob.position.y = 0.05 * U
-	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	blob.visibility_range_end = 400.0 * U
-	hull.add_child(blob)
+	hull.add_child(_blob_node(L, W))
 
 	# --- башня или рубка
 	var casemate: bool = S.get("casemate", false)
@@ -1098,6 +1089,146 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
 		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
 		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
+
+
+## Процедурная модель в C++ (SteelCore.tank_build); false — сборка в GDScript (для сверки).
+static var native_models := true
+
+## Виды в порядке, который знает C++ (native/src/tankbuild.cpp).
+const NATIVE_KEYS := ["t34", "t34_76", "tiger", "is2", "pz4", "chaffee", "kv1", "sherman", "firefly", "panther", "pz3",
+	"crusader", "cromwell", "tiger2", "stug"]
+const WHEEL_KINDS := ["interleaved", "spoked", "single", "vvss"]
+const TPOLY_KINDS := ["horseshoe", "pz4", "pz", "crusader", "cromwell", "hex", "panther", "stug"]
+const MANT_KINDS := ["cast", "cast_big", "plate", "box", "rounded", "box_spaced", "6pdr", "f34", "kv", "rotor", "bell",
+	"saukopf_big", "saukopf"]
+const BRAKE_KINDS := ["double", "double_big", "ball"]
+
+
+## Спецификация для C++: заголовок из 30 чисел, затем списки [длина, значения…] — профиль корпуса (пары),
+## катки, звёздочка, ленивец, ролики, тележки, командирская башенка.
+static func _native_spec(key: String, year: int, paint_cfg: Dictionary) -> PackedFloat64Array:
+	var S: Dictionary = SPECS[key]
+	var TT := D.spec(key, year)
+	var wk := WHEEL_KINDS.find(S.wheel)
+	var tk := TPOLY_KINDS.find(S.tpoly[0])
+	var bk := BRAKE_KINDS.find(S.brake)
+	var f := PackedFloat64Array([NATIVE_KEYS.find(key), wk if wk >= 0 else 4, tk if tk >= 0 else 8, MANT_KINDS.find(S.mant),
+		bk if bk >= 0 else 3, S.L, S.W, S.tw, S.th, S.up_w, S.wr, S.tur_x, S.tur_h, S.tur_top, 1.0 if S.smooth else 0.0,
+		S.gun_len, S.gun_r[0], S.gun_r[1], S.tpoly[1], S.tpoly[2], S.tpoly[3],
+		1.0 if S.has("skirts") and year >= int(S.skirts) else 0.0, float(S.get("skirt_y", 1.0)),
+		1.0 if S.get("shelf", true) else 0.0, 1.0 if S.get("hatch", true) else 0.0, 1.0 if S.get("casemate", false) else 0.0,
+		float(TT.side_slope), 1.0 if paint_cfg.get("band", false) else 0.0, year, U])
+	var hp: Array = []
+	for p in S.hull:
+		hp.append_array([p[0], p[1]])
+	for arr: Array in [hp, S.wheels, S.spr, S.idl, S.rollers, S.get("bogies", []), S.cupola]:
+		f.append(arr.size())
+		f.append_array(arr)
+	return f
+
+
+static func _faces_shape(faces: PackedVector3Array) -> ConcavePolygonShape3D:
+	if faces.is_empty():
+		return null
+	var sh := ConcavePolygonShape3D.new()
+	sh.set_faces(faces)
+	return sh
+
+
+## Узлы процедурной модели из C++: те же узлы, материалы и размеры, что у build в GDScript.
+static func _build_native(root: Node3D, key: String, shadows: bool, year: int, paint_cfg: Dictionary, res: Array) -> Dictionary:
+	var S: Dictionary = SPECS[key]
+	var TT := D.spec(key, year)
+	var emblem: String = paint_cfg.get("emblem", S.emblem)
+	var L: float = S.L
+	var W: float = S.W
+	var tw: float = S.tw
+	var th: float = S.th
+	var skirts: bool = S.has("skirts") and year >= int(S.skirts)
+	var paint := paint_material(paint_cfg.get("camo", S.camo))
+	var paint_t: ShaderMaterial = paint.duplicate()  # у каждой части свои следы попаданий
+	var paint_g: ShaderMaterial = paint.duplicate()
+	var hull := Node3D.new()
+	root.add_child(hull)
+	var roof: float = res[8]
+	var side_k := tan(deg_to_rad(float(TT.side_slope)))
+	var up_w: float = S.up_w
+	var tz := W / 2 - tw / 2
+	# обе ленты — одна сетка и один материал: сдвиг текстуры у каждой свой в шейдере (по знаку z)
+	var trk_m := _track_mat()
+	Geo.commit_arrays(hull, res[1], [trk_m], false)  # тень гусениц всё равно под тенью корпуса
+	Geo.commit_arrays(hull, res[0], [paint], shadows, true)
+	var em_turret: bool = emblem == "ussr" or S.get("em_turret", false)
+	if not em_turret:
+		var ey := th + (roof - th) * 0.5
+		var ez := up_w / 2 - (ey - th) * side_k + 0.02
+		var tilt := atan(side_k)
+		if skirts:
+			ey = S.get("skirt_y", 1.0)
+			ez = W / 2 + 0.24
+			tilt = 0.0
+		_emblems(hull, emblem, Vector3(-L * 0.08, ey, ez), 0.7, tilt)
+	hull.add_child(_blob_node(L, W))
+	var casemate: bool = S.get("casemate", false)
+	var tur_h: float = S.tur_h
+	var front: float = S.tpoly[1]
+	var hw: float = S.tpoly[3]
+	var gun_y := tur_h * (0.42 if casemate else 0.46)
+	var top := Node3D.new()  # верх: вращается (башня) или неподвижен (рубка)
+	top.position = Vector3(float(S.tur_x), roof - 0.02, 0) * U
+	hull.add_child(top)
+	Geo.commit_arrays(top, res[2], [paint_t], shadows, true)
+	var tur := top
+	var trunnion := Vector3(front * 0.9, gun_y, 0)
+	if casemate:
+		# рубка на корпусе, а маска с орудием качается в амбразуре лобового листа
+		tur = Node3D.new()
+		tur.position = top.position + Vector3(front * float(S.tur_top) * 0.98, gun_y, 0) * U
+		hull.add_child(tur)
+		Geo.commit_arrays(tur, res[3], [paint_g], shadows, true)
+		trunnion = Vector3(0.05, 0, 0)
+	if em_turret:
+		var tilt := atan2(hw * (1.0 - float(S.tur_top)), tur_h)
+		_emblems(top, emblem, Vector3(-0.2, tur_h * 0.5, hw * (1.0 + float(S.tur_top)) / 2.0 + 0.06), 0.55, tilt)
+	var gun := Node3D.new()
+	gun.position = trunnion * U
+	tur.add_child(gun)
+	Geo.commit_arrays(gun, res[4], [paint_g], shadows, true)
+	var glen: float = S.gun_len
+	var tip := glen + (0.5 if S.brake.begins_with("double") else 0.0)
+	# коллизии частей для уточнения места попаданий (одни на все танки этого типа и года)
+	var ck := "pcol_%s_%d" % [key, year]
+	if not _cache.has(ck):
+		_cache[ck] = [_faces_shape(res[5]), _faces_shape(res[6]), _faces_shape(res[7])]
+	var cols: Array = _cache[ck]
+	var back: float = S.tpoly[2]
+	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paints": [paint, paint_t, paint_g],
+		"tracks": [trk_m], "track_w": tw * U, "track_z": tz * U,
+		"parts": [{"part": "hull", "mat": paint, "node": hull, "shape": cols[0], "node_col": hull},
+			{"part": "top", "mat": paint_t, "node": top, "shape": cols[1], "node_col": top},
+			{"part": "gun", "mat": paint_g, "node": gun, "shape": cols[2], "node_col": gun}],
+		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
+		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
+		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
+
+
+## Пятно тени под танком.
+static func _blob_node(L: float, W: float) -> MeshInstance3D:
+	var blob := MeshInstance3D.new()
+	var bq := QuadMesh.new()
+	bq.size = Vector2(L * 1.25, W * 1.35) * U
+	var bm := StandardMaterial3D.new()
+	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bm.albedo_texture = _blob()
+	bm.disable_receive_shadows = true
+	blob.mesh = bq
+	blob.material_override = bm
+	blob.rotation = Vector3(-PI / 2, 0, 0)
+	blob.position.y = 0.05 * U
+	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	blob.visibility_range_end = 400.0 * U
+	return blob
 
 
 ## Форма для лучей из сеток частей (вершины домножаются на scale).
@@ -1207,10 +1338,14 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 	var tz: float = trk.z
 	# обе ленты — одна сетка и один материал: сдвиг текстуры у каждой свой в шейдере (по знаку z)
 	var trk_m := _track_mat()
-	var tg := Geo.Group.new()
-	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_m)
-	tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_m)
-	tg.commit(hull, false)  # тень гусениц всё равно под тенью корпуса
+	var core: Object = Native.shared()
+	if native_models and core and core.has_method("tank_tracks"):
+		Geo.commit_arrays(hull, core.tank_tracks(outline, tw * U, tz * U, U), [trk_m], false)
+	else:
+		var tg := Geo.Group.new()
+		tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, tz * U)), trk_m)
+		tg.add(Geo.belt(outline, tw * U, 0.09 * U, 0.24 * U), Transform3D(Basis.IDENTITY, Vector3(0, 0, -tz * U)), trk_m)
+		tg.commit(hull, false)  # тень гусениц всё равно под тенью корпуса
 
 	# опознавательные знаки на борту корпуса
 	var em_turret: bool = emblem == "ussr" or S.get("em_turret", false)
@@ -1219,21 +1354,7 @@ static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: b
 		_emblems(hull, emblem, Vector3(float(e[0]), float(e[1]), float(e[2]) + 0.03), 0.7, float(e[3]))
 
 	# пятно тени
-	var blob := MeshInstance3D.new()
-	var bq := QuadMesh.new()
-	bq.size = Vector2(L * 1.25, W * 1.35) * U
-	var bm := StandardMaterial3D.new()
-	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	bm.albedo_texture = _blob()
-	bm.disable_receive_shadows = true
-	blob.mesh = bq
-	blob.material_override = bm
-	blob.rotation = Vector3(-PI / 2, 0, 0)
-	blob.position.y = 0.05 * U
-	blob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	blob.visibility_range_end = 400.0 * U
-	hull.add_child(blob)
+	hull.add_child(_blob_node(L, W))
 
 	var casemate: bool = S.get("casemate", false)
 	var top := Node3D.new()
@@ -1295,11 +1416,15 @@ static func _berlin_band(top: Node3D, info: Dictionary, shadows: bool) -> void:
 	var poly := PackedVector2Array()
 	for p in info.band:
 		poly.append(Vector2(float(p[0]), float(p[1])) * 1.025)
-	if Geometry2D.is_polygon_clockwise(poly):
-		poly.reverse()
 	var m := StandardMaterial3D.new()
 	m.albedo_color = Color(0.82, 0.81, 0.77)
 	m.roughness = 0.85
+	var core: Object = Native.shared()
+	if native_models and core and core.has_method("tank_band"):
+		Geo.commit_arrays(top, core.tank_band(poly, float(info.band_y), _v3(info.tur_min), _v3(info.tur_max), U), [m], shadows)
+		return
+	if Geometry2D.is_polygon_clockwise(poly):
+		poly.reverse()
 	var g := Geo.Group.new()
 	var yb: float = info.band_y
 	g.add(Geo.frustum(poly, 0.13, 1.0, 0.0, false), T3(Vector3(0, yb - 0.065, 0)), m)
@@ -2009,13 +2134,19 @@ static func _emblems(parent: Node3D, kind: String, pos: Vector3, size: float, ti
 	em.albedo_texture = emblem_texture(kind)
 	em.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	em.roughness = 0.8
-	var g := Geo.Group.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(size, size) * U
-	for s: float in [1.0, -1.0]:
-		var bs := Basis(Vector3.RIGHT, -tilt) if s > 0 else Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -tilt)
-		g.add(q, Transform3D(bs, Vector3(pos.x, pos.y, s * pos.z) * U), em)
+	var mis: Array
+	var core: Object = Native.shared()
+	if native_models and core and core.has_method("tank_emblem"):
+		mis = Geo.commit_arrays(parent, core.tank_emblem(pos, size, tilt, U), [em], false)
+	else:
+		var g := Geo.Group.new()
+		var q := QuadMesh.new()
+		q.size = Vector2(size, size) * U
+		for s: float in [1.0, -1.0]:
+			var bs := Basis(Vector3.RIGHT, -tilt) if s > 0 else Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -tilt)
+			g.add(q, Transform3D(bs, Vector3(pos.x, pos.y, s * pos.z) * U), em)
+		mis = g.commit(parent, false)
 	# дальше ~220 м знак меньше пары пикселей — не рисуем
-	for mi: MeshInstance3D in g.commit(parent, false):
+	for mi: MeshInstance3D in mis:
 		mi.visibility_range_end = 220.0 * U
 		mi.visibility_range_end_margin = 15.0 * U
