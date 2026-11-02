@@ -23,7 +23,6 @@ inline V operator/(V a, double k) { float f = (float)k; return { a.x / f, a.y / 
 inline double dist(V a, V b) { return (double)std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
 inline V lerp(V a, V b, double t) { float f = (float)t; return { a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f }; }
 inline V from_angle(double a) { float f = (float)a; return { std::cos(f), std::sin(f) }; }
-inline double len(V a) { return (double)std::sqrt(a.x * a.x + a.y * a.y); }
 inline V normalized(V a) {
 	float l = a.x * a.x + a.y * a.y;
 	if (l != 0.0f) {
