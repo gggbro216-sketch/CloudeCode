@@ -89,10 +89,40 @@ static func hills_at(p: Vector2, hills: Array) -> float:
 func generate(map_key: String, zones: Array, obst: Array, craters: Array, roads: Array, ao_points := [], hills := []) -> void:
 	if core:
 		_generate_native(map_key, zones, obst, craters, hills)
-	else:
-		_generate_heights(map_key, zones, obst, craters, hills)
+		_paint_native(map_key, craters, roads, obst, ao_points)
+		return
+	_generate_heights(map_key, zones, obst, craters, hills)
 	_paint_mask(map_key, craters, roads)
 	_paint_ao(obst, ao_points)
+
+
+## Маска земли и карта затенения в C++ (те же кисти, что _paint_mask и _paint_ao).
+func _paint_native(map_key: String, craters: Array, roads: Array, obst: Array, ao_points: Array) -> void:
+	var rf := PackedFloat32Array()
+	for road in roads:
+		var pts: PackedVector2Array = road.pts
+		rf.append(pts.size())
+		rf.append(float(road.w))
+		for p in pts:
+			rf.append(p.x)
+			rf.append(p.y)
+	var cf := PackedFloat32Array()
+	for cr in craters:
+		cf.append_array([cr.x, cr.y, cr.z])
+	var md: PackedByteArray = core.paint_mask(1024, map_key == "prokhorovka" or map_key == "normandy", map_key == "berlin", rf, cf)
+	mask = Image.create_from_data(1024, 1024, false, Image.FORMAT_RGBA8, md)
+	mask.generate_mipmaps()
+	mask_tex = ImageTexture.create_from_image(mask)
+	var of := PackedFloat32Array()
+	for o in obst:
+		var r: Rect2 = o.r
+		of.append_array([r.position.x, r.position.y, r.size.x, r.size.y, 1.0 if o.solid else 0.0])
+	var pf := PackedFloat32Array()
+	for p: Vector3 in ao_points:
+		pf.append_array([p.x, p.y, p.z])
+	var img := Image.create_from_data(512, 512, false, Image.FORMAT_RGBA8, core.paint_ao(512, of, pf))
+	img.generate_mipmaps()
+	ao_tex = ImageTexture.create_from_image(img)
 
 
 ## То же, что _generate_heights, но в C++ (шум свой, поэтому рельеф другой, но того же характера).

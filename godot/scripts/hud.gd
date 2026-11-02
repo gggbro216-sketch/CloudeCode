@@ -481,6 +481,9 @@ func _bake_minimap() -> void:
 	var M: Dictionary = D.MAPS[battle.map_key]
 	var bg := Color(M.mini)
 	var terra = battle.terra
+	if battle.core:
+		_bake_minimap_native(S, M, bg)
+		return
 	# отмывка склонов по узлам сетки рельефа (шаг 20 единиц), потом растянуть до размера карты;
 	# свет с северо-запада: склоны к нему светлее, от него темнее
 	var n0 := int(-terra.ORIGIN / terra.CELL)
@@ -525,6 +528,30 @@ func _bake_minimap() -> void:
 	for pr in battle.props:
 		if pr.kind == "tree" or pr.kind == "spruce" or pr.kind == "apple":
 			_dot.call(pr.pos, 10.0, leaf.darkened(0.15))
+	mini_tex = ImageTexture.create_from_image(img)
+
+
+## То же в C++: отмывка, дороги, постройки, кусты и лес одним вызовом.
+func _bake_minimap_native(S: int, M: Dictionary, bg: Color) -> void:
+	var road := bg.lerp(Color(M.road), 0.6)
+	road.a = 0.88
+	var oc := Color(0.12, 0.12, 0.1, 0.9) if not M.get("winter", false) else Color(0.28, 0.31, 0.35, 0.95)
+	var hedge := Color(0.13, 0.24, 0.1, 0.95)
+	var leaf := Color(0.15, 0.3, 0.12, 0.9)
+	var cols := PackedFloat32Array()
+	for c: Color in [bg, road, oc, hedge, leaf, leaf.darkened(0.15)]:
+		cols.append_array([c.r, c.g, c.b, c.a])
+	var of := PackedFloat32Array()
+	for ob in battle.obst:
+		var r: Rect2 = ob.r
+		of.append_array([r.position.x, r.position.y, r.size.x, r.size.y, 1.0 if ob.kind == "hedgerow" else 0.0])
+	var df := PackedFloat32Array()
+	for b in battle.bushes:
+		df.append_array([b.pos.x, b.pos.y, float(b.r), 0.0])
+	for pr in battle.props:
+		if pr.kind == "tree" or pr.kind == "spruce" or pr.kind == "apple":
+			df.append_array([pr.pos.x, pr.pos.y, 10.0, 1.0])
+	var img := Image.create_from_data(S, S, false, Image.FORMAT_RGBA8, battle.core.minimap(S, cols, of, df))
 	mini_tex = ImageTexture.create_from_image(img)
 
 
