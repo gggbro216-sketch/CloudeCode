@@ -565,7 +565,7 @@ func _build_ui() -> void:
 		elif c.get("state") == "hangar_loading":
 			where = "при загрузке ангара после боя №%d" % n
 		var mem := "Память: Godot %d МБ, процесс %s МБ, видео %d МБ, свободно в системе %d МБ; %d кадров/с, худший кадр %d мс." % [
-			int(c.get("ram_mb", 0)), str(c.get("proc_mb", "?")), int(c.get("video_mb", 0)), int(c.get("free_mb", 0)),
+			int(c.get("ram_mb", 0)), str(int(c.proc_mb)) if int(c.get("proc_mb", -1)) >= 0 else "?", int(c.get("video_mb", 0)), int(c.get("free_mb", 0)),
 			int(c.get("fps", 0)), int(c.get("worst_ms", 0))]
 		var hist: Array = c.get("hist", [])
 		if not hist.is_empty():

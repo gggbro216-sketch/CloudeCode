@@ -990,6 +990,7 @@ var phys_buf := PackedFloat32Array()
 
 const BOT_ACT := {"route": 1, "spot": 2, "fight": 3}
 var core_ai := false  # решения ботов считает C++ (ai_init прошёл)
+var core_shells := false  # снаряды и урон считает C++ (dmg_static прошёл)
 
 
 ## Неизменное для C++-физики: характеристики танков, деревья и заборы, грунт.
@@ -1032,6 +1033,27 @@ func _phys_init() -> void:
 			sq.append(int(squads[team].get(ln, {"n0": 0}).n0))
 	core.ai_squads(sq)
 	core_ai = true
+	# снаряды и урон: броня, коробки попаданий, места модулей и экипажа
+	var df := PackedFloat32Array()
+	for tk: TankScript in tanks:
+		var T := tk.T
+		var A: Array = T.armor
+		var up := tk.up_node.position
+		var gp: Vector3 = tk.gun_pos0 if not tk.casemate else tk.tur_node.position - tk.up_node.position
+		df.append_array([A[0], A[1], A[2], A[3], A[4], A[5], T.tslope, T.slope, T.side_slope, T.L, T.W, 0.35 * D.UPM,
+			tk.hh, tk.th, T.caliber, T.pen, T.mass, tk.up_min.x, tk.up_min.y, tk.up_min.z, tk.up_max.x, tk.up_max.y, tk.up_max.z,
+			up.x, up.y, up.z, gp.x, gp.y, gp.z, 1.0 if tk.casemate else 0.0])
+	core.dmg_static(df, D.UPM)
+	for tk: TankScript in tanks:
+		var lf := PackedFloat32Array()
+		for it: Dictionary in tk.layout:
+			var crew := TankScript.CREW.has(it.name)
+			var c: Vector3 = it.c
+			var hs: Vector3 = it.get("h", Vector3.ZERO)
+			lf.append_array([1.0 if crew else 0.0, TankScript.CREW.find(it.name) if crew else TankScript.MODS.find(it.name),
+				1.0 if it.part == "top" else 0.0, c.x, c.y, c.z, hs.x, hs.y, hs.z, float(it.get("r", 0.0))])
+		core.layout_set(tk.idx, lf)
+	core_shells = true
 
 
 ## Езда (по накопленным командам), расталкивание и подвеска всех танков одним вызовом C++;
@@ -1392,11 +1414,16 @@ func shoot(tk: TankScript) -> void:
 	var g := Vector2(randfn(0.0, 0.45), randfn(0.0, 0.45)).limit_length(1.0) * spread
 	dir = (dir + u * g.x + v * g.y).normalized()
 	var p := tk.muzzle()
-	var sh := {"pos": p, "vel": dir * float(tk.T.shell_v), "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
-		"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "slot": shell_slot, "whiz": false}
+	var vel := dir * float(tk.T.shell_v)
+	if core_shells:
+		core.shell_add(p, vel, float(tk.T.dmg), float(tk.T.pen), float(tk.T.caliber), tk.idx, shell_slot)
+		_slot_visual(shell_slot, p, vel, 1e9)
+	else:
+		var sh := {"pos": p, "vel": vel, "dmg": float(tk.T.dmg), "pen": float(tk.T.pen),
+			"cal": float(tk.T.caliber), "owner": tk, "dist": 0.0, "rico": 0, "dead": false, "slot": shell_slot, "whiz": false}
+		_shell_visual(sh, 1e9)
+		shells.append(sh)
 	shell_slot = (shell_slot + 1) % SHELL_SLOTS
-	_shell_visual(sh, 1e9)
-	shells.append(sh)
 	tk.rl_max = tk.reload_time()
 	tk.rl = tk.rl_max
 	tk.shots_fired += 1
@@ -1423,6 +1450,9 @@ func shoot(tk: TankScript) -> void:
 
 func _update_shells(dt: float) -> void:
 	var cam_pos := cam.global_position if cam else Vector3.ZERO
+	if core_shells:
+		_shell_events(core.shells_step(dt, cam_pos, player.idx), dt)
+		return
 	for s in shells:
 		var p0: Vector3 = s.pos
 		var v: Vector3 = s.vel
@@ -1493,13 +1523,142 @@ func _make_shell_mm() -> void:
 
 ## Полёт снаряда для шейдера: откуда и с какой скоростью вылетел и когда (сейчас).
 func _shell_visual(s: Dictionary, t_end: float) -> void:
-	shell_mm.set_instance_transform(int(s.slot), Transform3D(Basis(s.vel, Vector3(clock, t_end, 0), Vector3.ZERO), s.pos))
+	_slot_visual(int(s.slot), s.pos, s.vel, t_end)
+
+
+func _slot_visual(slot: int, pos: Vector3, vel: Vector3, t_end: float) -> void:
+	shell_mm.set_instance_transform(slot, Transform3D(Basis(vel, Vector3(clock, t_end, 0), Vector3.ZERO), pos))
 
 
 func _shell_end(s: Dictionary, t_end: float) -> void:
-	var xf := shell_mm.get_instance_transform(int(s.slot))
+	_slot_end(int(s.slot), t_end)
+
+
+func _slot_end(slot: int, t_end: float) -> void:
+	var xf := shell_mm.get_instance_transform(slot)
 	xf.basis.y.y = t_end
-	shell_mm.set_instance_transform(int(s.slot), xf)
+	shell_mm.set_instance_transform(slot, xf)
+
+
+const EV_N := 13  # чисел на событие снарядов из C++ (enum ShellEv в native/src/core.cpp)
+
+
+## События снарядов из C++ (полёт, попадания, разбор брони, модули, экипаж): эффекты, звуки,
+## надписи, статистика и состояние танков — по порядку, как их выдал C++.
+func _shell_events(ev: PackedFloat32Array, dt: float) -> void:
+	for q in range(0, ev.size(), EV_N):
+		var kind := int(ev[q])
+		match kind:
+			1:  # свист рядом с камерой
+				sfx.play3d("whiz", Vector3(ev[q + 1], ev[q + 2], ev[q + 3]))
+			2:  # в землю или постройку
+				var hp := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
+				var on_ground := ev[q + 5] != 0.0
+				fx.impact(hp, on_ground)
+				if on_ground:
+					_scorch(hp, randf_range(7.0, 11.0))
+				sfx.play3d("impact_ground" if on_ground else "impact_stone", hp)
+				_slot_end(int(ev[q + 1]), clock + dt)
+			3:  # улетел за дальность
+				stat.miss += 1
+				_slot_end(int(ev[q + 1]), clock + dt)
+			15:  # попадание в танк: C++ разбирает его по текущему состоянию танка
+				var ht: TankScript = tanks[int(ev[q + 2])]
+				_shell_events(core.shell_hit(int(ev[q + 1]), _dmg_state(ht)), dt)
+			4:  # по остову или своему — только искры
+				var hp := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
+				fx.hit_sparks(hp)
+				sfx.play3d("hit_nopen", hp, -4.0)
+				_slot_end(int(ev[q + 1]), clock + dt)
+			9:  # отражённый снаряд — новый полёт из точки рикошета
+				_slot_visual(int(ev[q + 1]), Vector3(ev[q + 2], ev[q + 3], ev[q + 4]), Vector3(ev[q + 5], ev[q + 6], ev[q + 7]), 1e9)
+			5, 7, 8:
+				_shell_tank_event(kind, ev, q, dt)
+			6:  # гусеница сбита
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var by: TankScript = tanks[int(ev[q + 2])]
+				if tk.track_broken <= 0.0:
+					stat.track += 1
+					_popup(tk, "ГУСЕНИЦА СБИТА", Color("ffd37a"), by)
+					sfx.play3d("track_break", Vector3(ev[q + 3], ev[q + 4], ev[q + 5]))
+					if tk.is_player:
+						hud.alert("ГУСЕНИЦА СБИТА", Color(D.AMBER))
+				tk.track_broken = TRACK_REPAIR
+				tk.vel *= 0.3
+			10:  # модуль
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var name: String = TankScript.MODS[int(ev[q + 3])]
+				var st: Array = tk.hit_module(name, ev[q + 4])
+				if int(st[1]) != int(st[0]) and ev[q + 7] == 0.0:
+					_module_changed(tk, tanks[int(ev[q + 2])], name, int(st[1]))
+			11:  # член экипажа
+				_crew_hit(tanks[int(ev[q + 1])], tanks[int(ev[q + 2])], TankScript.CREW[int(ev[q + 3])])
+			12:  # пожар
+				_start_fire(tanks[int(ev[q + 1])], tanks[int(ev[q + 2])])
+			13:  # толчок корпусу
+				(tanks[int(ev[q + 1])] as TankScript).kick(ev[q + 2], ev[q + 3])
+			14:  # урон пробития (взрыв боеукладки — насмерть)
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var by: TankScript = tanks[int(ev[q + 2])]
+				var dmg: float = ev[q + 3]
+				if ev[q + 4] != 0.0:
+					stat.ammo += 1
+					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
+					dmg = tk.hp + 1.0
+				_damage(tk, dmg, by, "")
+				if tk.alive and tk.crew_left() == 0:
+					_popup(tk, "ЭКИПАЖ ВЫБЫЛ", Color("ff6a4a"), by)
+					_damage(tk, tk.hp + 1.0, by, "")
+
+
+## Рикошет (5), непробитие (7), пробитие (8): искры, звук, надписи, след на броне, статистика.
+func _shell_tank_event(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void:
+	var tk: TankScript = tanks[int(ev[q + 2])]
+	var by: TankScript = tanks[int(ev[q + 3])]
+	var hp := Vector3(ev[q + 4], ev[q + 5], ev[q + 6])
+	var dir := Vector3(ev[q + 7], ev[q + 8], ev[q + 9])
+	var cal: float = ev[q + 10]
+	tk.hits_taken += 1
+	fx.hit_sparks(hp)
+	match kind:
+		5:
+			stat.rico += 1
+			if tk.is_player:
+				blocked += ev[q + 11]
+			_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)
+			sfx.play3d("ricochet", hp)
+			_mark_hit(tk, hp, dir, 0, cal)
+		7:
+			stat.nopen += 1
+			if tk.is_player:
+				blocked += ev[q + 11]
+			if ev[q + 12] == 0.0:
+				_popup(tk, "НЕ ПРОБИЛ", Color("cfd3d8"), by)
+			sfx.play3d("hit_nopen", hp)
+			if by.team == 0 and tk.team == 1:
+				tk.lit = maxf(tk.lit, 2.0)
+			tk.hit_t = clock
+			_mark_hit(tk, hp, dir, 1, cal)
+			_slot_end(int(ev[q + 1]), clock + dt)
+		8:
+			stat.pen += 1
+			tk.pens_taken += 1
+			fx.pen_fire(hp)
+			if by.is_player:
+				hits += 1
+			sfx.play3d("hit_pen", hp)
+			_mark_hit(tk, hp, dir, 2, cal)
+			_slot_end(int(ev[q + 1]), clock + dt)
+
+
+## Состояние танка для разбора попадания в C++: жив, горит, модули, экипаж.
+func _dmg_state(tk: TankScript) -> PackedFloat32Array:
+	var st := PackedFloat32Array([1.0 if tk.alive else 0.0, 1.0 if tk.fire > 0.0 else 0.0])
+	for m in TankScript.MODS:
+		st.append(float(tk.mod_hp[m]))
+	for c in TankScript.CREW:
+		st.append(1.0 if tk.crew_ok[c] else 0.0)
+	return st
 
 
 func _shell_hits_tank(s: Dictionary, th: Dictionary, v: Vector3) -> void:
@@ -1683,6 +1842,12 @@ func _module_hit(tk: TankScript, by: TankScript, name: String, amount: float) ->
 		return false
 	if name == "ammo" and now == 0 and randf() < 0.6:
 		return true
+	_module_changed(tk, by, name, now)
+	return false
+
+
+## Модуль сменил состояние: обездвиживание и дым двигателя, сообщения игроку.
+func _module_changed(tk: TankScript, by: TankScript, name: String, now: int) -> void:
 	if name == "engine" and now == 0:
 		tk.vel *= 0.4
 		if tk.engine_fx == null:
@@ -1692,7 +1857,6 @@ func _module_hit(tk: TankScript, by: TankScript, name: String, amount: float) ->
 		hud.alert(MOD_MSG[name][0 if now == 1 else 1], Color(D.AMBER) if now == 1 else Color("ff6a4a"))
 	if by.is_player:
 		_popup(tk, TankScript.NAMES[name], Color("ffb04a"), by)
-	return false
 
 
 func _crew_hit(tk: TankScript, by: TankScript, role_name: String) -> void:
@@ -1764,6 +1928,8 @@ func kill(tk: TankScript, by: TankScript) -> void:
 	tk.vel = Vector2.ZERO
 	tk.fire = 0.0
 	tk.make_wreck(randf() < 0.45)
+	if core_shells and tk.popping:
+		core.turret_gone(tk.idx)
 	var at := tk.center() + Vector3(0, tk.hh * 0.5, 0)
 	fx.explosion(at)
 	tk.wreck_fx = fx.wreck_fire(at)
@@ -1948,15 +2114,21 @@ func _player(p: TankScript, dt: float) -> void:
 	var o := _cam_origin(p)
 	var dir := _cam_dir()
 	var far := o + dir * 1800.0
-	var wh := ray(o, far)
-	var th := ray_tanks(o, far, p)
-	aim_point = far
-	var tw := 2.0
-	if not wh.is_empty():
-		aim_point = wh.position
-		tw = o.distance_to(wh.position) / 1800.0
-	if not th.is_empty() and th.t < tw:
-		aim_point = th.pos
+	var aim_r := PackedFloat32Array()
+	if core_shells:
+		# луч камеры и баллистика из дула — одним вызовом C++ (по позам после прошлого шага, как нарисовано)
+		aim_r = core.aim_info(o, far, p.muzzle(), p.gun_dir() * float(p.T.shell_v), p.idx)
+		aim_point = Vector3(aim_r[0], aim_r[1], aim_r[2])
+	else:
+		var wh := ray(o, far)
+		var th := ray_tanks(o, far, p)
+		aim_point = far
+		var tw := 2.0
+		if not wh.is_empty():
+			aim_point = wh.position
+			tw = o.distance_to(wh.position) / 1800.0
+		if not th.is_empty() and th.t < tw:
+			aim_point = th.pos
 	if hud.auto_aim and not hud.dragging:
 		var f := nearest_foe(p, 900.0, 0.3, cam_yaw)
 		if f and clear_line(p.top(), f.center()):
@@ -1973,6 +2145,11 @@ func _player(p: TankScript, dt: float) -> void:
 		gun_limited = gun_limited or absf(off2) > float(p.T.trav) + 0.01
 	_update_disp(p, dt)
 	# куда на самом деле упадёт снаряд (по баллистике) и пробьёт ли
+	if core_shells:
+		gun_point = Vector3(aim_r[3], aim_r[4], aim_r[5])
+		pen_hint = int(aim_r[6])
+		_fire_input(p)
+		return
 	var tr := trace(p.muzzle(), p.gun_dir() * float(p.T.shell_v), p)
 	gun_point = tr.pos
 	pen_hint = -1
@@ -1993,10 +2170,14 @@ func _player(p: TankScript, dt: float) -> void:
 				pen_hint = 1
 			else:
 				pen_hint = 0
+	_fire_input(p)
+
+
+## Выстрел по кнопке и звук досылания снаряда перед готовностью.
+func _fire_input(p: TankScript) -> void:
 	if (hud.fire_req or hud.fire_held()) and p.rl <= 0 and p.can_fire():
 		shoot(p)
 	hud.fire_req = false
-	# звук досылания снаряда перед готовностью
 	if reload_cue and p.rl < 0.9 and p.rl > 0.0:
 		reload_cue = false
 		sfx.play2d("reload", -8.0)

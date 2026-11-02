@@ -1329,31 +1329,26 @@ static inline float turn_toward(float cur, float target, float step) {
 	return std::fabs(d) <= step ? target : cur + signf(d) * step;
 }
 
-// Поворот вокруг оси Y, Z, X (как Basis(Vector3.UP / BACK / RIGHT, угол)); M[строка][столбец]
-struct M3 {
-	float m[3][3];
-	static M3 rot(int axis, float a) {
-		float c = std::cos(a), s = std::sin(a);
-		M3 r = { { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } } };
-		if (axis == 1) {  // Y
-			r.m[0][0] = c; r.m[0][2] = s; r.m[2][0] = -s; r.m[2][2] = c;
-		} else if (axis == 2) {  // Z
-			r.m[0][0] = c; r.m[0][1] = -s; r.m[1][0] = s; r.m[1][1] = c;
-		} else {  // X
-			r.m[1][1] = c; r.m[1][2] = -s; r.m[2][1] = s; r.m[2][2] = c;
-		}
-		return r;
+M3 M3::rot(int axis, float a) {
+	float c = std::cos(a), s = std::sin(a);
+	M3 r = ident();
+	if (axis == 1) {  // Y
+		r.m[0][0] = c; r.m[0][2] = s; r.m[2][0] = -s; r.m[2][2] = c;
+	} else if (axis == 2) {  // Z
+		r.m[0][0] = c; r.m[0][1] = -s; r.m[1][0] = s; r.m[1][1] = c;
+	} else {  // X
+		r.m[1][1] = c; r.m[1][2] = -s; r.m[2][1] = s; r.m[2][2] = c;
 	}
-	M3 operator*(const M3 &o) const {
-		M3 r;
-		for (int i = 0; i < 3; i++)
-			for (int j = 0; j < 3; j++)
-				r.m[i][j] = m[i][0] * o.m[0][j] + m[i][1] * o.m[1][j] + m[i][2] * o.m[2][j];
-		return r;
-	}
-	V3 mul(V3 v) const { return { m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z, m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z, m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z }; }
-	V3 tmul(V3 v) const { return { m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z, m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z, m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z }; }
-};
+	return r;
+}
+
+M3 M3::operator*(const M3 &o) const {
+	M3 r;
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			r.m[i][j] = m[i][0] * o.m[0][j] + m[i][1] * o.m[1][j] + m[i][2] * o.m[2][j];
+	return r;
+}
 
 // Наведение башни и орудия на точку с поправкой на падение снаряда (как Battle._aim_at):
 // поза башни — по положению танка на прошлом шаге (то, что нарисовано).
@@ -2600,6 +2595,736 @@ METHOD(squads_step) {
 
 // ---------- Регистрация ----------
 
+// ---------- Снаряды и урон (этап 6: Battle._update_shells, _shell_hits_tank, armor_at, trace) ----------
+// Полёт и попадания считаются по позам танков после шага физики (snap — то, что нарисовано), рельефу
+// и коробкам построек. Разбор попадания (броня, рикошет, гусеница, модули, экипаж) — тоже здесь;
+// GDScript по событиям показывает эффекты, звуки и надписи и меняет состояние танков.
+
+static inline V3 v3add(V3 a, V3 b) { return { a.x + b.x, a.y + b.y, a.z + b.z }; }
+static inline V3 v3sub(V3 a, V3 b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
+static inline V3 v3mul(V3 a, float k) { return { a.x * k, a.y * k, a.z * k }; }
+static inline float v3dot(V3 a, V3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static inline float v3len(V3 a) { return std::sqrt(v3dot(a, a)); }
+static inline V3 v3norm(V3 a) {
+	float l = v3len(a);
+	return l > 1e-12f ? v3mul(a, 1.0f / l) : V3{ 0.0f, 0.0f, 0.0f };
+}
+// ближайшая к c точка отрезка [a, a + d] (как Geometry3D.get_closest_point_to_segment)
+static inline V3 closest_on(V3 c, V3 a, V3 d) {
+	float l2 = v3dot(d, d);
+	float u = l2 > 1e-12f ? clampf(v3dot(v3sub(c, a), d) / l2, 0.0f, 1.0f) : 0.0f;
+	return v3add(a, v3mul(d, u));
+}
+
+// Отрезок [o, o + d] и параллелепипед в локальных осях (как Battle.slab): доля пути до входа и
+// нормаль грани; начало внутри — попадание в 0 с нулевой нормалью.
+static bool slab(V3 o, V3 d, V3 mn, V3 mx, float &t_out, V3 &n_out) {
+	float o3[3] = { o.x, o.y, o.z }, d3[3] = { d.x, d.y, d.z }, lo[3] = { mn.x, mn.y, mn.z }, hi[3] = { mx.x, mx.y, mx.z };
+	float tmin = 0.0f, tmax = 1.0f;
+	float n[3] = { 0.0f, 0.0f, 0.0f };
+	for (int k = 0; k < 3; k++) {
+		if (std::fabs(d3[k]) < 1e-6f) {
+			if (o3[k] < lo[k] || o3[k] > hi[k]) {
+				return false;
+			}
+			continue;
+		}
+		float t1 = (lo[k] - o3[k]) / d3[k], t2 = (hi[k] - o3[k]) / d3[k];
+		float sg = -1.0f;
+		if (t1 > t2) {
+			std::swap(t1, t2);
+			sg = 1.0f;
+		}
+		if (t1 > tmin) {
+			tmin = t1;
+			n[0] = n[1] = n[2] = 0.0f;
+			n[k] = sg;
+		}
+		tmax = std::min(tmax, t2);
+		if (tmin > tmax) {
+			return false;
+		}
+	}
+	t_out = tmin;
+	n_out = { n[0], n[1], n[2] };
+	return true;
+}
+
+// Коробка постройки: доля пути до входа (начало внутри физика попаданием не считает).
+static bool box_t(const Box &b, V3 a, V3 d, float &t) {
+	float ox = a.x - b.cx, oz = a.z - b.cz;
+	float lo[3] = { b.c * ox - b.s * oz, a.y - b.cy, b.s * ox + b.c * oz };
+	float ld[3] = { b.c * d.x - b.s * d.z, d.y, b.s * d.x + b.c * d.z };
+	float hs[3] = { b.hx, b.hy, b.hz };
+	float tmin = -FLT_MAX, tmax = FLT_MAX;
+	for (int k = 0; k < 3; k++) {
+		if (std::fabs(ld[k]) < 1e-9f) {
+			if (lo[k] < -hs[k] || lo[k] > hs[k]) {
+				return false;
+			}
+			continue;
+		}
+		float t1 = (-hs[k] - lo[k]) / ld[k], t2 = (hs[k] - lo[k]) / ld[k];
+		if (t1 > t2) {
+			std::swap(t1, t2);
+		}
+		tmin = std::max(tmin, t1);
+		tmax = std::min(tmax, t2);
+		if (tmin > tmax) {
+			return false;
+		}
+	}
+	t = tmin;
+	return tmin >= 0.0f && tmin <= 1.0f;
+}
+
+// Ближайшая постройка на отрезке [a, a + d]: доля пути (2 — мимо всех).
+float Core::boxes_t(V3 a, V3 d) const {
+	float best = 2.0f;
+	if (boxes.empty()) {
+		return best;
+	}
+	V3 b = v3add(a, d);
+	int ia = bhash.key(std::min(a.x, b.x), false), ib = bhash.key(std::max(a.x, b.x), false);
+	int ja = bhash.key(std::min(a.z, b.z), true), jb = bhash.key(std::max(a.z, b.z), true);
+	int tested[96];
+	int nt = 0;
+	for (int i = ia; i <= ib; i++) {
+		for (int j = ja; j <= jb; j++) {
+			const std::vector<int> *c = bhash.at(i, j);
+			if (!c || c->empty()) {
+				continue;
+			}
+			for (int k : *c) {
+				bool seen = false;
+				for (int q = 0; q < nt; q++) {
+					if (tested[q] == k) {
+						seen = true;
+						break;
+					}
+				}
+				if (seen) {
+					continue;
+				}
+				if (nt < 96) {
+					tested[nt++] = k;
+				}
+				float t;
+				if (box_t(boxes[k], a, d, t) && t < best) {
+					best = t;
+				}
+			}
+		}
+	}
+	return best;
+}
+
+// Отрезок против мира (рельеф и постройки — то, что луч физики видит на слоях 1–2): доля пути до
+// первого попадания; ground — попали в землю.
+bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground) const {
+	t_hit = 2.0f;
+	ground = false;
+	if (!finite3(a) || !finite3(b)) {
+		return false;
+	}
+	V3 d = v3sub(b, a);
+	float len = v3len(d);
+	if (!(len < 1e5f)) {
+		return false;
+	}
+	if (!h.empty() && len > 1e-6f) {
+		// точки через 4 единицы (пятая часть клетки рельефа), найденное место уточняется делением пополам
+		int steps = std::min(4096, std::max(2, (int)std::ceil(len / (cell * 0.2f))));
+		float tp = 0.0f;
+		for (int k = 1; k <= steps; k++) {
+			float tt = (float)k / steps;
+			V3 p = v3add(a, v3mul(d, tt));
+			if (p.y < height(p.x, p.z)) {
+				float lo = tp, hi = tt;
+				for (int it = 0; it < 12; it++) {
+					float m = 0.5f * (lo + hi);
+					V3 q = v3add(a, v3mul(d, m));
+					if (q.y < height(q.x, q.z)) {
+						hi = m;
+					} else {
+						lo = m;
+					}
+				}
+				t_hit = hi;
+				ground = true;
+				break;
+			}
+			tp = tt;
+		}
+	}
+	float tb = boxes_t(a, d);
+	if (tb < t_hit) {
+		t_hit = tb;
+		ground = false;
+	}
+	return t_hit <= 1.0f;
+}
+
+// Мировая поза части танка по снимку: 0 — корпус, 1 — башня (у САУ — неподвижная рубка на корпусе).
+void Core::part_xf(int i, int part, M3 &basis, V3 &origin) const {
+	const float *t = &snap[(size_t)i * PHYS];
+	M3 bh = M3::rot(1, -t[P_HULL]) * M3::rot(2, t[P_PITCH] + t[P_BODY_P]) * M3::rot(0, t[P_ROLL] + t[P_BODY_R]);
+	V3 o = { t[P_X], t[P_GROUND], t[P_Y] };
+	if (part == 0) {
+		basis = bh;
+		origin = o;
+		return;
+	}
+	const DmgStatic &d = ds[i];
+	origin = v3add(o, bh.mul(d.up_pos));
+	basis = d.casemate ? bh : bh * M3::rot(1, -(t[P_TUR] - t[P_HULL]));
+}
+
+static inline V3 hull_min(const Core::DmgStatic &d) { return { -d.L * 0.5f, d.hull_y0, -d.W * 0.5f }; }
+static inline V3 hull_max(const Core::DmgStatic &d) { return { d.L * 0.5f, d.hh, d.W * 0.5f }; }
+
+// Отрезок по танкам (корпус и башня — коробки, как Battle.ray_tanks): ближайшее попадание.
+bool Core::tanks_hit(V3 a, V3 b, int exclude, TankHit &out) const {
+	out = TankHit();
+	int n = (int)std::min(ds.size(), snap.size() / PHYS);
+	if (!finite3(a) || !finite3(b)) {
+		return false;
+	}
+	V3 seg = v3sub(b, a);
+	for (int i = 0; i < n; i++) {
+		if (i == exclude) {
+			continue;
+		}
+		const float *t = &snap[(size_t)i * PHYS];
+		const DmgStatic &d = ds[i];
+		V3 c = { t[P_X], t[P_GROUND] + d.hh * 0.6f, t[P_Y] };
+		if (v3len(v3sub(closest_on(c, a, seg), c)) > d.L * 0.8f) {
+			continue;
+		}
+		for (int part = 0; part < 2; part++) {
+			if (part == 1 && (size_t)i < top_gone.size() && top_gone[i]) {
+				continue;
+			}
+			M3 B;
+			V3 O;
+			part_xf(i, part, B, O);
+			V3 lo = B.tmul(v3sub(a, O)), ld = B.tmul(seg);
+			float th;
+			V3 nl;
+			if (!slab(lo, ld, part == 0 ? hull_min(d) : d.up_min, part == 0 ? hull_max(d) : d.up_max, th, nl) || th >= out.t) {
+				continue;
+			}
+			if (nl.x == 0.0f && nl.y == 0.0f && nl.z == 0.0f) {
+				nl = v3mul(v3norm(ld), -1.0f);
+			}
+			out.t = th;
+			out.tank = i;
+			out.part = part;
+			out.n_local = nl;
+		}
+	}
+	return out.tank >= 0;
+}
+
+enum ArmorZone { Z_FRONT, Z_REAR, Z_ROOF, Z_FLOOR, Z_SIDE };
+
+// Броня в точке попадания (как Battle.armor_at): толщина, нормаль в мире с наклоном листа, зона.
+static float armor_of(const Core::DmgStatic &d, int part, V3 n, const M3 &B, V3 &nw, int &zone) {
+	bool tur = part == 1;
+	float thick;
+	V3 nl = n;
+	if (n.x > 0.5f) {
+		thick = tur ? d.armor[3] : d.armor[0];
+		float sl = tur ? d.tslope : d.slope;
+		nl = { std::cos(sl), std::sin(sl), 0.0f };
+		zone = Z_FRONT;
+	} else if (n.x < -0.5f) {
+		thick = tur ? d.armor[5] : d.armor[2];
+		zone = Z_REAR;
+	} else if (n.y > 0.5f) {
+		thick = (tur ? d.armor[4] : d.armor[1]) * 0.45f;
+		zone = Z_ROOF;
+	} else if (n.y < -0.5f) {
+		thick = d.armor[1] * 0.4f;
+		zone = Z_FLOOR;
+	} else {
+		thick = tur ? d.armor[4] : d.armor[1];
+		zone = Z_SIDE;
+		if (!tur) {
+			nl = { 0.0f, std::sin(d.side_slope), std::cos(d.side_slope) * signf(n.z) };
+		}
+	}
+	nw = v3norm(B.mul(nl));
+	return thick;
+}
+
+// События для GDScript: по EV_N чисел, первое — вид.
+enum ShellEv {
+	EV_WHIZ = 1,  // x, y, z
+	EV_WORLD,  // снаряд, x, y, z, в землю
+	EV_MISS,  // снаряд
+	EV_SPARK,  // снаряд, x, y, z (остов или свой)
+	EV_RICO,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон
+	EV_TRACK,  // танк, стрелок, x, y, z
+	EV_NOPEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон, по ходовой
+	EV_PEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр
+	EV_REVIS,  // снаряд, x, y, z, скорость xyz (полёт после рикошета)
+	EV_MODULE,  // танк, стрелок, модуль, урон, было, стало, взрыв боеукладки
+	EV_CREW,  // танк, стрелок, член экипажа
+	EV_FIRE,  // танк, стрелок
+	EV_KICK,  // танк, толчок по тангажу, по крену
+	EV_PEN_DMG,  // танк, стрелок, урон, взрыв боеукладки
+	EV_HIT,  // номер снаряда, танк — разобрать через shell_hit
+};
+static const int EV_N = 13;
+struct EvOut {
+	std::vector<float> v;
+	void add(std::initializer_list<float> f) {
+		size_t k = v.size();
+		v.resize(k + EV_N, 0.0f);
+		int j = 0;
+		for (float x : f) {
+			if (j < EV_N) {
+				v[k + j++] = x;
+			}
+		}
+	}
+};
+
+// Состояние танка, которое присылает GDScript к каждому попаданию.
+enum { ST_ALIVE, ST_BURNING, ST_MOD, ST_CREW = ST_MOD + 6, ST_N = ST_CREW + 4 };
+enum { MOD_ENGINE, MOD_GUN, MOD_TURRET, MOD_OPTICS, MOD_AMMO, MOD_FUEL };
+static inline int mod_state(float v) { return v > 50.0f ? 2 : (v > 0.0f ? 1 : 0); }
+
+struct HitCtx {
+	Core *c;
+	int i, by;
+	float *st;
+	EvOut *ev;
+	float rnd(float lo, float hi) { return lo + (hi - lo) * c->randf(); }
+	void fire() {
+		if (st[ST_BURNING] != 0.0f) {
+			return;
+		}
+		st[ST_BURNING] = 1.0f;
+		ev->add({ (float)EV_FIRE, (float)i, (float)by });
+	}
+	// урон модулю (как Battle._module_hit); true — взорвалась боеукладка
+	bool module(int m, float amount) {
+		float &hp = st[ST_MOD + m];
+		int was = mod_state(hp);
+		hp = std::max(0.0f, hp - amount);
+		int now = mod_state(hp);
+		bool boom = false;
+		float roll = c->randf();
+		bool burn = (m == MOD_ENGINE && roll < (now > 0 ? 0.15f : 0.3f)) || (m == MOD_FUEL && roll < 0.35f);
+		if (now != was && m == MOD_AMMO && now == 0 && c->randf() < 0.6f) {
+			boom = true;
+		}
+		ev->add({ (float)EV_MODULE, (float)i, (float)by, (float)m, amount, (float)was, (float)now, boom ? 1.0f : 0.0f });
+		if (burn) {
+			fire();
+		}
+		return boom;
+	}
+	void crew(int k) {
+		if (st[ST_CREW + k] == 0.0f) {
+			return;
+		}
+		st[ST_CREW + k] = 0.0f;
+		ev->add({ (float)EV_CREW, (float)i, (float)by, (float)k });
+	}
+	// толчок корпусу (как Battle._hit_kick)
+	void kick(V3 dir, float cal, float k) {
+		M3 B;
+		V3 O;
+		c->part_xf(i, 0, B, O);
+		V3 l = B.tmul(dir);
+		float m = cal / 85.0f * k * 30.0f / std::max(c->ds[i].mass, 1.0f);
+		ev->add({ (float)EV_KICK, (float)i, -l.x * m, l.z * m });
+	}
+};
+
+// За бронёй снаряд летит ещё ~3 м и задевает модули и экипаж (как Battle._internal_damage).
+static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float dmg, int part) {
+	Core *c = h.c;
+	V3 seg = v3mul(dir, 3.0f * c->upm);
+	M3 Bh, Bt;
+	V3 Oh, Ot;
+	c->part_xf(h.i, 0, Bh, Oh);
+	c->part_xf(h.i, 1, Bt, Ot);
+	const std::vector<Core::LayoutItem> &L = c->layout[h.i];
+	std::vector<std::pair<float, int>> path;
+	for (size_t k = 0; k < L.size(); k++) {
+		const Core::LayoutItem &it = L[k];
+		const M3 &B = it.top ? Bt : Bh;
+		V3 o = B.tmul(v3sub(hp, it.top ? Ot : Oh)), d = B.tmul(seg);
+		float t = -1.0f;
+		if (it.r > 0.0f) {
+			V3 cl = closest_on(it.c, o, d);
+			if (v3len(v3sub(cl, it.c)) < it.r) {
+				t = v3len(v3sub(cl, o)) / std::max(v3len(d), 1e-6f);
+			}
+		} else {
+			float tt;
+			V3 nn;
+			if (slab(o, d, v3sub(it.c, it.h), v3add(it.c, it.h), tt, nn)) {
+				t = tt;
+			}
+		}
+		if (t >= 0.0f) {
+			path.push_back({ t, (int)k });
+		}
+	}
+	std::stable_sort(path.begin(), path.end(), [](const std::pair<float, int> &x, const std::pair<float, int> &y) { return x.first < y.first; });
+	bool boom = false;
+	float energy = 1.0f;
+	std::vector<int> hurt;
+	auto hurt_has = [&](int k) { return std::find(hurt.begin(), hurt.end(), k) != hurt.end(); };
+	for (auto &e : path) {
+		const Core::LayoutItem &it = L[e.second];
+		if (it.crew) {
+			if (c->randf() < 0.75f && !hurt_has(it.idx)) {
+				hurt.push_back(it.idx);
+			}
+		} else {
+			if (h.module(it.idx, dmg * 0.42f * energy * h.rnd(0.8f, 1.2f))) {
+				boom = true;
+			}
+			energy *= 0.75f;
+		}
+	}
+	// осколки брони ранят соседей по отделению
+	bool top = part == 1;
+	for (const Core::LayoutItem &it : L) {
+		if (it.crew && it.top == top && !hurt_has(it.idx) && c->randf() < 0.06f) {
+			hurt.push_back(it.idx);
+		}
+	}
+	for (int k : hurt) {
+		h.crew(k);
+	}
+	return boom;
+}
+
+// Непробитие калечит то, что снаружи: орудие у маски, погон, приборы на крыше (как Battle._outer_damage).
+static void outer_damage(HitCtx &h, int part, V3 local, int zone, float dmg) {
+	if (part != 1) {
+		return;
+	}
+	const Core::DmgStatic &d = h.c->ds[h.i];
+	float hgt = d.up_max.y, U = h.c->upm;
+	if (zone == Z_FRONT && std::fabs(local.z - d.gp.z) < 0.5f * U && std::fabs(local.y - d.gp.y) < 0.45f * U) {
+		if (h.c->randf() < 0.4f) {
+			h.module(MOD_GUN, dmg * 0.25f * h.rnd(0.8f, 1.2f));
+		}
+	} else if (!d.casemate && local.y < 0.18f * hgt) {
+		if (h.c->randf() < 0.3f) {
+			h.module(MOD_TURRET, dmg * 0.22f * h.rnd(0.8f, 1.2f));
+		}
+	} else if (local.y > 0.8f * hgt && h.c->randf() < 0.2f) {
+		h.module(MOD_OPTICS, dmg * 0.3f * h.rnd(0.8f, 1.2f));
+	}
+}
+
+static const float DEG = PI_F / 180.0f;
+
+// Попадание снаряда в танк (как Battle._shell_hits_tank).
+static void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
+	int i = s.hit_tank, by = s.owner;
+	V3 hp = s.hit_pos, v = s.hit_v, dir = v3norm(v);
+	s.dead = true;
+	int team = (int)c->snap[(size_t)i * PHYS + P_TEAM];
+	int by_team = by >= 0 && (size_t)(by + 1) * PHYS <= c->snap.size() ? (int)c->snap[(size_t)by * PHYS + P_TEAM] : -1;
+	if (st[ST_ALIVE] == 0.0f || team == by_team) {
+		ev.add({ (float)EV_SPARK, (float)s.slot, hp.x, hp.y, hp.z });
+		return;
+	}
+	HitCtx h{ c, i, by, st, &ev };
+	const Core::DmgStatic &d = c->ds[i];
+	M3 B;
+	V3 O;
+	c->part_xf(i, s.hit_part, B, O);
+	V3 n;
+	int zone;
+	float thick = armor_of(d, s.hit_part, s.hit_n, B, n, zone);
+	float cal = s.cal;
+	float cos_a = clampf(-v3dot(dir, n), 0.0f, 1.0f);
+	float ang = std::max(0.0f, std::acos(cos_a) - 5.0f * DEG);
+	// бронепробиваемость падает с дистанцией
+	float pen = s.pen * (1.0f - 0.18f * clampf(s.dist / RANGE, 0.0f, 1.0f)) * h.rnd(0.8f, 1.2f);
+	bool overmatch = cal > thick * 3.0f;
+	h.kick(dir, cal, 0.12f);
+	if (ang > 70.0f * DEG && !overmatch && s.rico == 0) {
+		// рикошет: снаряд отражается и летит дальше
+		s.dead = false;
+		s.rico = 1;
+		s.pos = v3add(hp, v3mul(n, 0.5f));
+		s.vel = v3mul(v3sub(v, v3mul(n, 2.0f * v3dot(v, n))), 0.7f);
+		s.dist = RANGE - 250.0f;
+		ev.add({ (float)EV_RICO, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal, s.dmg });
+		ev.add({ (float)EV_REVIS, (float)s.slot, s.pos.x, s.pos.y, s.pos.z, s.vel.x, s.vel.y, s.vel.z });
+		return;
+	}
+	float eff = thick / std::max(std::cos(ang), 0.12f);
+	// попадание в ходовую: гусеница принимает удар на себя и может слететь
+	V3 local = B.tmul(v3sub(hp, O));
+	bool track_zone = s.hit_part == 0 && local.y < d.th * 1.05f && (zone == Z_SIDE || zone == Z_FRONT || zone == Z_REAR);
+	if (track_zone && c->randf() < 0.7f) {
+		ev.add({ (float)EV_TRACK, (float)i, (float)by, hp.x, hp.y, hp.z });
+	}
+	if (pen < eff) {
+		ev.add({ (float)EV_NOPEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal, s.dmg, track_zone ? 1.0f : 0.0f });
+		outer_damage(h, s.hit_part, local, zone, s.dmg);
+		return;
+	}
+	float dmg = std::round(s.dmg * h.rnd(0.75f, 1.25f) * (track_zone ? 0.5f : 1.0f));
+	ev.add({ (float)EV_PEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal });
+	h.kick(dir, cal, 0.2f);
+	// за бронёй: модули и экипаж на пути снаряда, осколки
+	bool boom = internal_damage(h, hp, dir, s.dmg * (track_zone ? 0.5f : 1.0f), s.hit_part);
+	ev.add({ (float)EV_PEN_DMG, (float)i, (float)by, dmg, boom ? 1.0f : 0.0f });
+}
+
+// Броня, толщины и коробки танков боя. На танк DMG_STATIC чисел: броня ×6, наклон лба башни,
+// корпуса, борта, длина, ширина, низ и верх коробки корпуса, высота ходовой, калибр, пробитие, масса,
+// коробка башни (мин xyz, макс xyz), её место на корпусе xyz, орудие в её осях xyz, САУ.
+static const int DMG_STATIC = 30;
+METHOD(dmg_static) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	std::vector<float> f = f32(a, 0);
+	self->upm = (float)a.num(1);
+	self->ds.clear();
+	for (size_t k = 0; k + DMG_STATIC <= f.size(); k += DMG_STATIC) {
+		const float *q = &f[k];
+		Core::DmgStatic d;
+		for (int j = 0; j < 6; j++) {
+			d.armor[j] = q[j];
+		}
+		d.tslope = q[6]; d.slope = q[7]; d.side_slope = q[8]; d.L = q[9]; d.W = q[10]; d.hull_y0 = q[11]; d.hh = q[12];
+		d.th = q[13]; d.cal = q[14]; d.pen = q[15]; d.mass = q[16];
+		d.up_min = { q[17], q[18], q[19] };
+		d.up_max = { q[20], q[21], q[22] };
+		d.up_pos = { q[23], q[24], q[25] };
+		d.gp = { q[26], q[27], q[28] };
+		d.casemate = q[29] != 0.0f;
+		self->ds.push_back(d);
+	}
+	self->layout.assign(self->ds.size(), {});
+	self->top_gone.assign(self->ds.size(), 0);
+	self->shells.clear();
+}
+
+// Места модулей и экипажа танка: по 10 чисел — экипаж, номер, в башне, центр xyz, полуразмеры xyz, радиус.
+METHOD(layout_set) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int i = (int)a.integer(0);
+	if (i < 0 || (size_t)i >= self->layout.size()) return;
+	std::vector<float> f = f32(a, 1);
+	std::vector<Core::LayoutItem> &L = self->layout[i];
+	L.clear();
+	for (size_t k = 0; k + 10 <= f.size(); k += 10) {
+		Core::LayoutItem it;
+		it.crew = f[k] != 0.0f;
+		it.idx = (int)f[k + 1];
+		it.top = f[k + 2] != 0.0f;
+		it.c = { f[k + 3], f[k + 4], f[k + 5] };
+		it.h = { f[k + 6], f[k + 7], f[k + 8] };
+		it.r = f[k + 9];
+		if ((it.crew && (it.idx < 0 || it.idx > 3)) || (!it.crew && (it.idx < 0 || it.idx > 5))) continue;
+		L.push_back(it);
+	}
+}
+
+METHOD(turret_gone) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int i = (int)a.integer(0);
+	if (i >= 0 && (size_t)i < self->top_gone.size()) self->top_gone[i] = 1;
+}
+
+// Выстрел: откуда, скорость, урон, пробитие, калибр, стрелок, место трассера.
+METHOD(shell_add) {
+	SELF;
+	if (!need(a, 7, e)) return;
+	Core::Shell s;
+	s.pos = a.v3(0);
+	s.vel = a.v3(1);
+	s.dmg = (float)a.num(2);
+	s.pen = (float)a.num(3);
+	s.cal = (float)a.num(4);
+	s.owner = (int)a.integer(5);
+	s.slot = (int)a.integer(6);
+	s.dist = 0.0f;
+	s.rico = 0;
+	if (!finite3(s.pos) || !finite3(s.vel) || self->shells.size() > 512) return;
+	self->shells.push_back(s);
+}
+
+// Шаг полёта всех снарядов (как Battle._update_shells): dt, камера, игрок. Попадания в танки
+// приходят событием EV_HIT — их разбирает shell_hit с состоянием танка от GDScript.
+METHOD(shells_step) {
+	SELF;
+	if (!need(a, 3, e)) return;
+	float dt = (float)a.num(0);
+	V3 cam = a.v3(1);
+	int player = (int)a.integer(2);
+	std::vector<Core::Shell> &S = self->shells;
+	S.erase(std::remove_if(S.begin(), S.end(), [](const Core::Shell &x) { return x.dead; }), S.end());
+	EvOut ev;
+	if (!(dt > 0.0f && dt < 1.0f) || self->ds.empty() || self->snap.size() < self->ds.size() * PHYS) {
+		ret_f32(r, nullptr, 0);
+		return;
+	}
+	for (size_t k = 0; k < S.size(); k++) {
+		Core::Shell &s = S[k];
+		s.hit_tank = -1;
+		V3 p0 = s.pos, v = s.vel;
+		V3 nv = { v.x, v.y - GRAVITY * dt, v.z };
+		V3 p1 = v3add(p0, v3mul(v3add(v, nv), 0.5f * dt));
+		v = nv;
+		V3 seg = v3sub(p1, p0);
+		// свист снаряда, пролетающего рядом с камерой
+		if (!s.whiz && s.owner != player) {
+			V3 cl = closest_on(cam, p0, seg);
+			if (v3len(v3sub(cl, cam)) < 45.0f) {
+				s.whiz = true;
+				ev.add({ (float)EV_WHIZ, cl.x, cl.y, cl.z });
+			}
+		}
+		float tw;
+		bool ground;
+		bool wh = self->segment_hit(p0, p1, tw, ground);
+		Core::TankHit th;
+		bool tk = self->tanks_hit(p0, p1, s.rico == 0 ? s.owner : -1, th);
+		if (tk && th.t <= (wh ? tw : 2.0f)) {
+			s.dead = true;
+			s.hit_tank = th.tank;
+			s.hit_part = th.part;
+			s.hit_n = th.n_local;
+			s.hit_pos = v3add(p0, v3mul(seg, th.t));
+			s.hit_v = v;
+			ev.add({ (float)EV_HIT, (float)k, (float)th.tank });
+		} else if (wh) {
+			s.dead = true;
+			V3 hp = v3add(p0, v3mul(seg, tw));
+			ev.add({ (float)EV_WORLD, (float)s.slot, hp.x, hp.y, hp.z, ground ? 1.0f : 0.0f });
+		} else {
+			s.pos = p1;
+			s.vel = v;
+			s.dist += v3len(seg);
+			if (s.dist > RANGE || !finite3(s.pos)) {
+				s.dead = true;
+				ev.add({ (float)EV_MISS, (float)s.slot });
+			}
+		}
+	}
+	ret_f32(r, ev.v.data(), (int64_t)ev.v.size());
+}
+
+// Разбор попадания из shells_step: номер снаряда и состояние танка (жив, горит, модули ×6, экипаж ×4).
+METHOD(shell_hit) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int k = (int)a.integer(0);
+	std::vector<float> st = f32(a, 1);
+	EvOut ev;
+	if (k >= 0 && (size_t)k < self->shells.size() && st.size() >= (size_t)ST_N) {
+		Core::Shell &s = self->shells[k];
+		if (s.hit_tank >= 0 && (size_t)s.hit_tank < self->ds.size() && (size_t)(s.hit_tank + 1) * PHYS <= self->snap.size()) {
+			resolve_hit(self, s, st.data(), ev);
+			s.hit_tank = -1;
+		}
+	}
+	ret_f32(r, ev.v.data(), (int64_t)ev.v.size());
+}
+
+// Прицел игрока (как в Battle._player): луч камеры от o до far — точка прицеливания; баллистика
+// из дула со скоростью v — куда упадёт снаряд и пробьёт ли. Ответ: точка прицеливания xyz,
+// точка падения xyz, подсказка (-1 нет цели, 0 не пробьёт, 1 возможно, 2 пробьёт).
+METHOD(aim_info) {
+	SELF;
+	if (!need(a, 5, e)) return;
+	V3 o = a.v3(0), far = a.v3(1), mz = a.v3(2), vel = a.v3(3);
+	int p = (int)a.integer(4);
+	float out[7] = { far.x, far.y, far.z, mz.x, mz.y, mz.z, -1.0f };
+	int n = (int)std::min(self->ds.size(), self->snap.size() / PHYS);
+	if (p < 0 || p >= n) {
+		ret_f32(r, out, 7);
+		return;
+	}
+	float tw;
+	bool g;
+	V3 seg = v3sub(far, o);
+	float twr = 2.0f;
+	if (self->segment_hit(o, far, tw, g)) {
+		V3 q = v3add(o, v3mul(seg, tw));
+		out[0] = q.x; out[1] = q.y; out[2] = q.z;
+		twr = tw;
+	}
+	Core::TankHit th;
+	if (self->tanks_hit(o, far, p, th) && th.t < twr) {
+		V3 q = v3add(o, v3mul(seg, th.t));
+		out[0] = q.x; out[1] = q.y; out[2] = q.z;
+	}
+	// баллистика: 16 отрезков за 1,2 с
+	V3 pos = mz, v = vel;
+	const int steps = 16;
+	float dt = 1.2f / steps;
+	int tg = -1, tg_part = 0;
+	V3 tg_n = { 0, 0, 0 }, tg_v = v;
+	for (int k = 0; k < steps; k++) {
+		V3 nv = { v.x, v.y - GRAVITY * dt, v.z };
+		V3 np = v3add(pos, v3mul(v3add(v, nv), 0.5f * dt));
+		V3 sg = v3sub(np, pos);
+		bool wh = self->segment_hit(pos, np, tw, g);
+		Core::TankHit h2;
+		if (self->tanks_hit(pos, np, p, h2) && h2.t <= (wh ? tw : 2.0f)) {
+			pos = v3add(pos, v3mul(sg, h2.t));
+			tg = h2.tank;
+			tg_part = h2.part;
+			tg_n = h2.n_local;
+			tg_v = nv;
+			break;
+		}
+		if (wh) {
+			pos = v3add(pos, v3mul(sg, tw));
+			break;
+		}
+		pos = np;
+		v = nv;
+	}
+	out[3] = pos.x; out[4] = pos.y; out[5] = pos.z;
+	const float *T = &self->snap[0];
+	if (tg >= 0 && T[(size_t)tg * PHYS + P_ALIVE] != 0.0f && T[(size_t)tg * PHYS + P_TEAM] != T[(size_t)p * PHYS + P_TEAM]) {
+		const Core::DmgStatic &dp = self->ds[p];
+		M3 B;
+		V3 O;
+		self->part_xf(tg, tg_part, B, O);
+		V3 nw;
+		int zone;
+		float thick = armor_of(self->ds[tg], tg_part, tg_n, B, nw, zone);
+		V3 vd = v3norm(tg_v);
+		float cos_a = clampf(-v3dot(vd, nw), 0.0f, 1.0f);
+		float ang = std::max(0.0f, std::acos(cos_a) - 5.0f * DEG);
+		float eff = thick / std::max(std::cos(ang), 0.12f);
+		V2 pp = { T[(size_t)p * PHYS + P_X], T[(size_t)p * PHYS + P_Y] }, tp = { T[(size_t)tg * PHYS + P_X], T[(size_t)tg * PHYS + P_Y] };
+		float pen = dp.pen * (1.0f - 0.18f * clampf(dist2(pp, tp) / RANGE, 0.0f, 1.0f));
+		if (ang > 70.0f * DEG && dp.cal < thick * 3.0f) {
+			out[6] = 0.0f;
+		} else if (pen > eff * 1.2f) {
+			out[6] = 2.0f;
+		} else if (pen > eff * 0.8f) {
+			out[6] = 1.0f;
+		} else {
+			out[6] = 0.0f;
+		}
+	}
+	ret_f32(r, out, 7);
+}
+
 static void *create_core() { return new Core(); }
 static void destroy_core(void *p) { delete (Core *)p; }
 
@@ -2619,6 +3344,8 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },
 		{ "cover_near", cover_near }, { "bush_near", bush_near }, { "bot_path", bot_path },
 		{ "ai_init", ai_init }, { "ai_squads", ai_squads }, { "zones_set", zones_set }, { "think", think }, { "squads_step", squads_step }, { "ai_state", ai_state },
+		{ "dmg_static", dmg_static }, { "layout_set", layout_set }, { "turret_gone", turret_gone }, { "shell_add", shell_add },
+		{ "shells_step", shells_step }, { "shell_hit", shell_hit }, { "aim_info", aim_info },
 	};
 	for (auto &m : methods) {
 		register_method(lib, C, m.name, m.m);

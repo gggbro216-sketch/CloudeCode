@@ -11,6 +11,16 @@
 using gd::V2;
 using gd::V3;
 
+// Матрица 3×3 (строки): повороты вокруг Y, Z, X — как Basis(Vector3.UP / BACK / RIGHT, угол)
+struct M3 {
+	float m[3][3];
+	static M3 ident() { return { { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } } }; }
+	static M3 rot(int axis, float a);
+	M3 operator*(const M3 &o) const;
+	V3 mul(V3 v) const { return { m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z, m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z, m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z }; }
+	V3 tmul(V3 v) const { return { m[0][0] * v.x + m[1][0] * v.y + m[2][0] * v.z, m[0][1] * v.x + m[1][1] * v.y + m[2][1] * v.z, m[0][2] * v.x + m[1][2] * v.y + m[2][2] * v.z }; }
+};
+
 struct Rect {
 	float x, y, w, h;
 	bool solid;
@@ -131,6 +141,43 @@ struct Core {
 		bool has = false;
 	};
 	std::vector<Intel> intel[2];  // команда → по танку: где и когда видели
+
+	// ---- снаряды и урон (этап 6): полёт, попадания в рельеф, постройки и танки, броня, модули, экипаж ----
+	struct DmgStatic {
+		float armor[6];  // корпус: лоб, борт, корма; башня (рубка): лоб, борт, корма
+		float tslope, slope, side_slope, L, W, hull_y0, hh, th, cal, pen, mass;
+		V3 up_min, up_max, up_pos, gp;  // коробка башни; где она на корпусе; орудие в её осях
+		bool casemate;
+	};
+	std::vector<DmgStatic> ds;
+	float upm = 7.5f;
+	struct LayoutItem {
+		bool crew, top;  // член экипажа (иначе модуль); в башне (рубке)
+		int idx;  // номер в Tank.CREW или Tank.MODS
+		V3 c, h;
+		float r;  // > 0 — шар (экипаж)
+	};
+	std::vector<std::vector<LayoutItem>> layout;
+	std::vector<uint8_t> top_gone;  // башню сорвало взрывом: её коробки больше нет
+	struct Shell {
+		V3 pos, vel;
+		float dmg, pen, cal, dist;
+		int owner, rico, slot;
+		bool whiz = false, dead = false;
+		// попадание в танк на этом шаге (разбирает shell_hit)
+		int hit_tank = -1, hit_part = 0;
+		V3 hit_pos, hit_n, hit_v;
+	};
+	std::vector<Shell> shells;
+	struct TankHit {
+		int tank = -1, part = 0;  // part: 0 корпус, 1 башня (рубка)
+		float t = 2.0f;
+		V3 n_local = { 0, 0, 0 };
+	};
+	void part_xf(int i, int part, M3 &basis, V3 &origin) const;
+	bool segment_hit(V3 a, V3 b, float &t, bool &ground) const;
+	float boxes_t(V3 a, V3 d) const;
+	bool tanks_hit(V3 a, V3 b, int exclude, TankHit &out) const;
 	uint32_t rng = 0x9e3779b9u;
 	float randf() {
 		rng ^= rng << 13;
