@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ru">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<title>$GODOT_PROJECT_NAME</title>
+		<style>
+html, body, #canvas {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+body {
+	color: white;
+	background-color: black;
+	overflow: hidden;
+	touch-action: none;
+	/* Яндекс Игры: без выделения текста, прокрутки и «резинки» страницы */
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+	overscroll-behavior: none;
+	position: fixed;
+	width: 100%;
+	height: 100%;
+}
+
+#canvas {
+	display: block;
+}
+
+#canvas:focus {
+	outline: none;
+}
+
+#status, #status-splash, #status-progress {
+	position: absolute;
+	left: 0;
+	right: 0;
+}
+
+#status, #status-splash {
+	top: 0;
+	bottom: 0;
+}
+
+#status {
+	background-color: $GODOT_SPLASH_COLOR;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	visibility: hidden;
+}
+
+#status-splash {
+	max-height: 100%;
+	max-width: 100%;
+	margin: auto;
+}
+
+#status-splash.show-image--false {
+	display: none;
+}
+
+#status-splash.fullsize--true {
+	height: 100%;
+	width: 100%;
+	object-fit: contain;
+}
+
+#status-splash.use-filter--false {
+	image-rendering: pixelated;
+}
+
+#status-progress, #status-notice {
+	display: none;
+}
+
+#status-progress {
+	bottom: 10%;
+	width: 50%;
+	margin: 0 auto;
+}
+
+#status-notice {
+	background-color: #5b3943;
+	border-radius: 0.5rem;
+	border: 1px solid #9b3943;
+	color: #e0e0e0;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	line-height: 1.3;
+	margin: 0 2rem;
+	overflow: hidden;
+	padding: 1rem;
+	text-align: center;
+	z-index: 1;
+}
+		</style>
+		$GODOT_HEAD_INCLUDE
+		<!-- SDK Яндекс Игр: на площадке отдаётся с корня сайта игры. Локально его нет — игра работает без рекламы. -->
+		<script src="/sdk.js"></script>
+		<script>
+// Мост между игрой (GDScript, узел Yandex) и SDK Яндекс Игр. Игра задаёт YG.onEvent и зовёт методы;
+// SDK отвечает событиями: init, pause, resume, ad_open, ad_close, ad_error, rw_open, rw_reward, rw_close,
+// rw_error, data.
+window.YG = {
+	sdk: null,
+	player: null,
+	onEvent: null,
+	_queue: [],
+	_inited: null,
+	emit: function (name, data) {
+		if (YG.onEvent) {
+			try { YG.onEvent(name, data === undefined ? '' : data); } catch (e) { console.error(e); }
+		} else {
+			YG._queue.push([name, data]);
+		}
+	},
+	// игра подключилась: отдать накопленные события
+	attach: function () {
+		const q = YG._queue;
+		YG._queue = [];
+		q.forEach(function (e) { YG.emit(e[0], e[1]); });
+	},
+	init: function () {
+		if (YG._inited) return YG._inited;
+		if (typeof YaGames === 'undefined') {
+			YG._inited = Promise.resolve(false);
+			YG.emit('init', JSON.stringify({ ok: false, lang: 'ru' }));
+			return YG._inited;
+		}
+		YG._inited = YaGames.init().then(function (ysdk) {
+			YG.sdk = ysdk;
+			ysdk.on('game_api_pause', function () { YG.emit('pause'); });
+			ysdk.on('game_api_resume', function () { YG.emit('resume'); });
+			return ysdk.getPlayer({ scopes: false }).then(function (p) { YG.player = p; }, function () {});
+		}).then(function () {
+			let lang = 'ru';
+			try { lang = YG.sdk.environment.i18n.lang; } catch (e) {}
+			YG.emit('init', JSON.stringify({ ok: true, lang: lang }));
+			return true;
+		}, function (err) {
+			console.error('Yandex SDK:', err);
+			YG.emit('init', JSON.stringify({ ok: false, lang: 'ru' }));
+			return false;
+		});
+		return YG._inited;
+	},
+	// игра загрузилась и готова к игре (метрика Game Ready)
+	loadingReady: function () {
+		try { YG.sdk && YG.sdk.features.LoadingAPI && YG.sdk.features.LoadingAPI.ready(); } catch (e) { console.error(e); }
+	},
+	gameplayStart: function () {
+		try { YG.sdk && YG.sdk.features.GameplayAPI && YG.sdk.features.GameplayAPI.start(); } catch (e) { console.error(e); }
+	},
+	gameplayStop: function () {
+		try { YG.sdk && YG.sdk.features.GameplayAPI && YG.sdk.features.GameplayAPI.stop(); } catch (e) { console.error(e); }
+	},
+	showFullscreen: function () {
+		if (!YG.sdk) { YG.emit('ad_close', 'false'); return; }
+		YG.sdk.adv.showFullscreenAdv({ callbacks: {
+			onOpen: function () { YG.emit('ad_open'); },
+			onClose: function (wasShown) { YG.emit('ad_close', wasShown ? 'true' : 'false'); },
+			onError: function (e) { console.error(e); YG.emit('ad_error'); },
+			onOffline: function () { YG.emit('ad_close', 'false'); },
+		} });
+	},
+	showRewarded: function () {
+		if (!YG.sdk) { YG.emit('rw_error'); return; }
+		YG.sdk.adv.showRewardedVideo({ callbacks: {
+			onOpen: function () { YG.emit('rw_open'); },
+			onRewarded: function () { YG.emit('rw_reward'); },
+			onClose: function () { YG.emit('rw_close'); },
+			onError: function (e) { console.error(e); YG.emit('rw_error'); },
+		} });
+	},
+	// облачное сохранение: строка JSON прогресса
+	saveData: function (json) {
+		if (!YG.player) return;
+		YG.player.setData({ save: json }).catch(function (e) { console.error(e); });
+	},
+	loadData: function () {
+		if (!YG.player) { YG.emit('data', ''); return; }
+		YG.player.getData(['save']).then(function (d) {
+			YG.emit('data', d && d.save ? d.save : '');
+		}, function () { YG.emit('data', ''); });
+	},
+};
+// без контекстного меню и перетаскивания страницы; уход со вкладки — пауза и тишина
+document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+document.addEventListener('dragstart', function (e) { e.preventDefault(); });
+document.addEventListener('visibilitychange', function () { YG.emit(document.hidden ? 'pause' : 'resume'); });
+YG.init();
+		</script>
+	</head>
+	<body>
+		<canvas id="canvas">
+			Ваш браузер не поддерживает canvas.
+		</canvas>
+
+		<noscript>
+			В браузере выключен JavaScript.
+		</noscript>
+
+		<div id="status">
+			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
+			<progress id="status-progress"></progress>
+			<div id="status-notice"></div>
+		</div>
+
+		<script src="$GODOT_URL"></script>
+		<script>
+const GODOT_CONFIG = $GODOT_CONFIG;
+const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+const engine = new Engine(GODOT_CONFIG);
+
+(function () {
+	const statusOverlay = document.getElementById('status');
+	const statusProgress = document.getElementById('status-progress');
+	const statusNotice = document.getElementById('status-notice');
+
+	let initializing = true;
+	let statusMode = '';
+
+	function setStatusMode(mode) {
+		if (statusMode === mode || !initializing) {
+			return;
+		}
+		if (mode === 'hidden') {
+			statusOverlay.remove();
+			initializing = false;
+			return;
+		}
+		statusOverlay.style.visibility = 'visible';
+		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+		statusMode = mode;
+	}
+
+	function setStatusNotice(text) {
+		while (statusNotice.lastChild) {
+			statusNotice.removeChild(statusNotice.lastChild);
+		}
+		const lines = text.split('\n');
+		lines.forEach((line) => {
+			statusNotice.appendChild(document.createTextNode(line));
+			statusNotice.appendChild(document.createElement('br'));
+		});
+	}
+
+	function displayFailureNotice(err) {
+		console.error(err);
+		if (err instanceof Error) {
+			setStatusNotice(err.message);
+		} else if (typeof err === 'string') {
+			setStatusNotice(err);
+		} else {
+			setStatusNotice('Не удалось запустить игру.');
+		}
+		setStatusMode('notice');
+		initializing = false;
+	}
+
+	const missing = Engine.getMissingFeatures({
+		threads: GODOT_THREADS_ENABLED,
+	});
+
+	if (missing.length !== 0) {
+		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
+			let serviceWorkerRegistrationPromise;
+			try {
+				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
+			} catch (err) {
+				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
+			}
+			// There's a chance that installing the service worker would fix the issue
+			Promise.race([
+				serviceWorkerRegistrationPromise.then((registration) => {
+					if (registration != null) {
+						return Promise.reject(new Error('Service worker already exists.'));
+					}
+					return registration;
+				}).then(() => engine.installServiceWorker()),
+				// For some reason, `getRegistration()` can stall
+				new Promise((resolve) => {
+					setTimeout(() => resolve(), 2000);
+				}),
+			]).then(() => {
+				// Reload if there was no error.
+				window.location.reload();
+			}).catch((err) => {
+				console.error('Error while registering service worker:', err);
+			});
+		} else {
+			// Display the message as usual
+			const missingMsg = 'Браузер не поддерживает нужные функции:\n';
+			displayFailureNotice(missingMsg + missing.join('\n'));
+		}
+	} else {
+		setStatusMode('progress');
+		engine.startGame({
+			'onProgress': function (current, total) {
+				if (current > 0 && total > 0) {
+					statusProgress.value = current;
+					statusProgress.max = total;
+				} else {
+					statusProgress.removeAttribute('value');
+					statusProgress.removeAttribute('max');
+				}
+			},
+		}).then(() => {
+			setStatusMode('hidden');
+		}, displayFailureNotice);
+	}
+}());
+		</script>
+	</body>
+</html>

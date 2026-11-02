@@ -3215,6 +3215,7 @@ func _radio_events() -> void:
 
 func finish(res: String, why: String) -> void:
 	over = true
+	_gameplay(false)
 	result = res
 	reason = why
 	over_t = 0.0
@@ -3811,6 +3812,14 @@ func _cam_input(dt: float) -> void:
 func begin() -> void:
 	briefing = false
 	radio_start = clock + 1.0
+	_gameplay(true)
+
+
+## Яндекс Игры: идёт ли сейчас игровой процесс (GameplayAPI).
+func _gameplay(on: bool) -> void:
+	var yg := get_node_or_null("/root/Yandex")
+	if yg:
+		yg.gameplay(on)
 
 
 ## Текст брифинга: сражение, стороны, составы команд и задача режима.
@@ -3892,6 +3901,8 @@ func set_paused(v: bool) -> void:
 	paused = v
 	hud.show_pause(v)
 	get_tree().paused = false
+	if not briefing:
+		_gameplay(not v)
 	for k in loops:
 		for p in loops[k]:
 			if p:

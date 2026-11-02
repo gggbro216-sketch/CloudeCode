@@ -1275,9 +1275,22 @@ static func model_info(key: String) -> Dictionary:
 			for mi in inst.find_children("*", "MeshInstance3D", true, false):
 				info["mesh_" + String(mi.name)] = (mi as MeshInstance3D).mesh
 			inst.free()
-			info["atlas"] = load(MODEL_DIR + key + ".png")
+			info["atlas"] = _atlas(key)
 	_cache[ck] = info
 	return info
+
+
+## Атлас цвета модели. В браузере — WebP (assets/models/web, в 6 раз меньше; браузеры на ПК и телефонах
+## понимают разные форматы сжатия для видеокарты, и два набора не уложились бы в 100 МБ Яндекс Игр).
+static func _atlas(key: String) -> Texture2D:
+	if OS.has_feature("web") or OS.get_environment("STEEL_WEBP") == "1":
+		var path := MODEL_DIR + "web/" + key + ".webp"
+		if FileAccess.file_exists(path):
+			var img := Image.new()
+			if img.load_webp_from_buffer(FileAccess.get_file_as_bytes(path)) == OK:
+				img.generate_mipmaps()
+				return ImageTexture.create_from_image(img)
+	return load(MODEL_DIR + key + ".png")
 
 
 static func model_material(info: Dictionary, camo: String) -> ShaderMaterial:

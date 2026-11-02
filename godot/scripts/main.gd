@@ -12,7 +12,7 @@ var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": D.START_SILVER, "free_xp": 0,
 	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75, "eco": false,
 	"owned": [], "researched": [], "txp": {}, "mods": {}, "mods_res": {}, "cons": ["repair", "medkit", "ext"],
-	"tstats": {}, "last": {},
+	"tstats": {}, "last": {}, "ts": 0.0,
 }
 var hangar: Node
 var battle: Node
@@ -22,11 +22,23 @@ const RES_STEPS := [0.6, 0.75, 0.9, 1.0]  # доля разрешения экр
 
 
 func _ready() -> void:
+	_symbol_font()
 	_load()
 	_session_start()
 	apply_res()
 	apply_eco()
 	show_hangar()
+
+
+## Стрелки и треугольники (→ ▶ ▸ ◀) — из своего маленького шрифта: в браузере нет системных шрифтов,
+## а во встроенном шрифте Godot этих знаков нет.
+func _symbol_font() -> void:
+	var fb: Font = ThemeDB.fallback_font
+	var sym = load("res://assets/fonts/symbols.ttf")
+	if fb and sym and not fb.fallbacks.has(sym):
+		var arr: Array[Font] = fb.fallbacks.duplicate()
+		arr.append(sym)
+		fb.fallbacks = arr
 
 
 # ---------- Журнал сеанса: если игра оборвётся, при следующем запуске ангар скажет, где и сколько было памяти ----------
@@ -174,9 +186,38 @@ func _load() -> void:
 
 
 func persist() -> void:
+	save["ts"] = Time.get_unix_time_from_system()
+	var json := JSON.stringify(save)
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify(save))
+		f.store_string(json)
+	var yg := get_node_or_null("/root/Yandex")
+	if yg:
+		yg.save_cloud(json)
+
+
+## Яндекс Игры: прогресс из облака игрока. Новее местного — берём его (игра на другом устройстве).
+func cloud_loaded(json: String) -> void:
+	if json == "":
+		return
+	var d = JSON.parse_string(json)
+	if not (d is Dictionary) or not d.has("owned"):
+		return
+	if float(d.get("ts", 0.0)) <= float(save.get("ts", 0.0)):
+		return
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(json)
+		f.close()
+	_load()
+	if hangar and not battle and not _switching:
+		show_hangar()
+
+
+## Награда за просмотр рекламы: серебро на счёт.
+func reward_silver(amount: int) -> void:
+	save.silver = int(save.silver) + amount
+	persist()
 
 
 # ---------- Прогресс ----------
@@ -357,6 +398,9 @@ func show_hangar() -> void:
 	session_mark("hangar")
 	_hide_loading()
 	_switching = false
+	var yg := get_node_or_null("/root/Yandex")
+	if yg:
+		yg.hangar_shown()
 
 
 func start_battle() -> void:
@@ -410,11 +454,26 @@ func _on_ended(st: Dictionary) -> void:
 	persist()
 
 
+var _leaving := false  # уход из боя уже начат (ждём рекламу)
+
+
 func _on_leave(again: bool) -> void:
-	if again:
-		start_battle.call_deferred()
+	if _leaving:
+		return
+	_leaving = true
+	var go := func() -> void:
+		_leaving = false
+		if again:
+			start_battle.call_deferred()
+		else:
+			show_hangar.call_deferred()
+	# Яндекс Игры: полноэкранная реклама в паузе между боями (частоту ограничивает площадка)
+	var yg := get_node_or_null("/root/Yandex")
+	if yg and battle:
+		battle.set_process(false)
+		yg.show_fullscreen(go)
 	else:
-		show_hangar.call_deferred()
+		go.call()
 
 
 func _notification(what: int) -> void:

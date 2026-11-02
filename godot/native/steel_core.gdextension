@@ -8,3 +8,4 @@ reloadable = false
 
 linux.x86_64 = "res://native/bin/libsteelcore.linux.x86_64.so"
 android.arm64 = "res://native/bin/libsteelcore.android.arm64.so"
+web.wasm32 = "res://native/bin/libsteelcore.web.wasm32.wasm"

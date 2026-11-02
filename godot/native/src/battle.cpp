@@ -415,6 +415,14 @@ struct Step {
 	}
 
 	void take_routes() {
+#ifdef STEEL_NO_THREADS
+		// веб без потоков: заявки считаются тут же, по несколько за шаг (A* ~0,2–0,5 мс)
+		for (int k = 0; k < 3 && !c->nav_jobs.empty(); k++) {
+			Core::RouteJob job = c->nav_jobs.front();
+			c->nav_jobs.pop_front();
+			c->nav_done.push_back({ job.bot, job.to, job.safe, c->nav_path(job.from, job.to, job.safe, job.r) });
+		}
+#endif
 		std::vector<Core::RouteDone> done;
 		{
 			std::lock_guard<std::mutex> lk(c->nav_mx);
@@ -745,6 +753,9 @@ struct Step {
 // ---------- поток маршрутов ----------
 
 void Core::nav_start() {
+#ifdef STEEL_NO_THREADS
+	return;  // заявки разбирает take_routes
+#endif
 	if (nav_thread.joinable()) return;
 	nav_quit = false;
 	nav_thread = std::thread([this]() {

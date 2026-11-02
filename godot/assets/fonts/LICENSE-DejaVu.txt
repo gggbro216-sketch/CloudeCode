@@ -1,0 +1,2 @@
+symbols.ttf — подмножество DejaVu Sans Bold (стрелки → ▶ ▸ ◀): запасной шрифт для браузера, где нет системных шрифтов.
+DejaVu fonts: Bitstream Vera license / public domain changes. https://dejavu-fonts.github.io/License.html

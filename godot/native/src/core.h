@@ -9,6 +9,11 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+
+// Веб без потоков (Яндекс Игры: страница без SharedArrayBuffer): маршруты считаются в шаге боя
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#define STEEL_NO_THREADS
+#endif
 #include <thread>
 #include <vector>
 

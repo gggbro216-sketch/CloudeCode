@@ -187,6 +187,16 @@ func _input(event: InputEvent) -> void:
 		var keys := {KEY_1: "repair", KEY_2: "medkit", KEY_3: "ext"}
 		if k.pressed and not k.echo and keys.has(k.keycode):
 			battle.use_cons(keys[k.keycode])
+		elif k.pressed and not k.echo and (k.keycode == KEY_ESCAPE or k.keycode == KEY_P):
+			# пауза с клавиатуры (на ПК — в том числе в браузере)
+			if battle.loaded and not battle.over and not battle.briefing:
+				battle.set_paused(not battle.paused)
+		elif k.pressed and not k.echo and k.keycode == KEY_SHIFT and not battle.paused and not battle.over:
+			battle.toggle_sniper()
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT:
+		# правая кнопка мыши — снайперский прицел
+		if (event as InputEventMouseButton).pressed and not battle.paused and not battle.over and not battle.briefing:
+			battle.toggle_sniper()
 	elif event is InputEventScreenDrag:
 		var e := event as InputEventScreenDrag
 		if e.index == move_idx:
@@ -919,6 +929,12 @@ func _build_result() -> void:
 	res_table.add_theme_constant_override("h_separation", 26)
 	res_table.add_theme_constant_override("v_separation", 2)
 	vb.add_child(res_table)
+	# Яндекс Игры: реклама за награду — серебро за бой ещё раз
+	res_reward = _button("", false, _on_reward)
+	res_reward.custom_minimum_size = Vector2(612, 52)
+	res_reward.add_theme_color_override("font_color", D.AMBER)
+	res_reward.visible = false
+	vb.add_child(res_reward)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.add_child(_button("ЕЩЁ БОЙ", true, func(): battle.leave.emit(true)))
@@ -926,9 +942,34 @@ func _build_result() -> void:
 	vb.add_child(row)
 
 
+var res_reward: Button
+var _reward_amount := 0
+
+
+func _on_reward() -> void:
+	var yg := get_node_or_null("/root/Yandex")
+	if yg == null or _reward_amount <= 0:
+		return
+	res_reward.disabled = true
+	yg.show_rewarded(func(got: bool) -> void:
+		if not is_instance_valid(res_reward):
+			return
+		if got:
+			battle.get_parent().reward_silver(_reward_amount)
+			res_reward.text = "ПОЛУЧЕНО +%s СЕРЕБРА" % _num(_reward_amount)
+			_reward_amount = 0
+		else:
+			res_reward.disabled = false)
+
+
 func show_result(st: Dictionary) -> void:
 	dead_box.visible = false
 	reset_input()
+	var yg := get_node_or_null("/root/Yandex")
+	_reward_amount = int(st.get("silver_gross", 0))
+	res_reward.visible = yg != null and yg.rewarded_available() and _reward_amount > 0
+	res_reward.disabled = false
+	res_reward.text = "▶ РЕКЛАМА: ЕЩЁ +%s СЕРЕБРА" % _num(_reward_amount)
 	match st.result:
 		"win":
 			res_title.text = "ПОБЕДА"
