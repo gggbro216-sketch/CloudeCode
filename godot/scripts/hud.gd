@@ -203,7 +203,25 @@ func _input(event: InputEvent) -> void:
 				dragging = true
 
 
+# Кружок прицела: точку падения снаряда логика считает 30 раз в секунду, а рисуется она каждый
+# кадр — плавно догоняет новую точку, иначе при повороте пальцем кружок скачет ступеньками.
+var gun_s := Vector3.ZERO
+var gun_has := false
+var disp_s := 0.0
+
+
 func _process(delta: float) -> void:
+	if battle and battle.gun_point != null:
+		var k := 1.0 - exp(-delta * 22.0)
+		var gp: Vector3 = battle.gun_point
+		if not gun_has or gun_s.distance_to(gp) > 600.0:
+			gun_s = gp
+			disp_s = float(battle.watch.disp)
+		gun_s = gun_s.lerp(gp, k)
+		disp_s = lerpf(disp_s, float(battle.watch.disp), k)
+		gun_has = true
+	else:
+		gun_has = false
 	margins = UI.safe(self)
 	var s := size
 	var r := 18.0 + margins.z
@@ -341,13 +359,13 @@ func _draw_crosshair() -> void:
 			cv.draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
 	else:
 		cv.draw_circle(c, 2.0, Color(1, 1, 1, 0.8))
-	if not w.alive or battle.gun_point == null:
+	if not w.alive or battle.gun_point == null or not gun_has:
 		return
-	var s = _proj(battle.gun_point)
+	var s = _proj(gun_s)
 	if s == null:
 		return
 	var half_h := size.y / 2.0 / tan(deg_to_rad(cam.fov) / 2.0)
-	var r := clampf(tan(float(w.disp)) * half_h, 7.0, size.y * 0.4)
+	var r := clampf(tan(disp_s) * half_h, 7.0, size.y * 0.4)
 	var col := Color.WHITE
 	if battle.gun_limited:
 		col = Color(0.7, 0.7, 0.7)

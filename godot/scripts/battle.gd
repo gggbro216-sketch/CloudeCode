@@ -108,6 +108,12 @@ var watch: TankScript
 var cam: Camera3D
 var cam_yaw := -PI / 2
 var cam_pitch := 0.07
+# Куда камера должна смотреть: палец, клавиши и автоприцел двигают цель, а сама камера каждый
+# кадр плавно догоняет её (CAM_FOLLOW — доля пути в секунду по экспоненте): поворот без рывков.
+var cam_yaw_t := -PI / 2
+var cam_pitch_t := 0.07
+const CAM_FOLLOW := 20.0
+const CAM_FOLLOW_SNIPER := 13.0  # в прицеле — мягче: там дрожь видна сильнее
 var sniper := false
 var aim_point := Vector3.ZERO
 var gun_point = null  # Vector3 или null — куда реально упадёт снаряд
@@ -2133,10 +2139,12 @@ func _player(p: TankScript, dt: float) -> void:
 		var f := nearest_foe(p, 900.0, 0.3, cam_yaw)
 		if f and clear_line(p.top(), f.center()):
 			var lp := lead_point(p, f)
+			# автоприцел доводит взгляд с замедлением у цели: быстро издалека, мягко в конце
 			var want_yaw := (Vector2(lp.x, lp.z) - Vector2(o.x, o.z)).angle()
-			cam_yaw = turn_toward(cam_yaw, want_yaw, 1.4 * dt)
-			var want_pitch := -atan2(lp.y - o.y, Vector2(lp.x, lp.z).distance_to(Vector2(o.x, o.z)))
-			cam_pitch = move_toward(cam_pitch, clampf(want_pitch, -0.3, 0.45), 0.6 * dt)
+			var dy := ang_diff(want_yaw, cam_yaw_t)
+			cam_yaw_t = turn_toward(cam_yaw_t, want_yaw, clampf(absf(dy) * 5.0, 0.12, 1.4) * dt)
+			var want_pitch := clampf(-atan2(lp.y - o.y, Vector2(lp.x, lp.z).distance_to(Vector2(o.x, o.z))), -0.3, 0.45)
+			cam_pitch_t = move_toward(cam_pitch_t, want_pitch, clampf(absf(want_pitch - cam_pitch_t) * 5.0, 0.05, 0.6) * dt)
 	_aim_at(p, aim_point, dt)
 	var lim2: Array = p.T.elev
 	gun_limited = absf(p.gun_target - float(lim2[0])) < 0.0005 or absf(p.gun_target - float(lim2[1])) < 0.0005
@@ -3277,28 +3285,31 @@ func _cam_input(dt: float) -> void:
 		return
 	if player.alive and not autopilot:
 		if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_LEFT):
-			cam_yaw -= 1.6 * dt
+			cam_yaw_t -= 1.6 * dt
 		if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_RIGHT):
-			cam_yaw += 1.6 * dt
+			cam_yaw_t += 1.6 * dt
 		if Input.is_key_pressed(KEY_UP):
-			cam_pitch -= 0.6 * dt
+			cam_pitch_t -= 0.6 * dt
 		if Input.is_key_pressed(KEY_DOWN):
-			cam_pitch += 0.6 * dt
+			cam_pitch_t += 0.6 * dt
 		var zoom := 0.3 if sniper else 1.0
 		var dv: Vector2 = hud.take_cam_delta()
-		cam_yaw = wrapf(cam_yaw + dv.x * SENS_X * zoom, -PI, PI)
-		cam_pitch = clampf(cam_pitch + dv.y * SENS_Y * zoom, -0.3, 0.45)
+		cam_yaw_t = wrapf(cam_yaw_t + dv.x * SENS_X * zoom, -PI, PI)
+		cam_pitch_t = clampf(cam_pitch_t + dv.y * SENS_Y * zoom, -0.3, 0.45)
 		if sniper:
 			# в прицеле нельзя опустить взгляд ниже, чем опускается пушка (с учётом наклона корпуса)
 			var p := player
 			var rel := ang_diff(p.tur, p.hull)
 			var tilt := p.pitch * cos(rel) - p.roll * sin(rel)
 			var lim: Array = p.T.elev
-			cam_pitch = clampf(cam_pitch, -float(lim[1]) - tilt, -float(lim[0]) - tilt - 0.005)
+			cam_pitch_t = clampf(cam_pitch_t, -float(lim[1]) - tilt, -float(lim[0]) - tilt - 0.005)
 	elif not player.alive and watch != player:
 		# камера плавно следует за союзником, за которым наблюдаем
-		cam_yaw = turn_toward(cam_yaw, watch.tur, 2.0 * dt)
-		cam_pitch = move_toward(cam_pitch, 0.07, dt)
+		cam_yaw_t = turn_toward(cam_yaw_t, watch.tur, 2.0 * dt)
+		cam_pitch_t = move_toward(cam_pitch_t, 0.07, dt)
+	var k := 1.0 - exp(-dt * (CAM_FOLLOW_SNIPER if sniper else CAM_FOLLOW))
+	cam_yaw = wrapf(cam_yaw + ang_diff(cam_yaw_t, cam_yaw) * k, -PI, PI)
+	cam_pitch += (cam_pitch_t - cam_pitch) * k
 
 
 ## Брифинг закрыт — бой начинается, через секунду командир даёт команду по рации.
