@@ -5,7 +5,11 @@
 #include "glue.h"
 
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 using gd::V2;
@@ -178,6 +182,71 @@ struct Core {
 	bool segment_hit(V3 a, V3 b, float &t, bool &ground) const;
 	float boxes_t(V3 a, V3 d) const;
 	bool tanks_hit(V3 a, V3 b, int exclude, TankHit &out) const;
+	// ---- бой целиком (этап 7): всё состояние танков и боя живёт здесь, GDScript только показывает ----
+	struct TankDyn {
+		float hp = 1, max_hp = 1, rl = 0, rl_max = 1, lit = 0, recoil = 0, fire = 0, track_broken = 0, dmg_dealt = 0;
+		int fire_by = -1, shots = 0, hits_taken = 0, pens_taken = 0;
+		float mod[6] = { 100, 100, 100, 100, 100, 100 };
+		float fix[6] = { -1, -1, -1, -1, -1, -1 };  // до полевого ремонта уничтоженного модуля; < 0 — не чинится
+		bool crew[4] = { true, true, true, true };
+		bool alive = true, player = false, immobile = false, popping = false;
+		float speed_k = 1, accel_k = 1, turn_k = 1, tspd_k = 1, reload_k = 1, aim_k = 1, disp_k = 1, spot_k = 1;
+		bool cons_has[3] = { false, false, false }, cons_used[3] = { false, false, false };
+		float cons_cd[3] = { 0, 0, 0 }, cons_t[3] = { -1, -1, -1 };  // перезарядка; бот: через сколько применит
+		float cons_acc = 0, think_t = 0;
+		// маршрут
+		bool path_wait = false, path_safe = false;
+		V2 path_to = { -1e6f, -1e6f };
+		float path_t = 0;
+		// постоянное
+		float spot = 500, reload = 3, dmg = 100, speed = 50, tspd = 1, W = 20;
+		// узлы сцены и что им уже отдано
+		gd::Obj root = nullptr, hull_n = nullptr, tur_n = nullptr, gun_n = nullptr, paint[3] = { nullptr, nullptr, nullptr };
+		gd::Obj track_mat = nullptr, dust = nullptr, mud = nullptr, smoke = nullptr, snd[3] = { nullptr, nullptr, nullptr };
+		float travel_prev[2] = { 0, 0 }, gy_set = -1e9f, eng_pitch = 1;
+		float key[4] = { 1e30f, 0, 0, 0 };  // остов: что нарисовано (не менялось — не трогаем)
+		int8_t shown = -1, smoke_on = -1, dust_on = 0, mud_on = 0, snd_paused[3] = { -1, -1, -1 };
+	};
+	std::vector<TankDyn> td;
+	struct World {
+		bool on = false, over = false, sync_routes = false;
+		int player = -1, watch = -1, result = 0, reason = -1, shell_slot = 0, trk_i = 0, trk_n = 4000, speed = 1;
+		float spot_t = 0, squad_t = 0, cap_rate = 2.2f, sup_goal = 600, score[2] = { 0, 0 };
+		float cons_cd[3] = { 90, 90, 60 };
+		// заслуги игрока: урон, по засвету, заблокировано, захват, защита; убито, попаданий, выстрелов, засвечено
+		float dmg_done = 0, spot_dmg = 0, blocked = 0, cap_pts = 0, def_pts = 0;
+		int kills = 0, hits = 0, shots = 0, spotted_n = 0;
+		int stat[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };  // пробитий, непробитий, рикошетов, промахов, таранов, гусениц, пожаров, боеукладок
+		std::vector<int> spotter;
+		std::vector<uint8_t> reported;
+		gd::Obj trk_mm = nullptr;
+		// для HUD: прицел игрока
+		float gun_point[3] = { 0, 0, 0 }, aim_point[3] = { 0, 0, 0 };
+		int pen_hint = -1;
+		bool gun_limited = false;
+	} w;
+	// поиск маршрутов в своём потоке: заявки от ботов, готовые пути забирает шаг боя
+	struct RouteJob {
+		int bot;
+		V2 from, to;
+		bool safe;
+		float r;
+	};
+	struct RouteDone {
+		int bot;
+		V2 to;
+		bool safe;
+		std::vector<V2> path;
+	};
+	std::thread nav_thread;
+	std::mutex nav_mx;
+	std::condition_variable nav_cv;
+	std::deque<RouteJob> nav_jobs;
+	std::vector<RouteDone> nav_done;
+	bool nav_quit = false;
+	void nav_start();
+	void nav_stop();
+	~Core() { nav_stop(); }
 	uint32_t rng = 0x9e3779b9u;
 	float randf() {
 		rng ^= rng << 13;

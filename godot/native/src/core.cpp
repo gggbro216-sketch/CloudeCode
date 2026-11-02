@@ -677,11 +677,7 @@ METHOD(los) {
 // Засвет всех танков разом. На танк 16 чисел: команда, жив, подсвечен, x, z, глаз xyz, верх xyz,
 // центр xyz, дальность обзора, в кусте/лесу. Ответ на пару (цель, команда): -1 — не виден,
 // -2 — виден без наблюдателя (своя команда или подсвечен), иначе номер заметившего.
-METHOD(spot) {
-	SELF;
-	if (!need(a, 2, e)) return;
-	std::vector<float> f = f32(a, 0);
-	float bush_range = (float)a.num(1);
+std::vector<int32_t> spot_run(Core *self, const std::vector<float> &f, float bush_range, float now) {
 	const int K = 16;
 	int n = (int)(f.size() / K);
 	std::vector<int32_t> res((size_t)n * 2, -1);
@@ -715,7 +711,6 @@ METHOD(spot) {
 		}
 	}
 	// память команд: где и когда видели врага
-	float now = a.n > 2 ? (float)a.num(2) : self->clock;
 	for (int team = 0; team < 2; team++) {
 		if (self->intel[team].size() < (size_t)n) self->intel[team].resize(n);
 		for (int i = 0; i < n; i++) {
@@ -735,6 +730,13 @@ METHOD(spot) {
 			}
 		}
 	}
+	return res;
+}
+
+METHOD(spot) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	std::vector<int32_t> res = spot_run(self, f32(a, 0), (float)a.num(1), a.n > 2 ? (float)a.num(2) : self->clock);
 	ret_i32(r, res.data(), res.size());
 }
 
@@ -1529,20 +1531,15 @@ METHOD(bot_path) {
 
 // Шаг физики всех танков: (dt, пакет) → [пакет, события [вид, i, j, a, b]*]
 // события: 1 — удар о постройку (a — скорость), 2 — сбито дерево j (a, b — куда падает), 3 — таран i→j (a — скорость сближения)
-METHOD(phys_step) {
-	SELF;
-	if (!need(a, 2, e)) return;
-	float dt = (float)a.num(0);
-	std::vector<float> P = f32(a, 1);
+// Шаг физики всех танков по пакету P (PHYS чисел на танк): боты, езда, деревья, расталкивание,
+// подвеска. События — по 5 чисел (вид, танк, другой, x, y), следы — по 16.
+void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::vector<float> &ev, std::vector<float> &marks) {
 	int n = (int)(P.size() / PHYS);
-	std::vector<float> ev;
 	auto event = [&](float kind, int i, int j, float x, float y) {
 		float rec[5] = { kind, (float)i, (float)j, x, y };
 		ev.insert(ev.end(), rec, rec + 5);
 	};
 	const float g = GRAVITY;
-	std::vector<float> marks;  // [базис x, y, z, начало (12), свои данные (4)]*
-	float clock = a.n > 2 ? (float)a.num(2) : 0.0f;
 	// --- боты: решения о ходе и огне — все по состоянию на начало шага
 	for (int i = 0; i < n && i < (int)self->ts.size(); i++) {
 		float *t = &P[(size_t)i * PHYS];
@@ -1816,6 +1813,15 @@ METHOD(phys_step) {
 		t[P_BODY_R] = clampf(t[P_BODY_R] + t[P_BODY_RV] * dt, -0.12f, 0.12f);
 	}
 	self->snap = P;
+}
+
+METHOD(phys_step) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	float dt = (float)a.num(0);
+	std::vector<float> P = f32(a, 1);
+	std::vector<float> ev, marks;
+	physics_run(self, dt, a.n > 2 ? (float)a.num(2) : 0.0f, P, ev, marks);
 	ArrayOut out(3);
 	ret_f32(out.at(0), P.data(), P.size());
 	ret_f32(out.at(1), ev.data(), ev.size());
@@ -2271,6 +2277,15 @@ static V3 muzzle_of(const Core::TankStatic &T, const float *t, float barrel) {
 	M3 gb = g * M3::rot(2, t[P_GUN_PITCH]);
 	V3 o1 = bh.mul(T.tur_pos0), o2 = g.mul(T.gun_pos0), o3 = gb.mul({ barrel, 0.0f, 0.0f });
 	return { t[P_X] + o1.x + o2.x + o3.x, t[P_GROUND] + o1.y + o2.y + o3.y, t[P_Y] + o1.z + o2.z + o3.z };
+}
+
+// Дуло и направление ствола танка по снимку (как Tank.muzzle и gun_dir).
+V3 muzzle_at(const Core *self, int i, V3 &dir) {
+	const float *t = &self->snap[(size_t)i * PHYS];
+	M3 bh = M3::rot(1, -t[P_HULL]) * M3::rot(2, t[P_PITCH] + t[P_BODY_P]) * M3::rot(0, t[P_ROLL] + t[P_BODY_R]);
+	M3 gb = bh * M3::rot(1, -(t[P_TUR] - t[P_HULL])) * M3::rot(2, t[P_GUN_PITCH]);
+	dir = v3norm({ gb.m[0][0], gb.m[1][0], gb.m[2][0] });
+	return muzzle_of(self->ts[i], t, (size_t)i < self->ai.size() ? self->ai[i].barrel : 30.0f);
 }
 
 // Решения бота (как Battle._think): цель, укрытие, засада, «корпус за гребнем», маршрут.
@@ -2789,42 +2804,8 @@ static float armor_of(const Core::DmgStatic &d, int part, V3 n, const M3 &B, V3 
 	return thick;
 }
 
-// События для GDScript: по EV_N чисел, первое — вид.
-enum ShellEv {
-	EV_WHIZ = 1,  // x, y, z
-	EV_WORLD,  // снаряд, x, y, z, в землю
-	EV_MISS,  // снаряд
-	EV_SPARK,  // снаряд, x, y, z (остов или свой)
-	EV_RICO,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон
-	EV_TRACK,  // танк, стрелок, x, y, z
-	EV_NOPEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон, по ходовой
-	EV_PEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр
-	EV_REVIS,  // снаряд, x, y, z, скорость xyz (полёт после рикошета)
-	EV_MODULE,  // танк, стрелок, модуль, урон, было, стало, взрыв боеукладки
-	EV_CREW,  // танк, стрелок, член экипажа
-	EV_FIRE,  // танк, стрелок
-	EV_KICK,  // танк, толчок по тангажу, по крену
-	EV_PEN_DMG,  // танк, стрелок, урон, взрыв боеукладки
-	EV_HIT,  // номер снаряда, танк — разобрать через shell_hit
-};
-static const int EV_N = 13;
-struct EvOut {
-	std::vector<float> v;
-	void add(std::initializer_list<float> f) {
-		size_t k = v.size();
-		v.resize(k + EV_N, 0.0f);
-		int j = 0;
-		for (float x : f) {
-			if (j < EV_N) {
-				v[k + j++] = x;
-			}
-		}
-	}
-};
-
 // Состояние танка, которое присылает GDScript к каждому попаданию.
 enum { ST_ALIVE, ST_BURNING, ST_MOD, ST_CREW = ST_MOD + 6, ST_N = ST_CREW + 4 };
-enum { MOD_ENGINE, MOD_GUN, MOD_TURRET, MOD_OPTICS, MOD_AMMO, MOD_FUEL };
 static inline int mod_state(float v) { return v > 50.0f ? 2 : (v > 0.0f ? 1 : 0); }
 
 struct HitCtx {
@@ -2961,7 +2942,7 @@ static void outer_damage(HitCtx &h, int part, V3 local, int zone, float dmg) {
 static const float DEG = PI_F / 180.0f;
 
 // Попадание снаряда в танк (как Battle._shell_hits_tank).
-static void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
+void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	int i = s.hit_tank, by = s.owner;
 	V3 hp = s.hit_pos, v = s.hit_v, dir = v3norm(v);
 	s.dead = true;
@@ -3099,14 +3080,15 @@ METHOD(shell_add) {
 METHOD(shells_step) {
 	SELF;
 	if (!need(a, 3, e)) return;
-	float dt = (float)a.num(0);
-	V3 cam = a.v3(1);
-	int player = (int)a.integer(2);
+	EvOut ev;
+	shells_run(self, (float)a.num(0), a.v3(1), (int)a.integer(2), ev);
+	ret_f32(r, ev.v.data(), (int64_t)ev.v.size());
+}
+
+void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 	std::vector<Core::Shell> &S = self->shells;
 	S.erase(std::remove_if(S.begin(), S.end(), [](const Core::Shell &x) { return x.dead; }), S.end());
-	EvOut ev;
 	if (!(dt > 0.0f && dt < 1.0f) || self->ds.empty() || self->snap.size() < self->ds.size() * PHYS) {
-		ret_f32(r, nullptr, 0);
 		return;
 	}
 	for (size_t k = 0; k < S.size(); k++) {
@@ -3152,7 +3134,6 @@ METHOD(shells_step) {
 			}
 		}
 	}
-	ret_f32(r, ev.v.data(), (int64_t)ev.v.size());
 }
 
 // Разбор попадания из shells_step: номер снаряда и состояние танка (жив, горит, модули ×6, экипаж ×4).
@@ -3178,12 +3159,15 @@ METHOD(shell_hit) {
 METHOD(aim_info) {
 	SELF;
 	if (!need(a, 5, e)) return;
-	V3 o = a.v3(0), far = a.v3(1), mz = a.v3(2), vel = a.v3(3);
-	int p = (int)a.integer(4);
-	float out[7] = { far.x, far.y, far.z, mz.x, mz.y, mz.z, -1.0f };
+	float out[7];
+	aim_run(self, a.v3(0), a.v3(1), a.v3(2), a.v3(3), (int)a.integer(4), out);
+	ret_f32(r, out, 7);
+}
+
+void aim_run(Core *self, V3 o, V3 far, V3 mz, V3 vel, int p, float out[7]) {
+	out[0] = far.x; out[1] = far.y; out[2] = far.z; out[3] = mz.x; out[4] = mz.y; out[5] = mz.z; out[6] = -1.0f;
 	int n = (int)std::min(self->ds.size(), self->snap.size() / PHYS);
 	if (p < 0 || p >= n) {
-		ret_f32(r, out, 7);
 		return;
 	}
 	float tw;
@@ -3253,7 +3237,6 @@ METHOD(aim_info) {
 			out[6] = 0.0f;
 		}
 	}
-	ret_f32(r, out, 7);
 }
 
 static void *create_core() { return new Core(); }
@@ -3282,6 +3265,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		register_method(lib, C, m.name, m.m);
 	}
 	register_textures(lib, C);
+	register_battle(lib, C);
 }
 
 void register_list(GDExtensionClassLibraryPtr lib, const char *cls, const MethodDef *defs, size_t n) {

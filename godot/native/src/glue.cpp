@@ -17,6 +17,9 @@ static GDExtensionInterfaceObjectSetInstance object_set_instance;
 static GDExtensionInterfaceClassdbRegisterExtensionClass6 register_class6;
 static GDExtensionInterfaceClassdbRegisterExtensionClassMethod register_method_fn;
 static GDExtensionInterfaceArrayOperatorIndex array_index;
+static GDExtensionInterfaceClassdbGetMethodBind get_method_bind;
+static GDExtensionInterfaceObjectMethodBindPtrcall bind_ptrcall;
+static GDExtensionInterfaceVariantDestroy variant_destroy;
 
 // Доступ к элементам упакованных массивов по типу.
 typedef void *(*IndexFn)(GDExtensionTypePtr, GDExtensionInt);
@@ -63,6 +66,11 @@ void load(GDExtensionInterfaceGetProcAddress p_get_proc) {
 	PROC(register_class6, GDExtensionInterfaceClassdbRegisterExtensionClass6, "classdb_register_extension_class6");
 	PROC(register_method_fn, GDExtensionInterfaceClassdbRegisterExtensionClassMethod, "classdb_register_extension_class_method");
 	PROC(array_index, GDExtensionInterfaceArrayOperatorIndex, "array_operator_index");
+	PROC(get_method_bind, GDExtensionInterfaceClassdbGetMethodBind, "classdb_get_method_bind");
+	PROC(bind_ptrcall, GDExtensionInterfaceObjectMethodBindPtrcall, "object_method_bind_ptrcall");
+	PROC(variant_destroy, GDExtensionInterfaceVariantDestroy, "variant_destroy");
+	from_type[GDEXTENSION_VARIANT_TYPE_OBJECT] = get_from_type(GDEXTENSION_VARIANT_TYPE_OBJECT);
+	to_type[GDEXTENSION_VARIANT_TYPE_OBJECT] = get_to_type(GDEXTENSION_VARIANT_TYPE_OBJECT);
 
 	const GDExtensionVariantType scalars[] = { GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT,
 		GDEXTENSION_VARIANT_TYPE_FLOAT, GDEXTENSION_VARIANT_TYPE_VECTOR2, GDEXTENSION_VARIANT_TYPE_VECTOR3 };
@@ -333,6 +341,92 @@ bool need(const Args &a, int n, GDExtensionCallError *e) {
 	e->argument = n;
 	e->expected = n;
 	return false;
+}
+
+// ---------- Вызовы методов движка ----------
+
+Obj object(const Args &a, int i) {
+	if (i >= a.n || variant_get_type(a.a[i]) != GDEXTENSION_VARIANT_TYPE_OBJECT) {
+		return nullptr;
+	}
+	GDExtensionObjectPtr o = nullptr;
+	to_type[GDEXTENSION_VARIANT_TYPE_OBJECT](&o, (GDExtensionVariantPtr)a.a[i]);
+	return o;
+}
+
+MB method(const char *cls, const char *nm, int64_t hash) {
+	SN c = name(cls), m = name(nm);
+	return (MB)get_method_bind(&c, &m, hash);
+}
+
+Name sname(const char *s) {
+	Name n;
+	string_name_new(n.d, s, true);
+	return n;
+}
+
+static inline void pcall(MB m, Obj o, const GDExtensionConstTypePtr *args) {
+	if (m && o) {
+		bind_ptrcall((GDExtensionMethodBindPtr)m, (GDExtensionObjectPtr)o, args, nullptr);
+	}
+}
+
+void call_v3(MB m, Obj o, V3 v) {
+	GDExtensionConstTypePtr args[1] = { &v };
+	pcall(m, o, args);
+}
+
+void call_bool(MB m, Obj o, bool v) {
+	GDExtensionBool b = v ? 1 : 0;
+	GDExtensionConstTypePtr args[1] = { &b };
+	pcall(m, o, args);
+}
+
+void call_double(MB m, Obj o, double v) {
+	GDExtensionConstTypePtr args[1] = { &v };
+	pcall(m, o, args);
+}
+
+void call_basis(MB m, Obj o, const float b[9]) {
+	float x[9];
+	memcpy(x, b, sizeof(x));
+	GDExtensionConstTypePtr args[1] = { x };
+	pcall(m, o, args);
+}
+
+void call_xf(MB m, Obj o, const float b[9], V3 origin) {
+	float x[12];
+	memcpy(x, b, 9 * sizeof(float));
+	x[9] = origin.x;
+	x[10] = origin.y;
+	x[11] = origin.z;
+	GDExtensionConstTypePtr args[1] = { x };
+	pcall(m, o, args);
+}
+
+void call_param(MB m, Obj o, const Name &n, double v) {
+	if (!m || !o) return;
+	alignas(8) uint8_t var[24] = {};
+	from_type[GDEXTENSION_VARIANT_TYPE_FLOAT](var, &v);
+	GDExtensionConstTypePtr args[2] = { n.d, var };
+	pcall(m, o, args);
+	variant_destroy(var);
+}
+
+void call_int_xf(MB m, Obj o, int64_t i, const float b[9], V3 origin) {
+	float x[12];
+	memcpy(x, b, 9 * sizeof(float));
+	x[9] = origin.x;
+	x[10] = origin.y;
+	x[11] = origin.z;
+	GDExtensionConstTypePtr args[2] = { &i, x };
+	pcall(m, o, args);
+}
+
+void call_int_color(MB m, Obj o, int64_t i, const float c[4]) {
+	float x[4] = { c[0], c[1], c[2], c[3] };
+	GDExtensionConstTypePtr args[2] = { &i, x };
+	pcall(m, o, args);
 }
 
 } // namespace gd

@@ -260,7 +260,8 @@ func _ready() -> void:
 	_build_hash()
 	_build_nav()
 	_prof("load: сетка путей", t0)
-	_start_nav_thread()
+	if not core:
+		_start_nav_thread()
 	t0 = Time.get_ticks_usec()
 	terra.build(self, map_key, hq)
 	_prof("load: сетка рельефа", t0)
@@ -320,6 +321,8 @@ func _ready() -> void:
 		_suspend(tk, 1.0)
 		tk.sync_node()
 	_update_spotting()
+	if core:
+		_world_init()
 	_sync(0.0)
 	visible = true
 	loaded = true
@@ -997,6 +1000,11 @@ var phys_buf := PackedFloat32Array()
 const BOT_ACT := {"route": 1, "spot": 2, "fight": 3}
 var core_ai := false  # решения ботов считает C++ (ai_init прошёл)
 var core_shells := false  # снаряды и урон считает C++ (dmg_static прошёл)
+var core_world := false  # весь бой считает C++ (world_init прошёл): здесь только показ
+var cons_req := -1  # игрок нажал снаряжение: номер (repair, medkit, ext) до следующего шага
+const CONS_KEYS := ["repair", "medkit", "ext"]
+const WVIEW := 9  # чисел на танк в виде боя из C++
+const WOUT := 34  # итог шага из C++ до зон
 
 
 ## Неизменное для C++-физики: характеристики танков, деревья и заборы, грунт.
@@ -1060,6 +1068,65 @@ func _phys_init() -> void:
 				1.0 if it.part == "top" else 0.0, c.x, c.y, c.z, hs.x, hs.y, hs.z, float(it.get("r", 0.0))])
 		core.layout_set(tk.idx, lf)
 	core_shells = true
+
+
+## Весь бой — в C++: начальное состояние, постоянные танков, узлы сцены (их двигает C++).
+func _world_init() -> void:
+	var zf := PackedFloat32Array()
+	for z in zones:
+		zf.append_array([z.pos.x, z.pos.y, z.r, z.side, z.prog[0], z.prog[1], z.n[0], z.n[1]])
+	core.zones_set(zf)
+	var P := _world_pack()
+	var st := PackedFloat32Array()
+	for tk: TankScript in tanks:
+		var T := tk.T
+		st.append_array([float(T.spot), float(T.reload), float(T.dmg), float(T.speed), float(T.tspd), float(T.W), tk.max_hp,
+			1.0 if tk.is_player else 0.0, 1.0 if tk.cons.has("repair") else 0.0, 1.0 if tk.cons.has("medkit") else 0.0,
+			1.0 if tk.cons.has("ext") else 0.0])
+	var k := PackedFloat32Array([D.CAP_RATE, D.SUP_GOAL, D.CONSUMABLES.repair.cd, D.CONSUMABLES.medkit.cd, D.CONSUMABLES.ext.cd])
+	if not core.world_init(P, st, k, trk_mm, TRK):
+		return  # движок не той версии: методы узлов не нашлись — остаётся прежний путь
+	for tk: TankScript in tanks:
+		var lp: Array = loops.get(tk, [null, null, null])
+		var pm: Array = tk.paints
+		core.world_nodes(tk.idx, tk, tk.hull_node, tk.tur_node, tk.gun_node, pm[0] if pm.size() > 0 else null,
+			pm[1] if pm.size() > 1 else null, pm[2] if pm.size() > 2 else null, tk.tracks[0] if not tk.tracks.is_empty() else null,
+			tk.dust_fx, tk.mud_fx, tk.smoke, lp[0], lp[1], lp[2])
+	core_world = true
+
+
+## Начальный пакет физики (как в _phys_native) — с ним C++ начинает бой.
+func _world_pack() -> PackedFloat32Array:
+	var P := PackedFloat32Array()
+	P.resize(tanks.size() * PHYS)
+	for i in tanks.size():
+		var tk: TankScript = tanks[i]
+		var k := i * PHYS
+		P[k + 3] = tk.speed_k
+		P[k + 4] = tk.turn_k
+		P[k + 5] = tk.accel_k
+		P[k + 8] = 1.0 if tk.alive else 0.0
+		P[k + 9] = tk.team
+		P[k + 10] = tk.pos.x
+		P[k + 11] = tk.pos.y
+		P[k + 14] = tk.hull
+		P[k + 15] = tk.tur
+		P[k + 20] = tk.pitch
+		P[k + 21] = tk.roll
+		P[k + 33] = tk.ground
+		P[k + 39] = tk.tspd_k
+		P[k + 40] = tk.gun_pitch
+		P[k + 41] = tk.gun_target
+		P[k + 44] = tk.disp
+		P[k + 45] = tk.disp_k
+		P[k + 46] = tk.aim_k
+		P[k + 48] = 1.0
+		P[k + 49] = 1.0 if tk.vis[0] else 0.0
+		P[k + 50] = 1.0 if tk.vis[1] else 0.0
+		P[k + 51] = -1.0
+		P[k + 64] = tk.rl
+		P[k + 68] = tk.hit_t
+	return P
 
 
 ## Езда (по накопленным командам), расталкивание и подвеска всех танков одним вызовом C++;
@@ -3056,6 +3123,10 @@ func _bot_cons(b: TankScript, dt: float) -> void:
 
 ## Игрок применяет снаряжение (кнопка на экране или клавиши 1–3).
 func use_cons(name: String) -> void:
+	if core_world:
+		if not over and player.alive:
+			cons_req = CONS_KEYS.find(name)  # применит C++ на следующем шаге, ответ — событием
+		return
 	if over or not player.alive or not player.use_cons(name):
 		return
 	var msg := {"repair": "МОДУЛИ ОТРЕМОНТИРОВАНЫ", "medkit": "ЭКИПАЖ В СТРОЮ", "ext": "ПОЖАР ПОТУШЕН"}
@@ -3154,6 +3225,9 @@ func alive_count(team: int) -> int:
 # ---------- Шаг симуляции ----------
 
 func _update(dt: float) -> void:
+	if core_world:
+		_update_world(dt)
+		return
 	clock += dt
 	_take_routes()
 	for tk: TankScript in tanks:
@@ -3259,6 +3333,420 @@ func _update(dt: float) -> void:
 				finish("draw", "Время вышло")
 	else:
 		over_t += dt
+
+
+## Шаг боя, когда весь бой в C++: ввод игрока туда, события и сводки обратно. Здесь — только показ
+## (эффекты, звуки, надписи, рация, интерфейс) и то, что видит HUD.
+func _update_world(dt: float) -> void:
+	clock += dt
+	var p := player
+	var inp := PackedFloat32Array()
+	inp.resize(17)
+	var o := cam.global_position if cam else Vector3.ZERO
+	if p.alive:
+		o = _cam_origin(p)
+		if not autopilot and not over:
+			var mv: Vector2 = hud.move
+			if Input.is_key_pressed(KEY_W):
+				mv.y -= 1
+			if Input.is_key_pressed(KEY_S):
+				mv.y += 1
+			if Input.is_key_pressed(KEY_A):
+				mv.x -= 1
+			if Input.is_key_pressed(KEY_D):
+				mv.x += 1
+			inp[0] = mv.x
+			inp[1] = mv.y
+	var cd := _cam_dir()
+	inp[2] = o.x
+	inp[3] = o.y
+	inp[4] = o.z
+	inp[5] = cd.x
+	inp[6] = cd.y
+	inp[7] = cd.z
+	inp[8] = 1.0 if hud.fire_req or hud.fire_held() else 0.0
+	hud.fire_req = false
+	inp[9] = cons_req
+	cons_req = -1
+	inp[10] = 1.0 if autopilot else 0.0
+	inp[11] = 1.0 if hud.auto_aim else 0.0
+	inp[12] = 1.0 if hud.dragging else 0.0
+	inp[13] = cam_yaw
+	inp[14] = watch.idx
+	inp[15] = 1.0 if nav_sync else 0.0
+	inp[16] = speed
+	var t0 := Time.get_ticks_usec()
+	var res: Array = core.world_step(dt, inp)
+	_prof("бой в C++", t0)
+	if res.size() < 5:
+		return
+	t0 = Time.get_ticks_usec()
+	_world_events(res[0], dt)
+	_world_mirror(res[1], res[2], res[3], res[4])
+	_prof("события и сводки", t0)
+	# автоприцел: камера доворачивает к упреждению, которое нашёл C++
+	var out: PackedFloat32Array = res[4]
+	if out[11] != 0.0 and p.alive and not autopilot and hud.auto_aim and not hud.dragging:
+		var lp := Vector3(out[8], out[9], out[10])
+		var want_yaw := (Vector2(lp.x, lp.z) - Vector2(o.x, o.z)).angle()
+		var dy := ang_diff(want_yaw, cam_yaw_t)
+		cam_yaw_t = turn_toward(cam_yaw_t, want_yaw, clampf(absf(dy) * 5.0, 0.12, 1.4) * dt)
+		var want_pitch := clampf(-atan2(lp.y - o.y, Vector2(lp.x, lp.z).distance_to(Vector2(o.x, o.z))), -0.3, 0.45)
+		cam_pitch_t = move_toward(cam_pitch_t, want_pitch, clampf(absf(want_pitch - cam_pitch_t) * 5.0, 0.05, 0.6) * dt)
+	# звук досылания снаряда перед готовностью
+	if reload_cue and p.rl < 0.9 and p.rl > 0.0:
+		reload_cue = false
+		sfx.play2d("reload", -8.0)
+	# сорванные башни летят (это только картинка)
+	for tk: TankScript in tanks:
+		if tk.popping:
+			tk.update_pop(dt)
+			tk.tur_node.position = tk.tur_pos0 + Vector3(tk.pop_off.x, tk.pop_h, tk.pop_off.y)
+	for pr in falling:
+		pr.fall = minf(1.0, pr.fall + dt * 1.4)
+		MapGen.place_prop(pr)
+	falling = falling.filter(func(x): return x.fall < 1.0)
+	for tx in texts:
+		tx.life -= dt
+	texts = texts.filter(func(x): return x.life > 0)
+	if not player.alive and not over and (watch == player or not watch.alive):
+		var best: TankScript = null
+		var bd := 1e9
+		for tk: TankScript in tanks:
+			if tk.alive and tk.team == 0 and tk.pos.distance_to(player.pos) < bd:
+				bd = tk.pos.distance_to(player.pos)
+				best = tk
+		if best:
+			watch = best
+	shake = maxf(0.0, shake - dt * 30.0)
+	_radio_events()
+	if over:
+		over_t += dt
+
+
+const FINISH_WHY := ["Все противники уничтожены", "Ваша команда уничтожена", "Время вышло", "Вы захватили базу",
+	"Противник захватил базу", "База противника захвачена", "Ваша база захвачена", "Набрано 600 очков",
+	"Противник набрал 600 очков"]
+
+
+## События шага из C++ по порядку: выстрелы, попадания, урон, уничтожение, деревья, тараны, ремонт,
+## снаряжение, засвет, базы, конец боя — здесь эффекты, звуки, надписи и рация.
+func _world_events(ev: PackedFloat32Array, dt: float) -> void:
+	for q in range(0, ev.size(), EV_N):
+		var kind := int(ev[q])
+		match kind:
+			1:  # свист рядом с камерой
+				sfx.play3d("whiz", Vector3(ev[q + 1], ev[q + 2], ev[q + 3]))
+			2:  # в землю или постройку
+				var hp := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
+				var on_ground := ev[q + 5] != 0.0
+				fx.impact(hp, on_ground)
+				if on_ground:
+					_scorch(hp, randf_range(7.0, 11.0))
+				sfx.play3d("impact_ground" if on_ground else "impact_stone", hp)
+				_slot_end(int(ev[q + 1]), clock + dt)
+			3:  # улетел за дальность
+				_slot_end(int(ev[q + 1]), clock + dt)
+			4:  # по остову или своему — только искры
+				var hp := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
+				fx.hit_sparks(hp)
+				sfx.play3d("hit_nopen", hp, -4.0)
+				_slot_end(int(ev[q + 1]), clock + dt)
+			5, 7, 8:
+				_world_hit_fx(kind, ev, q, dt)
+			6:  # гусеница сбита (если только что)
+				if ev[q + 6] != 0.0:
+					var tk: TankScript = tanks[int(ev[q + 1])]
+					_popup(tk, "ГУСЕНИЦА СБИТА", Color("ffd37a"), tanks[int(ev[q + 2])])
+					sfx.play3d("track_break", Vector3(ev[q + 3], ev[q + 4], ev[q + 5]))
+					if tk.is_player:
+						hud.alert("ГУСЕНИЦА СБИТА", Color(D.AMBER))
+			9:  # отражённый снаряд — новый полёт из точки рикошета
+				_slot_visual(int(ev[q + 1]), Vector3(ev[q + 2], ev[q + 3], ev[q + 4]), Vector3(ev[q + 5], ev[q + 6], ev[q + 7]), 1e9)
+			10:  # модуль сменил состояние
+				var was := int(ev[q + 5])
+				var now := int(ev[q + 6])
+				if was != now and ev[q + 7] == 0.0:
+					var tk: TankScript = tanks[int(ev[q + 1])]
+					var name: String = TankScript.MODS[int(ev[q + 3])]
+					tk.mod_hp[name] = 0.0 if now == 0 else (30.0 if now == 1 else 100.0)
+					_module_fx(tk, tanks[int(ev[q + 2])], name, now)
+			11:  # член экипажа
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var role: String = TankScript.CREW[int(ev[q + 3])]
+				tk.crew_ok[role] = false
+				if tk.is_player:
+					hud.alert(CREW_MSG[role], Color("ff6a4a"))
+				var by: TankScript = tanks[int(ev[q + 2])]
+				if by.is_player:
+					_popup(tk, TankScript.NAMES[role], Color("ff8a6a"), by)
+			12:  # пожар
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				tk.fire = FIRE_TIME
+				if tk.fire_fx == null:
+					tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
+				tk.fire_fx.emitting = true
+				_popup(tk, "ПОЖАР", Color("ff9a4a"), tanks[int(ev[q + 2])])
+				if tk.is_player:
+					hud.alert("ПОЖАР!", Color("ff9a4a"))
+			14:  # урон пробития: надписи о боеукладке и экипаже
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var by: TankScript = tanks[int(ev[q + 2])]
+				if ev[q + 4] != 0.0:
+					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
+				if ev[q + 5] != 0.0:
+					_popup(tk, "ЭКИПАЖ ВЫБЫЛ", Color("ff6a4a"), by)
+			20:  # выстрел
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var mz := Vector3(ev[q + 3], ev[q + 4], ev[q + 5])
+				var dir := Vector3(ev[q + 6], ev[q + 7], ev[q + 8])
+				var cal: float = ev[q + 9]
+				_slot_visual(int(ev[q + 2]), mz, dir * ev[q + 10], 1e9)
+				fx.muzzle(mz, dir, cal)
+				fx.shot_dust(Vector3(tk.pos.x, tk.ground + 2.0, tk.pos.y))
+				tk.shots_fired += 1
+				if tk.is_player:
+					shake = maxf(shake, 3.0 + cal / 40.0)
+					reload_cue = true
+				sfx.gun(cal, mz)
+			21:  # урон: число над танком
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var amount: float = ev[q + 3]
+				var col := Color("ff8a6a") if tk.is_player else Color.WHITE
+				var label := ("ТАРАН -%d" % int(amount)) if int(ev[q + 4]) == 2 else "-%d" % int(amount)
+				texts.append({"pos": tk.top() + Vector3(0, 8, 0), "s": label, "col": col, "life": 1.2})
+				if tk == watch:
+					shake = maxf(shake, 8.0)
+			22:  # уничтожен
+				_world_kill(tanks[int(ev[q + 1])], tanks[int(ev[q + 2])] if ev[q + 2] >= 0.0 else null, ev[q + 3] != 0.0)
+			23:  # удар о постройку
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				sfx.play3d("impact_stone", tk.center(), -6.0)
+				if tk == watch:
+					shake = maxf(shake, clampf(ev[q + 2] * 0.08, 2.0, 8.0))
+			24:  # сбито дерево или забор
+				var pr = props[int(ev[q + 2])]
+				pr.alive = false
+				pr.fall = 0.02
+				pr.fall_dir = Vector2(ev[q + 3], ev[q + 4])
+				falling.append(pr)
+				sfx.play3d("tree", Vector3(pr.pos.x, pr.y + 5.0, pr.pos.y))
+				fx.debris(Vector3(pr.pos.x, pr.y + 6.0, pr.pos.y), Color(0.3, 0.24, 0.16))
+			25:  # таран
+				var a: TankScript = tanks[int(ev[q + 1])]
+				var b: TankScript = tanks[int(ev[q + 2])]
+				sfx.play3d("hit_pen", (a.center() + b.center()) * 0.5, -3.0, 0.8)
+				if a == watch or b == watch:
+					shake = maxf(shake, 7.0)
+			26:  # выхлоп при резком разгоне
+				fx.exhaust(Vector3(ev[q + 1], ev[q + 2], ev[q + 3]), Vector2(ev[q + 4], ev[q + 5]))
+			27:  # полевой ремонт модуля
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				if tk.is_player:
+					var name: String = TankScript.MODS[int(ev[q + 2])]
+					if FIXED_MSG.has(name):
+						hud.alert(FIXED_MSG[name], Color("9ad07a"))
+			28:  # снаряжение пустили в ход
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var c := int(ev[q + 2])
+				if c == 0 and tk.engine_fx:
+					tk.engine_fx.emitting = false
+				if c == 2 and tk.fire_fx:
+					tk.fire_fx.emitting = false
+				if c == 2:
+					tk.fire = 0.0
+				if tk.is_player:
+					var msg := ["МОДУЛИ ОТРЕМОНТИРОВАНЫ", "ЭКИПАЖ В СТРОЮ", "ПОЖАР ПОТУШЕН"]
+					hud.alert(msg[c], Color("9ad07a"))
+					sfx.play2d("reload", -10.0)
+			29:  # пожар потух
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				tk.fire = 0.0
+				if tk.fire_fx:
+					tk.fire_fx.emitting = false
+			30:  # засвечен впервые — доклад по рации
+				var e: TankScript = tanks[int(ev[q + 1])]
+				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", int(ev[q + 2]))
+			31:  # точка захвачена (превосходство)
+				var zi := int(ev[q + 1])
+				if zi >= 0 and zi < zones.size():
+					hud.add_feed([["Точка %s захвачена" % zones[zi].label, hud.team_color(int(ev[q + 2]))]])
+					sfx.play2d("capture", -6.0)
+			32:  # конец боя
+				var rs := int(ev[q + 1])
+				var why := int(ev[q + 2])
+				finish(["", "win", "lose", "draw"][clampi(rs, 0, 3)], FINISH_WHY[why] if why >= 0 and why < FINISH_WHY.size() else "")
+
+
+## Рикошет (5), непробитие (7), пробитие (8): только искры, звук, надписи и следы на броне.
+func _world_hit_fx(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void:
+	var tk: TankScript = tanks[int(ev[q + 2])]
+	var by: TankScript = tanks[int(ev[q + 3])]
+	var hp := Vector3(ev[q + 4], ev[q + 5], ev[q + 6])
+	var dir := Vector3(ev[q + 7], ev[q + 8], ev[q + 9])
+	var cal: float = ev[q + 10]
+	tk.hits_taken += 1
+	fx.hit_sparks(hp)
+	match kind:
+		5:
+			_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)
+			sfx.play3d("ricochet", hp)
+			_mark_hit(tk, hp, dir, 0, cal)
+		7:
+			if ev[q + 12] == 0.0:
+				_popup(tk, "НЕ ПРОБИЛ", Color("cfd3d8"), by)
+			sfx.play3d("hit_nopen", hp)
+			tk.hit_t = clock
+			_mark_hit(tk, hp, dir, 1, cal)
+			_slot_end(int(ev[q + 1]), clock + dt)
+		8:
+			tk.pens_taken += 1
+			fx.pen_fire(hp)
+			sfx.play3d("hit_pen", hp)
+			_mark_hit(tk, hp, dir, 2, cal)
+			_slot_end(int(ev[q + 1]), clock + dt)
+
+
+## Модуль сменил состояние (C++ уже всё посчитал): дым двигателя, сообщения.
+func _module_fx(tk: TankScript, by: TankScript, name: String, now: int) -> void:
+	if name == "engine" and now == 0:
+		if tk.engine_fx == null:
+			tk.engine_fx = fx.engine_smoke(tk.hull_node, Vector3(-float(tk.T.L) * 0.33, tk.hh + 0.5, 0))
+		tk.engine_fx.emitting = true
+	if tk.is_player:
+		hud.alert(MOD_MSG[name][0 if now == 1 else 1], Color(D.AMBER) if now == 1 else Color("ff6a4a"))
+	if by.is_player:
+		_popup(tk, TankScript.NAMES[name], Color("ffb04a"), by)
+
+
+## Танк уничтожен (в C++ уже): остов, взрыв, огонь, звук, лента, рация.
+func _world_kill(tk: TankScript, by: TankScript, pop: bool) -> void:
+	tk.alive = false
+	tk.hp = 0.0
+	tk.fire = 0.0
+	tk.make_wreck(pop)
+	var at := tk.center() + Vector3(0, tk.hh * 0.5, 0)
+	fx.explosion(at)
+	tk.wreck_fx = fx.wreck_fire(at)
+	tk.wreck_t = clock
+	_scorch(Vector3(tk.pos.x, 0, tk.pos.y), float(tk.T.L) * 1.4)
+	sfx.play3d("explosion", at)
+	core.world_silence(tk.idx)
+	for p in loops.get(tk, []):
+		if p:
+			(p as AudioStreamPlayer3D).stop()
+	var burn := sfx.attach_loop(tk, "fire", 14.0, -8.0)
+	get_tree().create_timer(25.0, false).timeout.connect(burn.queue_free)
+	if tk == watch:
+		shake = 20.0
+	if by:
+		hud.add_feed([[by.callsign, hud.team_color(by.team)], ["  ▸  ", Color("cfd3c0")], [tk.callsign, hud.team_color(tk.team)]])
+		if tk.team == 0 and not tk.is_player:
+			say("ally_down", tk.callsign)
+		elif tk.team == 1 and by.team == 0 and not by.is_player:
+			say("enemy_down")
+	if tk.is_player:
+		sniper = false
+		hud.show_dead(true)
+
+
+## Что видит интерфейс: положение, видимость и прочность всех; подробно — игрок и наблюдаемый;
+## прицел, счёт, заслуги, базы.
+func _world_mirror(view: PackedFloat32Array, dp: PackedFloat32Array, dw: PackedFloat32Array, out: PackedFloat32Array) -> void:
+	for i in tanks.size():
+		var tk: TankScript = tanks[i]
+		var k := i * WVIEW
+		tk.pos = Vector2(view[k], view[k + 1])
+		tk.ground = view[k + 2]
+		tk.vis[0] = view[k + 4] != 0.0
+		tk.vis[1] = view[k + 5] != 0.0
+		tk.hp = view[k + 6]
+		tk.hull = view[k + 7]
+		tk.tur = view[k + 8]
+	_mirror_detail(player, dp)
+	if watch != player:
+		_mirror_detail(watch, dw)
+	gun_point = Vector3(out[0], out[1], out[2])
+	pen_hint = int(out[3])
+	gun_limited = out[4] != 0.0
+	aim_point = Vector3(out[5], out[6], out[7])
+	score[0] = out[12]
+	score[1] = out[13]
+	dmg_done = out[14]
+	kills = int(out[15])
+	hits = int(out[16])
+	shots = int(out[17])
+	spot_dmg = out[18]
+	blocked = out[19]
+	cap_pts = out[20]
+	def_pts = out[21]
+	spotted_n = int(out[22])
+	var sk := ["pen", "nopen", "rico", "miss", "ram", "track", "fire", "ammo"]
+	for k in 8:
+		stat[sk[k]] = int(out[23 + k])
+	for zi in zones.size():
+		var z = zones[zi]
+		var b := WOUT + zi * 5
+		if b + 4 < out.size():
+			z.side = int(out[b])
+			z.prog[0] = out[b + 1]
+			z.prog[1] = out[b + 2]
+			z.n[0] = int(out[b + 3])
+			z.n[1] = int(out[b + 4])
+
+
+## Подробно о танке для HUD и камеры (поля — DET в native/src/battle.cpp).
+func _mirror_detail(tk: TankScript, d: PackedFloat32Array) -> void:
+	if d.size() < 43:
+		return
+	tk.rl = d[0]
+	tk.rl_max = d[1]
+	tk.disp = d[2]
+	tk.track_broken = d[3]
+	tk.fire = d[4]
+	tk.sp = d[5]
+	tk.gun_pitch = d[6]
+	tk.gun_target = d[7]
+	tk.pitch = d[8]
+	tk.roll = d[9]
+	tk.tur_rate = d[10]
+	tk.immobile = d[11] != 0.0
+	for m in 6:
+		var name: String = TankScript.MODS[m]
+		tk.mod_hp[name] = d[12 + m]
+		if d[18 + m] >= 0.0:
+			tk.mod_fix[name] = d[18 + m]
+		else:
+			tk.mod_fix.erase(name)
+	for c in 4:
+		tk.crew_ok[TankScript.CREW[c]] = d[24 + c] != 0.0
+	for c in 3:
+		var key: String = CONS_KEYS[c]
+		if tk.cons.has(key):
+			tk.cons[key] = d[28 + c]
+		if d[31 + c] != 0.0:
+			tk.cons_used[key] = true
+	tk.throttle = d[34]
+	tk.yaw_rate = d[35]
+	tk.vel = Vector2(d[36], d[37])
+	tk.lit = d[38]
+	tk.recoil = d[39]
+	tk.dmg_dealt = d[42]
+
+
+## Опыт и серебро, посчитанные в C++ (те же строки, что rewards()).
+func _rewards_world() -> Dictionary:
+	var tier := D.tier(player_type)
+	var prices := PackedFloat32Array([D.cons_price("repair", tier), D.cons_price("medkit", tier), D.cons_price("ext", tier)])
+	var r: PackedFloat32Array = core.world_rewards(tier, float(D.REPAIR_FULL[tier]), prices, D.FREE_XP_SHARE)
+	var names := ["Урон", "Урон по вашему засвету", "Заблокировано бронёй", "Уничтожено", "Засвечено первым", "Захват базы",
+		"Защита базы", "Участие в бою"]
+	var shown: Array = []
+	var n := r.size() - 8
+	for q in range(0, n, 3):
+		shown.append([names[int(r[q])], int(r[q + 1]), int(r[q + 2])])
+	return {"lines": shown, "mult": r[n], "tier_mult": r[n + 1], "xp": int(r[n + 2]), "free_xp": int(r[n + 3]),
+		"silver_gross": int(r[n + 4]), "repair": int(r[n + 5]), "cons_cost": int(r[n + 6]), "silver": int(r[n + 7])}
 
 
 func _physics_process(delta: float) -> void:
@@ -3427,6 +3915,8 @@ func _show_result() -> void:
 ## Опыт и серебро за бой: урон, урон по засвету, принятый бронёй урон, уничтоженные, засвеченные,
 ## захват и защита базы, участие. Победа — ×1,5. Ремонт и снаряжение списываются с серебра.
 func rewards() -> Dictionary:
+	if core_world:
+		return _rewards_world()
 	var tier := D.tier(player_type)
 	var lines: Array = [
 		["Урон", dmg_done * 0.5, dmg_done * 8.0],
@@ -3471,9 +3961,14 @@ func _sync(dt: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var fov := 74.0 if vs.x < vs.y else 56.0
 	cam.fov = fov / 3.5 if sniper else fov
-	for tk: TankScript in tanks:
-		tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
-		_sync_sound(tk)
+	if core_world:
+		# видимость, ход гусениц и звук моторов ставит C++
+		var frac_w := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
+		core.world_frame(frac_w, cam.global_position, w.idx if sniper else -1, paused)
+	else:
+		for tk: TankScript in tanks:
+			tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
+			_sync_sound(tk)
 	wreck_check -= dt
 	if wreck_check <= 0.0:
 		wreck_check = 0.5
@@ -3487,9 +3982,10 @@ func _sync(dt: float) -> void:
 	var now_v := clock + frac * speed / float(Engine.physics_ticks_per_second)
 	trk_mat.set_shader_parameter("now", now_v)
 	shell_mat.set_shader_parameter("now", now_v)
-	for tk: TankScript in tanks:
-		if tk.alive and tk.visible:
-			tk.sync_travel(frac)
+	if not core_world:
+		for tk: TankScript in tanks:
+			if tk.alive and tk.visible:
+				tk.sync_travel(frac)
 	bush_mat.set_shader_parameter("fade_a", w.center())
 	bush_mat.set_shader_parameter("fade_b", cam.global_position)
 	for z in zones:

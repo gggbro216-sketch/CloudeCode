@@ -84,6 +84,25 @@ public:
 	void to_variant(GDExtensionVariantPtr r);
 };
 
+// Вызовы методов движка из C++ (узлы, материалы, частицы, звук): метод ищется один раз по имени
+// класса, имени и хэшу из extension_api.json, потом зовётся напрямую (ptrcall) с сырыми аргументами.
+typedef void *Obj;  // объект движка
+Obj object(const Args &a, int i);  // объект из аргумента; nullptr — не объект
+typedef void *MB;  // найденный метод; nullptr — нет такого (не та версия движка)
+MB method(const char *cls, const char *name, int64_t hash);
+struct Name {  // StringName (имя параметра шейдера)
+	alignas(8) uint8_t d[8] = {};
+};
+Name sname(const char *s);
+void call_v3(MB m, Obj o, V3 v);
+void call_bool(MB m, Obj o, bool v);
+void call_double(MB m, Obj o, double v);
+void call_basis(MB m, Obj o, const float b[9]);
+void call_xf(MB m, Obj o, const float b[9], V3 origin);
+void call_param(MB m, Obj o, const Name &n, double v);  // ShaderMaterial.set_shader_parameter(имя, число)
+void call_int_xf(MB m, Obj o, int64_t i, const float b[9], V3 origin);  // MultiMesh.set_instance_transform
+void call_int_color(MB m, Obj o, int64_t i, const float c[4]);  // MultiMesh.set_instance_custom_data
+
 // Регистрация класса и методов.
 typedef void (*Method)(void *self, const Args &a, GDExtensionVariantPtr r, GDExtensionCallError *e);
 void register_class(GDExtensionClassLibraryPtr lib, const char *name, const char *parent, void *(*create)(), void (*destroy)(void *));

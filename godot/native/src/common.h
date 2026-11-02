@@ -87,6 +87,49 @@ enum PhysField {
 #define METHOD(fn) static void fn(void *self_, const Args &a, GDExtensionVariantPtr r, GDExtensionCallError *e)
 #define SELF Core *self = (Core *)self_; (void)self; (void)e
 
+// События для GDScript: по EV_N чисел, первое — вид.
+enum ShellEv {
+	EV_WHIZ = 1,  // x, y, z
+	EV_WORLD,  // снаряд, x, y, z, в землю
+	EV_MISS,  // снаряд
+	EV_SPARK,  // снаряд, x, y, z (остов или свой)
+	EV_RICO,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон
+	EV_TRACK,  // танк, стрелок, x, y, z
+	EV_NOPEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр, урон, по ходовой
+	EV_PEN,  // снаряд, танк, стрелок, x, y, z, направление xyz, калибр
+	EV_REVIS,  // снаряд, x, y, z, скорость xyz (полёт после рикошета)
+	EV_MODULE,  // танк, стрелок, модуль, урон, было, стало, взрыв боеукладки
+	EV_CREW,  // танк, стрелок, член экипажа
+	EV_FIRE,  // танк, стрелок
+	EV_KICK,  // танк, толчок по тангажу, по крену
+	EV_PEN_DMG,  // танк, стрелок, урон, взрыв боеукладки
+	EV_HIT,  // номер снаряда, танк — разобрать через shell_hit
+};
+static const int EV_N = 13;
+struct EvOut {
+	std::vector<float> v;
+	void add(std::initializer_list<float> f) {
+		size_t k = v.size();
+		v.resize(k + EV_N, 0.0f);
+		int j = 0;
+		for (float x : f) {
+			if (j < EV_N) {
+				v[k + j++] = x;
+			}
+		}
+	}
+};
+
+enum { MOD_ENGINE, MOD_GUN, MOD_TURRET, MOD_OPTICS, MOD_AMMO, MOD_FUEL };
+
+// Общие части боя, которые зовёт и «мир» (battle.cpp)
+void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::vector<float> &ev, std::vector<float> &marks);
+std::vector<int32_t> spot_run(Core *self, const std::vector<float> &f, float bush_range, float now);
+void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev);
+void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev);
+void aim_run(Core *self, V3 o, V3 far, V3 mz, V3 vel, int p, float out[7]);
+V3 muzzle_at(const Core *self, int i, V3 &dir);
+
 struct MethodDef {
 	const char *name;
 	Method m;
@@ -94,3 +137,4 @@ struct MethodDef {
 void register_list(GDExtensionClassLibraryPtr lib, const char *cls, const MethodDef *defs, size_t n);
 // части, разнесённые по файлам: регистрируют свои методы
 void register_textures(GDExtensionClassLibraryPtr lib, const char *cls);
+void register_battle(GDExtensionClassLibraryPtr lib, const char *cls);
