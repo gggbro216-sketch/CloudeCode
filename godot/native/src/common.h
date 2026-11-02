@@ -138,3 +138,4 @@ void register_list(GDExtensionClassLibraryPtr lib, const char *cls, const Method
 // части, разнесённые по файлам: регистрируют свои методы
 void register_textures(GDExtensionClassLibraryPtr lib, const char *cls);
 void register_battle(GDExtensionClassLibraryPtr lib, const char *cls);
+void register_mapgen(GDExtensionClassLibraryPtr lib, const char *cls);

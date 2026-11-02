@@ -206,6 +206,79 @@ static func _sandbag_nest(rng: RandomNumberGenerator, obst: Array, zones: Array,
 			obst.append(Obst.new(s, "sandbags", 5.0))
 
 
+## Виды объектов по номерам — в том же порядке, что в native/src/mapgen.cpp.
+const OBST_KINDS := ["house", "ruin", "bunker", "sandbags", "hedgehogs", "wreck_tank", "wreck_truck", "tent", "rock",
+	"hedgerow", "church", "barn", "glider", "reichstag", "flak_tower", "tram", "barricade", "factory", "chimney", "water_tank",
+	"fountain", "adobe", "teeth", "rubble", "ruin_tower", "tower", "ruin_block", "block"]
+const PROP_KINDS := ["tree", "fence", "palm", "bare", "apple", "spruce"]
+const BUSH_KINDS := ["bush", "fir", "shrub"]
+const DECOR_KINDS := ["hay", "crates", "barrels", "pole", "lamp"]
+const MAP_KEYS := ["prokhorovka", "alamein", "stalingrad", "normandy", "berlin", "ardennes"]
+
+
+## Расстановка в C++ (тот же генератор случайных чисел и те же правила): с тем же зерном карта
+## совпадает с generate(). Здесь из чисел собираются те же объекты.
+static func generate_native(core: Object, map_key: String, zones: Array, seed: int) -> Dictionary:
+	var zf := PackedFloat32Array()
+	for z in zones:
+		zf.append_array([z.pos.x, z.pos.y, z.r])
+	var res: Array = core.map_generate(maxi(0, MAP_KEYS.find(map_key)), seed, zf)
+	var ob: PackedFloat32Array = res[0]
+	var obst: Array = []
+	for k in range(0, ob.size(), 7):
+		obst.append(Obst.new(Rect2(ob[k], ob[k + 1], ob[k + 2], ob[k + 3]), OBST_KINDS[int(ob[k + 4])], ob[k + 5], ob[k + 6] != 0.0))
+	var bu: PackedFloat32Array = res[1]
+	var bushes: Array = []
+	var q := 0
+	while q + 4 < bu.size():
+		var b := Bush.new()
+		b.pos = Vector2(bu[q], bu[q + 1])
+		b.r = bu[q + 2]
+		b.kind = BUSH_KINDS[int(bu[q + 3])]
+		var ns := int(bu[q + 4])
+		q += 5
+		for i in ns:
+			b.subs.append(Vector3(bu[q], bu[q + 1], bu[q + 2]))
+			q += 3
+		bushes.append(b)
+	var pf: PackedFloat32Array = res[2]
+	var props: Array = []
+	for k in range(0, pf.size(), 6):
+		var pr := Prop.new()
+		pr.pos = Vector2(pf[k], pf[k + 1])
+		pr.r = pf[k + 2]
+		pr.kind = PROP_KINDS[int(pf[k + 3])]
+		pr.rot = pf[k + 4]
+		pr.scale = pf[k + 5]
+		props.append(pr)
+	var df: PackedFloat32Array = res[3]
+	var decor: Array = []
+	for k in range(0, df.size(), 4):
+		decor.append({"kind": DECOR_KINDS[int(df[k])], "pos": Vector2(df[k + 1], df[k + 2]), "rot": df[k + 3]})
+	var cf: PackedFloat32Array = res[4]
+	var craters: Array = []
+	for k in range(0, cf.size(), 3):
+		craters.append(Vector3(cf[k], cf[k + 1], cf[k + 2]))
+	var rf: PackedFloat32Array = res[5]
+	var roads: Array = []
+	q = 0
+	while q + 1 < rf.size():
+		var w := rf[q]
+		var n := int(rf[q + 1])
+		q += 2
+		var pts := PackedVector2Array()
+		for i in n:
+			pts.append(Vector2(rf[q], rf[q + 1]))
+			q += 2
+		roads.append({"pts": pts, "w": w})
+	var hf: PackedFloat32Array = res[6]
+	var hills: Array = []
+	for k in range(0, hf.size(), 7):
+		hills.append({"a": Vector2(hf[k], hf[k + 1]), "b": Vector2(hf[k + 2], hf[k + 3]), "r": hf[k + 4], "h": hf[k + 5], "core": hf[k + 6]})
+	var ln: PackedFloat32Array = res[7]
+	return _result(obst, bushes, props, decor, craters, roads, hills, {"hill": ln[0], "town": ln[1], "mid": ln[2]})
+
+
 static func generate(map_key: String, zones: Array, rng: RandomNumberGenerator) -> Dictionary:
 	match map_key:
 		"alamein":

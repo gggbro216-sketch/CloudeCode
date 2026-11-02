@@ -238,7 +238,11 @@ func _ready() -> void:
 	year = D.MAPS[map_key].year
 	zones = MapGen.make_zones(mode)
 	var t0 := Time.get_ticks_usec()
-	var data := MapGen.generate(map_key, zones, rng)
+	var data: Dictionary
+	if Native.available():
+		data = MapGen.generate_native(Native.shared(), map_key, zones, rng.randi())  # та же расстановка, в C++
+	else:
+		data = MapGen.generate(map_key, zones, rng)
 	_prof("load: расстановка", t0)
 	obst = data.obst
 	bushes = data.bushes
@@ -1085,7 +1089,8 @@ func _world_init() -> void:
 			1.0 if tk.cons.has("ext") else 0.0])
 	var k := PackedFloat32Array([D.CAP_RATE, D.SUP_GOAL, D.CONSUMABLES.repair.cd, D.CONSUMABLES.medkit.cd, D.CONSUMABLES.ext.cd])
 	if not core.world_init(P, st, k, trk_mm, TRK):
-		return  # движок не той версии: методы узлов не нашлись — остаётся прежний путь
+		_start_nav_thread()  # движок не той версии: методы узлов не нашлись — остаётся прежний путь
+		return
 	for tk: TankScript in tanks:
 		var lp: Array = loops.get(tk, [null, null, null])
 		var pm: Array = tk.paints
@@ -2507,6 +2512,8 @@ func _nav_worker() -> void:
 
 ## Готовые маршруты из фонового потока — ботам (в начале шага логики).
 func _take_routes() -> void:
+	if nav_mx == null:
+		return
 	nav_mx.lock()
 	var done := nav_done
 	nav_done = []
