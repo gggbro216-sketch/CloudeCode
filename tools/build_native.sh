@@ -6,7 +6,7 @@
 # из Godot 4.7 командой: godot --headless --dump-gdextension-interface
 set -e
 cd "$(dirname "$0")/../godot/native"
-SRC="src/glue.cpp src/core.cpp src/textures.cpp src/battle.cpp src/mapgen.cpp"
+SRC="src/glue.cpp src/core.cpp src/textures.cpp src/battle.cpp src/mapgen.cpp src/geom.cpp src/mapbuild.cpp"
 FLAGS="-std=c++17 -O2 -fPIC -shared -fvisibility=hidden -Iinclude -Wall"
 mkdir -p bin
 g++ $FLAGS $SRC -o bin/libsteelcore.linux.x86_64.so -static-libstdc++ -static-libgcc

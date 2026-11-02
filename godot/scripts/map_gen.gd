@@ -1054,7 +1054,13 @@ void fragment() {
 
 ## Строит сцену карты. Возвращает материалы кустов (для полупрозрачности), MultiMesh разрушаемых
 ## объектов и точки для дымов.
-static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Array, terra, hq: bool) -> Dictionary:
+## Сборка карты в C++ (SteelCore.map_build): геометрия построек, мелочи, кустов, деревьев и камешков,
+## коробки коллизии и расстановка деревьев. false — прежняя сборка в GDScript (для сверки).
+static var native_build := true
+
+
+## seed < 0 — случайная сборка; с одним зерном C++ и GDScript дают одни и те же сетки.
+static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Array, terra, hq: bool, seed := -1) -> Dictionary:
 	var winter: bool = D.MAPS[map_key].get("winter", false)
 	var desert := map_key == "alamein"
 	var g := Geo.Group.new()
@@ -1098,9 +1104,14 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		M.roof = Tx.call("slate", 1.0 / 14.0)
 	var win := TexLib.world_mat("windows", Vector3(1.0 / 52.0, 1.0 / 44.0, 1.0 / 52.0), sn, 0.45, Color(0.78, 0.78, 0.8) if winter else Color.WHITE)
 	var facade := TexLib.world_mat("facade", Vector3(1.0 / 40.0, 1.0 / 40.0, 1.0 / 40.0), 0.0, 0.5)
-	var hedge_blob := Geo.sphere(8, 4)
 	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	if seed < 0:
+		seed = randi()
+	rng.seed = seed
+	var core: Object = terra.core
+	if native_build and core and core.has_method("map_build"):
+		return _build_native(parent, body, data, map_key, zones, terra, hq, M, [win, facade], rng, seed)
+	var hedge_blob := Geo.sphere(8, 4)
 	var smokes: Array = []
 	var rock_base := Geo.sphere(7, 4)
 	var bag := Geo.box(Vector3(4.6, 2.2, 3.2))
@@ -1538,11 +1549,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	# кусты и ели: одна сетка на тон, шейдер делает «сетку» вокруг нашего танка
 	var bg := Geo.Group.new()
 	bg.extra = true
-	var sh := Shader.new()
-	sh.code = BUSH_SHADER
-	var bmat := ShaderMaterial.new()
-	bmat.shader = sh
-	bmat.set_shader_parameter("noise", TexLib.noise_texture())
+	var bmat := _bush_mat()
 	var ico := Geo.sphere(9, 5)
 	var cone := Geo.cyl(0.0, 0.5, 1.0, 7)
 	var tones := {"bush": [Color("424e33"), Color("5a6442")], "shrub": [Color("6f6a38"), Color("8a8448")], "fir": [Color("2a4630"), Color("e9eff2")]}
@@ -1642,7 +1649,17 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	if hq or not winter:
 		_grass(parent, data, terra, rng, map_key, hq)
 
-	# зоны захвата на ровных площадках
+	# зоны захвата на ровных площадках: кольцо, диск и флаг; флагшток — в общей сетке
+	for z in zones:
+		g.add(Geo.cyl(0.8, 0.8, 56), Geo.xf(Vector3(z.pos.x, terra.height(z.pos.x, z.pos.y) + 28, z.pos.y)), M.steel)
+	_zone_nodes(parent, zones, terra)
+
+	g.commit(parent, hq)
+	return {"bush_mat": bmat, "smokes": smokes}
+
+
+## Кольцо, диск и флаг зоны захвата.
+static func _zone_nodes(parent: Node3D, zones: Array, terra) -> void:
 	for z in zones:
 		var zp: Vector2 = z.pos
 		var zr: float = z.r
@@ -1673,7 +1690,6 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		dmi.position = Vector3(zp.x, zy + 0.6, zp.y)
 		dmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(dmi)
-		g.add(Geo.cyl(0.8, 0.8, 56), Geo.xf(Vector3(zp.x, zy + 28, zp.y)), M.steel)
 		var pivot := Node3D.new()
 		pivot.position = Vector3(zp.x, zy + 49, zp.y)
 		parent.add_child(pivot)
@@ -1691,7 +1707,173 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		pivot.add_child(fmi)
 		z.flag = pivot
 
-	g.commit(parent, hq)
+
+static func _bush_mat() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = BUSH_SHADER
+	var bmat := ShaderMaterial.new()
+	bmat.shader = sh
+	bmat.set_shader_parameter("noise", TexLib.noise_texture())
+	return bmat
+
+
+## Материалы частей разрушаемых объектов: вид → [материал части]* (в порядке частей).
+static func _prop_mats(map_key: String, M: Dictionary) -> Dictionary:
+	var trunk := mat(Color("4b3a2a"))
+	trunk.vertex_color_use_as_albedo = true
+	var needles := _foliage(Color("2e4632"), 6.0)
+	needles.set_shader_parameter("sway", 0.0)
+	var spruce: Array = [trunk, needles]
+	if D.MAPS[map_key].get("winter", false):
+		spruce.append(M.snow)
+	return {
+		"tree": [trunk, _foliage(Color("4a5634"), 12.0)], "apple": [trunk, _foliage(Color("515d38"), 8.0)],
+		"palm": [trunk, _foliage(Color("5a6634"), 28.0)], "bare": [mat(Color("3a302a"))], "spruce": spruce,
+		"fence": [mat(Color("6e5a40"))],
+	}
+
+
+## Сетка из группы, собранной в C++: [номера материалов, (вершины, нормали, uv, индексы[, цвета, uv2])×частей].
+## Гладкие части делят вершины между треугольниками (индексы), плоские — по три вершины на грань.
+static func _part_mesh(grp: Array, i: int, extra := false) -> ArrayMesh:
+	var per := 6 if extra else 4
+	var v: PackedVector3Array = grp[1 + i * per]
+	var mesh := ArrayMesh.new()
+	if v.is_empty():
+		return mesh
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = v
+	arrays[Mesh.ARRAY_NORMAL] = grp[2 + i * per]
+	arrays[Mesh.ARRAY_TEX_UV] = grp[3 + i * per]
+	arrays[Mesh.ARRAY_INDEX] = grp[4 + i * per]
+	if extra:
+		arrays[Mesh.ARRAY_COLOR] = grp[5 + i * per]
+		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Узлы сеток группы из C++ (как Geo.Group.commit): по одной на материал.
+static func _commit_native(parent: Node3D, grp: Array, mats: Array, shadows: bool, extra := false) -> void:
+	var ids: PackedInt32Array = grp[0]
+	for i in ids.size():
+		var mi := MeshInstance3D.new()
+		mi.mesh = _part_mesh(grp, i, extra)
+		mi.material_override = mats[ids[i]]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mi)
+
+
+## Сборка в C++: здесь только материалы, узлы, коллизия и трава.
+static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, map_key: String, zones: Array, terra, hq: bool,
+		M: Dictionary, wall_mats: Array, rng: RandomNumberGenerator, seed: int) -> Dictionary:
+	var core: Object = terra.core
+	var winter: bool = D.MAPS[map_key].get("winter", false)
+	var desert := map_key == "alamein"
+	var of := PackedFloat32Array()
+	for o in data.obst:
+		var r: Rect2 = o.r
+		of.append_array([OBST_KINDS.find(o.kind), r.position.x, r.position.y, r.size.x, r.size.y, o.ht, o.base])
+	var df := PackedFloat32Array()
+	for dc in data.decor:
+		var p: Vector2 = dc.pos
+		df.append_array([DECOR_KINDS.find(dc.kind), p.x, p.y, float(dc.get("rot", 0.0))])
+	var bf := PackedFloat32Array()
+	for bsh in data.bushes:
+		bf.append_array([bsh.pos.x, bsh.pos.y, bsh.r, maxi(0, BUSH_KINDS.find(bsh.kind)), bsh.subs.size()])
+		for sv: Vector3 in bsh.subs:
+			bf.append_array([sv.x, sv.y, sv.z])
+	var pf := PackedFloat32Array()
+	for pr in data.props:
+		pf.append_array([maxi(0, PROP_KINDS.find(pr.kind)), pr.pos.x, pr.pos.y, pr.rot, pr.scale])
+	var zf := PackedFloat32Array()
+	for z in zones:
+		zf.append_array([z.pos.x, z.pos.y, z.r])
+	var res: Array = core.map_build(maxi(0, MAP_KEYS.find(map_key)), PackedFloat32Array([1.0 if winter else 0.0, 1.0 if hq else 0.0]),
+		of, df, bf, pf, zf, seed)
+	# коллизия построек
+	phys_boxes = res[2]
+	for k in range(0, phys_boxes.size(), 7):
+		var cs := CollisionShape3D.new()
+		var bx := BoxShape3D.new()
+		bx.size = Vector3(phys_boxes[k + 3], phys_boxes[k + 4], phys_boxes[k + 5])
+		cs.shape = bx
+		cs.transform = Transform3D(Basis(Vector3.UP, phys_boxes[k + 6]), Vector3(phys_boxes[k], phys_boxes[k + 1], phys_boxes[k + 2]))
+		body.add_child(cs)
+	# кусты и ели
+	var bmat := _bush_mat()
+	_commit_native(parent, res[1], [bmat], hq, true)
+	# деревья и заборы: MultiMesh на часть, буфер (поза и оттенок) — из C++
+	var pm := _prop_mats(map_key, M)
+	var groups: Array = res[4]
+	var bufs: Array = res[5]
+	var mms := {}
+	for pk in ["tree", "apple", "palm", "bare", "spruce", "fence"]:
+		var ki := PROP_KINDS.find(pk)
+		var buf: PackedFloat32Array = bufs[ki]
+		var count := buf.size() / 16
+		if count == 0:
+			continue
+		var list: Array = []
+		var kg: Array = groups[ki]
+		for j in kg.size():
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
+			mm.mesh = _part_mesh(kg[j], 0)
+			mm.instance_count = count
+			mm.buffer = buf
+			var mmi := MultiMeshInstance3D.new()
+			mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
+			mmi.multimesh = mm
+			mmi.material_override = pm[pk][j]
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if hq else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			parent.add_child(mmi)
+			list.append(mm)
+		mms[pk] = list
+	var ys: PackedFloat32Array = res[6]
+	var counters := {}
+	for k in data.props.size():
+		var pr = data.props[k]
+		var i: int = counters.get(pr.kind, 0)
+		counters[pr.kind] = i + 1
+		pr.y = ys[k]
+		for mm in mms.get(pr.kind, []):
+			pr.mms.append([mm, i])
+	# камешки в пустыне: участки 4×4, дальние не рисуются
+	if desert:
+		var pebble := _part_mesh(res[8], 0)
+		var cs := (D.WS + 400.0) / 4.0
+		var per := (1500 if hq else 680) / 16
+		var pb: Array = res[7]
+		for q in range(0, pb.size(), 2):
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = pebble
+			mm.instance_count = per
+			mm.buffer = pb[q]
+			mm.visible_instance_count = pb[q + 1]
+			var mmi := MultiMeshInstance3D.new()
+			mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
+			mmi.multimesh = mm
+			mmi.material_override = M.rock
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mmi.visibility_range_end = cs * 0.75 + 380.0
+			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
+			parent.add_child(mmi)
+	# трава — тем же генератором с того места, где остановилась сборка
+	if hq or not winter:
+		rng.seed = seed
+		rng.state = res[9]
+		_grass(parent, data, terra, rng, map_key, hq)
+	_zone_nodes(parent, zones, terra)
+	var mats: Array = [M.plaster, M.brick, M.roof, M.concrete, M.concrete_d, M.wood, M.steel, M.rust, M.charred, M.sand,
+		M.rubble, M.rock, M.snow, M.canvas, M.olive, M.pole, M.earth, M.leaves, M.hay, M.adobe, M.crate, wall_mats[0], wall_mats[1]]
+	_commit_native(parent, res[0], mats, hq)
+	var smokes: Array = []
+	for sp: Vector3 in (res[3] as PackedVector3Array):
+		smokes.append(sp)
 	return {"bush_mat": bmat, "smokes": smokes}
 
 
@@ -1852,9 +2034,9 @@ static func _phys(body: StaticBody3D, center: Vector3, size: Vector3, yaw := 0.0
 ## Сетки разрушаемых объектов: для каждого вида — список [сетка, материал].
 static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	var out := {}
-	var trunk := mat(Color("4b3a2a"))
-	trunk.vertex_color_use_as_albedo = true
-	var leaves := _foliage(Color("4a5634"), 12.0)
+	var pm := _prop_mats(map_key, M)
+	var trunk: Material = pm.tree[0]
+	var leaves: Material = pm.tree[1]
 	var t := Geo.Group.new()
 	t.add(Geo.cyl(0.8, 1.4, 20, 7), Geo.xf(Vector3(0, 10, 0)), trunk)
 	for k in 3:
@@ -1873,7 +2055,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 		var a := k * 2.1
 		at.add(Geo.cyl(0.25, 0.5, 6, 5), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.9), Vector3(cos(a) * 1.8, 9.5, sin(a) * 1.8)), trunk)
 	var acrown := Geo.Group.new()
-	var aleaves := _foliage(Color("515d38"), 8.0)
+	var aleaves: Material = pm.apple[1]
 	for bl in [[0.0, 0.0, 14.0, 9.0], [4.5, 1.5, 12.5, 7.0], [-4.0, 2.0, 13.0, 7.0], [1.0, -4.5, 12.0, 6.5], [-1.5, -3.0, 16.5, 6.0]]:
 		acrown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.7, bl[3])), Vector3(bl[0], bl[2], bl[1])), aleaves, true)
 	out["apple"] = [[_one(at), trunk], [_one(acrown), aleaves]]
@@ -1881,13 +2063,13 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	for k in 4:
 		palm_t.add(Geo.cyl(0.7, 0.9, 8.5, 6), Geo.xf(Vector3(k * 0.6, 4 + k * 8, 0), Vector3(0, 0, -0.06 * k)), trunk)
 	var fronds := Geo.Group.new()
-	var green := _foliage(Color("5a6634"), 28.0)
+	var green: Material = pm.palm[1]
 	for k in 7:
 		var a := k * TAU / 7.0
 		fronds.add(Geo.box(Vector3(12, 0.4, 3)), Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.BACK, -0.45), Vector3(2.4 + cos(a) * 5, 34, sin(a) * 5)), green)
 	out["palm"] = [[_one(palm_t), trunk], [_one(fronds), green]]
 	var bare := Geo.Group.new()
-	var dark_wood := mat(Color("3a302a"))
+	var dark_wood: Material = pm.bare[0]
 	bare.add(Geo.cyl(0.6, 1.2, 22, 6), Geo.xf(Vector3(0, 11, 0)), dark_wood)
 	for k in 5:
 		var a := k * 1.3
@@ -1896,8 +2078,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	# ель: ярусы хвои конусами, жёсткая — не качается; на зимних картах верх лап в снегу
 	var sp_t := Geo.Group.new()
 	sp_t.add(Geo.cyl(0.6, 1.3, 14, 6), Geo.xf(Vector3(0, 7, 0)), trunk)
-	var needles := _foliage(Color("2e4632"), 6.0)
-	needles.set_shader_parameter("sway", 0.0)
+	var needles: Material = pm.spruce[1]
 	var sp_c := Geo.Group.new()
 	var sp_s := Geo.Group.new()
 	var tiers := [[7.0, 13.5, 22.0], [19.0, 11.0, 19.0], [30.0, 8.5, 16.0], [40.0, 6.0, 13.0], [49.0, 3.6, 11.0]]  # низ яруса, радиус, высота
@@ -1915,7 +2096,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	if D.MAPS[map_key].get("winter", false):
 		out["spruce"].append([_one(sp_s), M.snow])
 	var fence := Geo.Group.new()
-	var plank := mat(Color("6e5a40"))
+	var plank: Material = pm.fence[0]
 	for x: float in [-10.0, 10.0]:
 		fence.add(Geo.box(Vector3(1.2, 9, 1.2)), Geo.xf(Vector3(x, 4.5, 0)), plank)
 	for y: float in [3.0, 6.5]:

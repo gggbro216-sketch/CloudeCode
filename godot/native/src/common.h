@@ -139,3 +139,4 @@ void register_list(GDExtensionClassLibraryPtr lib, const char *cls, const Method
 void register_textures(GDExtensionClassLibraryPtr lib, const char *cls);
 void register_battle(GDExtensionClassLibraryPtr lib, const char *cls);
 void register_mapgen(GDExtensionClassLibraryPtr lib, const char *cls);
+void register_mapbuild(GDExtensionClassLibraryPtr lib, const char *cls);
