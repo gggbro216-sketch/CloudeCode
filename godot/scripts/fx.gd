@@ -1,6 +1,8 @@
 extends Node3D
 ## Эффекты частиц: вспышки выстрелов, искры, пыль, дым и взрывы. Частицы считает видеокарта
 ## (GPUParticles3D), одинаковые настройки делят один материал; далёкие разовые эффекты не создаются.
+## Разовые эффекты и вспышки света берутся из пулов и запускаются заново: за бой их тысячи, и
+## создавать и удалять каждый (буферы частиц, источник света, таймер) — лишняя работа драйверу.
 
 const TexLib = preload("res://scripts/textures.gd")
 
@@ -11,6 +13,11 @@ var ramps := {}
 var ramp_tex := {}
 var procs := {}  # настройки → ParticleProcessMaterial
 var far := 1600.0  # дальше от камеры разовые эффекты не рождаются
+const POOL_MAX := 8  # одинаковых разовых эффектов одновременно; сверх того перезапускается самый старый
+var pool := {}  # настройки разового эффекта → [[GPUParticles3D, до какого времени занят, мс], ...]
+const FLASHES := 6  # вспышек света одновременно
+const FLASH_T := 0.14
+var flashes: Array = []  # [OmniLight3D, сколько ещё светит, начальная яркость]
 var grow_curve := Curve.new()
 var shrink_curve := Curve.new()
 
@@ -91,6 +98,61 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 		var cam := get_viewport().get_camera_3d()
 		if cam and cam.global_position.distance_to(at) > far:
 			return null
+		var pp := _pooled(at, amount, life, ramp, vmin, vmax, spread, grav, size, add, grow, damp)
+		pp.basis = _aim(dir)
+		pp.restart()
+		return pp
+	var p := _make(amount, life, ramp, vmin, vmax, spread, grav, size, add, grow, damp, one_shot)
+	if parent:
+		parent.add_child(p)
+		p.position = at
+	else:
+		add_child(p)
+		p.global_position = at
+	p.basis = _aim(dir)
+	p.emitting = true
+	return p
+
+
+## Поворот излучателя, при котором его «вверх» смотрит по dir. Частицы летят вверх в осях
+## излучателя, поэтому направление (у выстрела оно каждый раз своё) не входит в настройки
+## материала: иначе каждый выстрел заводил бы новый материал и текстуру кривой до конца боя.
+static func _aim(dir: Vector3) -> Basis:
+	var d := dir.normalized()
+	if d.y > 0.9999 or d == Vector3.ZERO:
+		return Basis()
+	if d.y < -0.9999:
+		return Basis(Vector3.RIGHT, PI)
+	return Basis(Quaternion(Vector3.UP, d))
+
+
+## Разовый эффект из пула: свободный излучатель с теми же настройками переносится и запускается заново.
+func _pooled(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax: float, spread: float,
+		grav: float, size: float, add: bool, grow: bool, damp: float) -> GPUParticles3D:
+	var key := "%s|%s|%s|%s|%s|%s|%s|%s|%d|%s|%s" % [ramp, vmin, vmax, spread, grav, grow, damp, add, amount, life, size]
+	var list: Array = pool.get(key, [])
+	var now := Time.get_ticks_msec()
+	var pick: Array = []
+	for e: Array in list:
+		if int(e[1]) <= now:
+			pick = e
+			break
+		if pick.is_empty() or int(e[1]) < int(pick[1]):
+			pick = e
+	if pick.is_empty() or (int(pick[1]) > now and list.size() < POOL_MAX):
+		var np := _make(amount, life, ramp, vmin, vmax, spread, grav, size, add, grow, damp, true)
+		add_child(np)
+		pick = [np, 0]
+		list.append(pick)
+		pool[key] = list
+	var p: GPUParticles3D = pick[0]
+	p.global_position = at
+	pick[1] = now + int((life * 1.4 + 0.3) * 1000.0)
+	return p
+
+
+func _make(amount: int, life: float, ramp: String, vmin: float, vmax: float, spread: float,
+		grav: float, size: float, add: bool, grow: bool, damp: float, one_shot: bool) -> GPUParticles3D:
 	var p := GPUParticles3D.new()
 	p.draw_pass_1 = _quad(size, add)
 	p.amount = amount
@@ -98,32 +160,25 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 	p.one_shot = one_shot
 	p.explosiveness = 1.0 if one_shot else 0.0
 	p.randomness = 0.2
-	p.process_material = _proc(ramp, vmin, vmax, dir, spread, grav, grow, damp, add)
+	p.process_material = _proc(ramp, vmin, vmax, spread, grav, grow, damp, add)
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.local_coords = false
 	# частицы разлетаются далеко от излучателя: рамка видимости с запасом, иначе их отсекает камера
 	var r := maxf(vmax * life * 0.8, 20.0) + size
 	p.visibility_aabb = AABB(Vector3(-r, -r * 0.5, -r), Vector3(r * 2.0, r * 2.5, r * 2.0))
-	if parent:
-		parent.add_child(p)
-		p.position = at
-	else:
-		add_child(p)
-		p.global_position = at
-	p.emitting = true
 	if one_shot:
-		get_tree().create_timer(life + 0.6, false).timeout.connect(p.queue_free)
+		p.emitting = false
 	return p
 
 
 ## Материал поведения частиц; одинаковые настройки — один материал на всех.
-func _proc(ramp: String, vmin: float, vmax: float, dir: Vector3, spread: float, grav: float, grow: bool, damp: float,
+func _proc(ramp: String, vmin: float, vmax: float, spread: float, grav: float, grow: bool, damp: float,
 		add: bool) -> ParticleProcessMaterial:
-	var key := "%s|%s|%s|%s|%s|%s|%s|%s|%s" % [ramp, vmin, vmax, dir, spread, grav, grow, damp, add]
+	var key := "%s|%s|%s|%s|%s|%s|%s|%s" % [ramp, vmin, vmax, spread, grav, grow, damp, add]
 	if procs.has(key):
 		return procs[key]
 	var m := ParticleProcessMaterial.new()
-	m.direction = dir
+	m.direction = Vector3.UP
 	m.spread = spread
 	m.initial_velocity_min = vmin
 	m.initial_velocity_max = vmax
@@ -230,20 +285,41 @@ func pen_fire(at: Vector3) -> void:
 	flash(at, Color(1, 0.6, 0.3), 3.0, 50.0)
 
 
-## Кратковременная вспышка света.
+## Кратковременная вспышка света (источник из пула гаснет за FLASH_T и прячется до следующей).
 func flash(at: Vector3, col: Color, energy: float, rng: float) -> void:
-	if get_child_count() > 120:
-		return
-	var l := OmniLight3D.new()
+	var e: Array = []
+	for f: Array in flashes:
+		if float(f[1]) <= 0.0:
+			e = f
+			break
+	if e.is_empty():
+		if flashes.size() >= FLASHES:
+			return
+		var nl := OmniLight3D.new()
+		nl.shadow_enabled = false
+		add_child(nl)
+		e = [nl, 0.0, 0.0]
+		flashes.append(e)
+	var l: OmniLight3D = e[0]
 	l.light_color = col
 	l.light_energy = energy
 	l.omni_range = rng
-	l.shadow_enabled = false
-	add_child(l)
 	l.global_position = at
-	var tw := create_tween()
-	tw.tween_property(l, "light_energy", 0.0, 0.14)
-	tw.tween_callback(l.queue_free)
+	l.visible = true
+	e[1] = FLASH_T
+	e[2] = energy
+
+
+func _process(delta: float) -> void:
+	for f: Array in flashes:
+		if float(f[1]) <= 0.0:
+			continue
+		f[1] = float(f[1]) - delta
+		var l: OmniLight3D = f[0]
+		if float(f[1]) <= 0.0:
+			l.visible = false
+		else:
+			l.light_energy = float(f[2]) * float(f[1]) / FLASH_T
 
 
 ## Столб дыма над пожаром или вдали на горизонте.

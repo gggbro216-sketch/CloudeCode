@@ -18,6 +18,8 @@ const MIX := {
 var streams := {}
 var pool: Array = []
 var next := 0
+var pool2d: Array = []  # звуки «в голове»: несколько плееров по кругу, а не новый на каждый звук
+var next2d := 0
 var muted := false
 var ui: AudioStreamPlayer
 var wind: AudioStreamPlayer
@@ -42,6 +44,10 @@ func _ready() -> void:
 		p.panning_strength = 0.8
 		add_child(p)
 		pool.append(p)
+	for i in 4:
+		var p2 := AudioStreamPlayer.new()
+		add_child(p2)
+		pool2d.append(p2)
 	ui = AudioStreamPlayer.new()
 	add_child(ui)
 	wind = AudioStreamPlayer.new()
@@ -101,11 +107,10 @@ func play3d(id: String, at: Vector3, vol := 0.0, pitch := 1.0) -> void:
 func play2d(id: String, vol := 0.0) -> void:
 	if muted or not streams.has(id):
 		return
-	var p := AudioStreamPlayer.new()
+	var p: AudioStreamPlayer = pool2d[next2d]
+	next2d = (next2d + 1) % pool2d.size()
 	p.stream = streams[id]
 	p.volume_db = vol
-	add_child(p)
-	p.finished.connect(p.queue_free)
 	p.play()
 
 

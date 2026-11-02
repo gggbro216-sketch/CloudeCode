@@ -9,6 +9,8 @@ extends Node3D
 
 signal ended(stats: Dictionary)
 signal leave(again: bool)
+signal progress(stage: String)  # этап загрузки (для экрана загрузки)
+signal load_done
 
 const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
@@ -205,7 +207,21 @@ func setup(cfg: Dictionary) -> void:
 	side = D.TYPES[player_type].side
 
 
+var loaded := false  # загрузка закончилась: бой идёт (шаги логики и кадры включены)
+
+
+## Следующий этап загрузки: показать его и дать нарисоваться кадру экрана загрузки, а не держать
+## телефон в одном многосекундном кадре.
+func _stage(text: String) -> void:
+	progress.emit(text)
+	await get_tree().process_frame
+
+
 func _ready() -> void:
+	set_process(false)
+	set_physics_process(false)
+	visible = false
+	await _stage("Местность")
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var M0: Dictionary = D.MAPS[map_key]
@@ -233,6 +249,7 @@ func _ready() -> void:
 	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts, data.hills)
 	_prof("load: рельеф", t0)
 	lanes = data.lanes
+	await _stage("Дороги и укрытия")
 	t0 = Time.get_ticks_usec()
 	_build_hash()
 	_build_nav()
@@ -241,6 +258,7 @@ func _ready() -> void:
 	t0 = Time.get_ticks_usec()
 	terra.build(self, map_key, hq)
 	_prof("load: сетка рельефа", t0)
+	await _stage("Постройки и лес")
 	MapGen.TexLib.bump = hq
 	t0 = Time.get_ticks_usec()
 	var built := MapGen.build(self, data, map_key, zones, terra, hq)
@@ -265,6 +283,7 @@ func _ready() -> void:
 	trk_mm = _track_mm()
 	scorch_mm = _decal_mm(SCORCH, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
 	_make_shell_mm()
+	await _stage("Танки")
 	t0 = Time.get_ticks_usec()
 	_spawn()
 	_prof("load: танки", t0)
@@ -296,6 +315,11 @@ func _ready() -> void:
 		tk.sync_node()
 	_update_spotting()
 	_sync(0.0)
+	visible = true
+	loaded = true
+	set_process(true)
+	set_physics_process(true)
+	load_done.emit()
 
 
 const SKY_SHADER := """
@@ -305,6 +329,7 @@ uniform vec3 horizon_color : source_color;
 uniform vec3 ground_color : source_color;
 uniform sampler2D clouds : filter_linear_mipmap, repeat_enable;
 uniform float cover = 0.5;
+uniform float drift = 0.0;  // секунды боя: облака плывут; не TIME — с TIME движок каждый кадр пересчитывал бы отражения неба
 
 void sky() {
 	vec3 d = EYEDIR;
@@ -316,7 +341,7 @@ void sky() {
 	float sd = max(dot(d, LIGHT0_DIRECTION), 0.0);
 	col += LIGHT0_COLOR * (pow(sd, 900.0) * 6.0 + pow(sd, 12.0) * 0.18) * (1.0 - cover * 0.7);
 	if (h > 0.005) {
-		vec2 uv = d.xz / (h + 0.06) * 0.22 + vec2(TIME * 0.003, TIME * 0.001);
+		vec2 uv = d.xz / (h + 0.06) * 0.22 + vec2(drift * 0.003, drift * 0.001);
 		float c = texture(clouds, uv).r * 0.7 + texture(clouds, uv * 2.7 + 0.3).r * 0.3;
 		float k = smoothstep(1.0 - cover - 0.05, 1.0 - cover + 0.35, c) * smoothstep(0.0, 0.18, h);
 		// освещённая верхушка и тёмное брюхо облака
@@ -330,11 +355,15 @@ void sky() {
 """
 
 
+var sky_mat: ShaderMaterial
+var sky_drift := 0.0  # когда последний раз сдвигали облака (секунды боя)
+
+
 func _make_env() -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	var sky_sh := Shader.new()
 	sky_sh.code = SKY_SHADER
-	var sky_mat := ShaderMaterial.new()
+	sky_mat = ShaderMaterial.new()
 	sky_mat.shader = sky_sh
 	sky_mat.set_shader_parameter("top_color", Color(M.sky_top))
 	sky_mat.set_shader_parameter("horizon_color", Color(M.sky_hor))
@@ -3257,6 +3286,10 @@ func _sync(dt: float) -> void:
 	if wreck_check <= 0.0:
 		wreck_check = 0.5
 		_wrecks_update()
+	if absf(clock - sky_drift) >= 2.0:
+		# облака сдвигаются раз в 2 с (на глаз — плавно: за 2 с они проходят доли пикселя)
+		sky_drift = clock
+		sky_mat.set_shader_parameter("drift", clock)
 	# время для шейдеров — между шагами логики, чтобы трассеры летели плавно
 	var frac := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
 	var now_v := clock + frac * speed / float(Engine.physics_ticks_per_second)

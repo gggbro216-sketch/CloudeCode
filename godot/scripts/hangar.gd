@@ -555,19 +555,43 @@ func _build_ui() -> void:
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(head)
 	if not main.last_crash.is_empty():
-		# прошлый запуск оборвался в бою — что известно (один раз)
+		# прошлый запуск оборвался — что известно (один раз): где, сколько было памяти по боям
 		var c: Dictionary = main.last_crash
 		main.last_crash = {}
 		var n := int(c.get("battles", 0))
-		var where := "при загрузке боя №%d" % n if c.get("state") == "battle_loading" else "в бою №%d на %d-й секунде" % [n, int(c.get("clock", 0))]
-		var cl := UI.label("Прошлый запуск оборвался %s (%s, %s). Память: ОЗУ %d МБ, видео %d МБ, %d кадров/с." % [
+		var where := "в бою №%d на %d-й секунде" % [n, int(c.get("clock", 0))]
+		if c.get("state") == "battle_loading":
+			where = "при загрузке боя №%d" % n
+		elif c.get("state") == "hangar_loading":
+			where = "при загрузке ангара после боя №%d" % n
+		var mem := "Память: Godot %d МБ, процесс %s МБ, видео %d МБ, свободно в системе %d МБ; %d кадров/с, худший кадр %d мс." % [
+			int(c.get("ram_mb", 0)), str(c.get("proc_mb", "?")), int(c.get("video_mb", 0)), int(c.get("free_mb", 0)),
+			int(c.get("fps", 0)), int(c.get("worst_ms", 0))]
+		var hist: Array = c.get("hist", [])
+		if not hist.is_empty():
+			var parts: Array = []
+			for h in hist:
+				parts.append("№%d %d→%d" % [int(h[0]), int(h[2]), int(h[3])])
+			mem += " Процесс по боям (после загрузки→пик, МБ): " + ", ".join(parts) + "."
+		var crash_row := HBoxContainer.new()
+		crash_row.add_theme_constant_override("separation", 10)
+		vb.add_child(crash_row)
+		var cl := UI.label("Прошлый запуск оборвался %s (%s, %s). %s" % [
 			where, D.MAPS.get(c.get("map", ""), {}).get("name", c.get("map", "?")),
-			D.MODES.get(c.get("mode", ""), {}).get("name", ""), int(c.get("ram_mb", 0)), int(c.get("video_mb", 0)), int(c.get("fps", 0))],
-			14, D.AMBER)
+			D.MODES.get(c.get("mode", ""), {}).get("name", ""), mem], 14, D.AMBER)
 		cl.add_theme_constant_override("outline_size", 6)
 		cl.add_theme_color_override("font_outline_color", Color(0.06, 0.07, 0.05, 0.9))
 		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		vb.add_child(cl)
+		cl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		crash_row.add_child(cl)
+		var copy := Button.new()
+		copy.text = "СКОПИРОВАТЬ ОТЧЁТ"
+		copy.custom_minimum_size = Vector2(0, 44)
+		copy.add_theme_font_size_override("font_size", 14)
+		copy.pressed.connect(func():
+			DisplayServer.clipboard_set(_crash_report(c))
+			copy.text = "СКОПИРОВАНО")
+		crash_row.add_child(copy)
 	for t in [["СТАЛЬНОЙ", UI.TEXT], ["ШТУРМ", D.AMBER]]:
 		var tl := UI.label(t[0], 30, t[1])
 		tl.add_theme_constant_override("outline_size", 8)
@@ -965,6 +989,25 @@ func _show_last() -> void:
 	toast.visible = true
 	main.save.last = {}
 	main.persist()
+
+
+## Отчёт о прошлом запуске для разработчика: журнал сеанса и последние строки журнала движка.
+static func _crash_report(c: Dictionary) -> String:
+	var out := "Стальной Штурм v%s, %s\n%s\n" % [ProjectSettings.get_setting("application/config/version", ""),
+		OS.get_model_name(), JSON.stringify(c)]
+	# прошлый журнал: при запуске движок переименовал его в godot<дата>.log
+	var dir := DirAccess.open("user://logs")
+	if dir:
+		var names: Array = []
+		for f in dir.get_files():
+			if f.begins_with("godot") and f != "godot.log" and f.ends_with(".log"):
+				names.append(f)
+		names.sort()
+		if not names.is_empty():
+			var lines := FileAccess.get_file_as_string("user://logs/" + String(names[-1])).split("\n")
+			out += "--- %s, последние строки ---\n" % names[-1]
+			out += "\n".join(lines.slice(maxi(0, lines.size() - 80)))
+	return out
 
 
 static func _num(v) -> String:

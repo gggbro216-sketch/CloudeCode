@@ -3,6 +3,7 @@ extends Node
 ## серебро и опыт, исследованные и купленные танки, модули и снаряжение.
 
 const D = preload("res://scripts/data.gd")
+const UI = preload("res://scripts/ui.gd")
 const HangarScript = preload("res://scripts/hangar.gd")
 const BattleScript = preload("res://scripts/battle.gd")
 const SAVE_PATH := "user://save.json"
@@ -28,38 +29,80 @@ func _ready() -> void:
 	show_hangar()
 
 
-# ---------- Журнал сеанса: если игра оборвётся в бою, при следующем запуске ангар скажет, где ----------
+# ---------- Журнал сеанса: если игра оборвётся, при следующем запуске ангар скажет, где и сколько было памяти ----------
 
 const SESSION_PATH := "user://session.json"
-var session := {"state": "hangar", "battles": 0}
+var session := {"state": "hangar", "battles": 0, "hist": []}
 var last_crash := {}  # прошлый запуск оборвался в бою: что о нём известно (показывает ангар)
 var _session_t := 0.0
+var _worst_frame := 0.0  # самый долгий кадр с прошлой отметки, с
 
 
 func _session_start() -> void:
 	if FileAccess.file_exists(SESSION_PATH):
 		var d = JSON.parse_string(FileAccess.get_file_as_string(SESSION_PATH))
-		if d is Dictionary and String(d.get("state", "")).begins_with("battle"):
+		if d is Dictionary and (String(d.get("state", "")).begins_with("battle") or d.get("state") == "hangar_loading"):
 			last_crash = d
 	session_mark("hangar")
 
 
-## Состояние сеанса и память — в файл (маленький, пишется при смене состояния и раз в 20 с в бою).
+## Память всего процесса (вместе с драйвером видеокарты и C++), МБ; -1 — система не сообщает.
+static func process_mb() -> int:
+	var f := FileAccess.open("/proc/self/status", FileAccess.READ)
+	if f == null:
+		return -1
+	for i in 64:
+		var l := f.get_line()
+		if l.begins_with("VmRSS:"):
+			return int(l.split(":")[1].strip_edges().split(" ")[0]) / 1024
+		if f.eof_reached():
+			break
+	return -1
+
+
+## Состояние сеанса и память — в файл (маленький, пишется при смене состояния и раз в 20 с в бою)
+## и строкой в журнал движка (user://logs): по нему видно, росла ли память от боя к бою.
 func session_mark(state: String, extra := {}) -> void:
 	session.state = state
 	session.merge(extra, true)
 	session.ram_mb = roundi(OS.get_static_memory_usage() / 1048576.0)
+	session.proc_mb = process_mb()
 	session.video_mb = roundi(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0)
+	var mi := OS.get_memory_info()
+	session.free_mb = roundi(float(mi.get("available", -1048576)) / 1048576.0)
 	session.fps = roundi(Engine.get_frames_per_second())
+	session.worst_ms = roundi(_worst_frame * 1000.0)
+	session.nodes = int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	session.objects = int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	_worst_frame = 0.0
 	if battle:
 		session.clock = roundi(battle.clock)
+	var hist: Array = session.hist
+	if state == "battle" and not hist.is_empty():
+		# пик памяти текущего боя
+		var h: Array = hist[-1]
+		h[3] = maxi(int(h[3]), int(session.proc_mb))
+		h[4] = maxi(int(h[4]), int(session.ram_mb))
+		h[5] = maxi(int(h[5]), int(session.video_mb))
+	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ, видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d" % [
+		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.video_mb,
+		session.free_mb, session.fps, session.worst_ms, session.nodes])
 	var f := FileAccess.open(SESSION_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(session))
 
 
+## Новая строка истории боёв: [номер, карта, память процесса после загрузки, её пик, пик Godot, пик видео].
+func _hist_begin(map_key: String) -> void:
+	var hist: Array = session.hist
+	hist.append([int(session.battles), map_key, process_mb(), 0, 0, 0])
+	while hist.size() > 6:
+		hist.pop_front()
+
+
 func _process(delta: float) -> void:
-	if battle and String(session.state).begins_with("battle"):
+	_worst_frame = maxf(_worst_frame, delta)
+	if battle and String(session.state) == "battle":
 		_session_t -= delta
 		if _session_t <= 0.0:
 			_session_t = 20.0
@@ -237,25 +280,89 @@ func toggle_cons(name: String) -> void:
 
 # ---------- Ангар и бой ----------
 
-func show_hangar() -> void:
-	if battle:
-		battle.queue_free()
-		battle = null
-	session_mark("hangar")
-	if hangar:
-		hangar.queue_free()
-	hangar = HangarScript.new()
-	hangar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ангар живёт в кадрах, не в шагах физики
-	hangar.main = self
-	add_child(hangar)
+var _switching := false  # идёт смена ангара и боя: повторное нажатие не начнёт вторую
+var _load_layer: CanvasLayer
+var _load_title: Label
+var _load_sub: Label
+var _load_stage: Label
 
 
-func start_battle() -> void:
+## Старая сцена уходит целиком до того, как строится новая: в памяти никогда нет двух боёв
+## (или ангара и боя) сразу, а их ресурсы движок и видеокарта успевают освободить за пару кадров.
+func _clear_scene() -> void:
+	if hangar == null and battle == null:
+		return
 	if hangar:
 		hangar.queue_free()
 		hangar = null
 	if battle:
 		battle.queue_free()
+		battle = null
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+
+## Экран загрузки поверх всего: пока строится бой, игра показывает, что она жива и чем занята.
+func _show_loading(title: String, sub: String) -> void:
+	if _load_layer == null:
+		_load_layer = CanvasLayer.new()
+		_load_layer.layer = 100
+		add_child(_load_layer)
+		var bg := ColorRect.new()
+		bg.color = Color(UI.BG)
+		bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_STOP
+		_load_layer.add_child(bg)
+		var cc := CenterContainer.new()
+		cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_load_layer.add_child(cc)
+		var vb := VBoxContainer.new()
+		vb.add_theme_constant_override("separation", 10)
+		cc.add_child(vb)
+		_load_title = UI.label("", 34, D.AMBER)
+		_load_sub = UI.label("", 18, UI.TEXT)
+		_load_stage = UI.label("", 15, UI.DIM)
+		for l: Label in [_load_title, _load_sub, _load_stage]:
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vb.add_child(l)
+	_load_title.text = title
+	_load_sub.text = sub
+	_load_stage.text = ""
+	_load_layer.visible = true
+
+
+func _loading_stage(text: String) -> void:
+	if _load_stage:
+		_load_stage.text = text
+
+
+func _hide_loading() -> void:
+	if _load_layer:
+		_load_layer.visible = false
+
+
+func show_hangar() -> void:
+	if _switching:
+		return
+	_switching = true
+	if battle:
+		_show_loading("АНГАР", "")
+	await _clear_scene()
+	session_mark("hangar_loading")
+	hangar = HangarScript.new()
+	hangar.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ангар живёт в кадрах, не в шагах физики
+	hangar.main = self
+	add_child(hangar)
+	session_mark("hangar")
+	_hide_loading()
+	_switching = false
+
+
+func start_battle() -> void:
+	if _switching:
+		return
+	_switching = true
 	var map_key: String = save.map
 	if map_key == "random":
 		# случайная из карт, где воевал выбранный танк
@@ -263,15 +370,25 @@ func start_battle() -> void:
 		if keys.is_empty():
 			keys = D.MAPS.keys()
 		map_key = keys[randi() % keys.size()]
+	_show_loading("ЗАГРУЗКА БОЯ", "%s · %s" % [D.MODES[save.mode].name, D.MAPS[map_key].name])
+	await _clear_scene()
 	session.battles = int(session.battles) + 1
 	session_mark("battle_loading", {"map": map_key, "mode": save.mode, "tank": save.tank, "clock": 0})
-	_session_t = 5.0
-	battle = BattleScript.new()
-	battle.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history,
+	_session_t = 20.0
+	var b: Node = BattleScript.new()
+	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history,
 		"mods": top_config(save.tank), "cons": save.cons.duplicate()})
-	battle.ended.connect(_on_ended)
-	battle.leave.connect(_on_leave)
-	add_child(battle)
+	b.ended.connect(_on_ended)
+	b.leave.connect(_on_leave)
+	b.progress.connect(_loading_stage)
+	battle = b
+	add_child(b)
+	if not b.loaded:
+		await b.load_done
+	_hist_begin(map_key)
+	session_mark("battle")
+	_hide_loading()
+	_switching = false
 
 
 func _on_ended(st: Dictionary) -> void:
@@ -303,10 +420,10 @@ func _on_leave(again: bool) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		# кнопка «Назад» на Android: пауза в бою
-		if battle and not battle.over:
+		if battle and battle.loaded and not battle.over:
 			battle.set_paused(not battle.paused)
 	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED:
-		if battle and not battle.over and not battle.paused:
+		if battle and battle.loaded and not battle.over and not battle.paused:
 			battle.set_paused(true)
 		# свёрнутую игру система может закрыть — это не авария
 		if what == NOTIFICATION_APPLICATION_PAUSED and String(session.state).begins_with("battle"):

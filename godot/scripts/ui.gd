@@ -65,14 +65,27 @@ static func label(text: String, size := 20, color := TEXT) -> Label:
 	return l
 
 
-## Отступы от выреза экрана и системных панелей (только на телефоне).
+static var _safe_ms := -1000000  # когда последний раз спрашивали систему
+static var _safe_px := Vector4.ZERO  # отступы в пикселях окна
+static var _safe_w := 0
+
+
+## Отступы от выреза экрана и системных панелей (только на телефоне). Система спрашивается
+## не чаще раза в секунду: на Android это вызов в Java, а HUD и ангар просят отступы каждый кадр.
 static func safe(ctrl: Control) -> Vector4:
 	var os_name := OS.get_name()
 	if os_name != "Android" and os_name != "iOS":
 		return Vector4.ZERO
-	var sa := DisplayServer.get_display_safe_area()
-	var ws := DisplayServer.window_get_size()
-	if ws.x <= 0 or sa.size.x <= 0:
+	var now := Time.get_ticks_msec()
+	if now - _safe_ms > 1000:
+		_safe_ms = now
+		var sa := DisplayServer.get_display_safe_area()
+		var ws := DisplayServer.window_get_size()
+		_safe_w = ws.x
+		_safe_px = Vector4.ZERO
+		if ws.x > 0 and sa.size.x > 0:
+			_safe_px = Vector4(sa.position.x, sa.position.y, ws.x - sa.end.x, ws.y - sa.end.y)
+	if _safe_w <= 0:
 		return Vector4.ZERO
-	var k := ctrl.get_viewport_rect().size.x / float(ws.x)
-	return Vector4(sa.position.x * k, sa.position.y * k, (ws.x - sa.end.x) * k, (ws.y - sa.end.y) * k).clamp(Vector4.ZERO, Vector4(120, 80, 120, 80))
+	var k := ctrl.get_viewport_rect().size.x / float(_safe_w)
+	return (_safe_px * k).clamp(Vector4.ZERO, Vector4(120, 80, 120, 80))
