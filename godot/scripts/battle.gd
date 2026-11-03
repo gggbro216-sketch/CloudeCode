@@ -237,12 +237,17 @@ func _ready() -> void:
 	road_mu = 0.5 if surf == "snow" else 0.9
 	year = D.MAPS[map_key].year
 	zones = MapGen.make_zones(mode)
+	# карта постоянная: зерно карты и зоны всех режимов (раскладка не зависит от режима)
+	var map_seed := MapGen.map_seed(map_key)
+	var gen_zones := MapGen.all_zones()
 	var t0 := Time.get_ticks_usec()
 	var data: Dictionary
 	if Native.available():
-		data = MapGen.generate_native(Native.shared(), map_key, zones, rng.randi())  # та же расстановка, в C++
+		data = MapGen.generate_native(Native.shared(), map_key, gen_zones, map_seed)  # та же расстановка, в C++
 	else:
-		data = MapGen.generate(map_key, zones, rng)
+		var map_rng := RandomNumberGenerator.new()
+		map_rng.seed = map_seed
+		data = MapGen.generate(map_key, gen_zones, map_rng)
 	_prof("load: расстановка", t0)
 	obst = data.obst
 	bushes = data.bushes
@@ -256,7 +261,8 @@ func _ready() -> void:
 	for pr in props:
 		ao_pts.append(Vector3(pr.pos.x, pr.pos.y, 9.0 if pr.kind == "fence" else 14.0))
 	t0 = Time.get_ticks_usec()
-	terra.generate(map_key, zones, obst, data.craters, data.roads, ao_pts, data.hills)
+	terra.map_seed = map_seed
+	terra.generate(map_key, gen_zones, obst, data.craters, data.roads, ao_pts, data.hills)
 	_prof("load: рельеф", t0)
 	lanes = data.lanes
 	await _stage("Дороги и укрытия")
@@ -272,8 +278,10 @@ func _ready() -> void:
 	await _stage("Постройки и лес")
 	MapGen.TexLib.bump = hq
 	t0 = Time.get_ticks_usec()
-	var built := MapGen.build(self, data, map_key, zones, terra, hq)
+	var built := MapGen.build(self, data, map_key, zones, terra, hq, map_seed)
 	_prof("load: 3D карты", t0)
+	if core and core.has_method("rng_seed"):
+		core.rng_seed(rng.randi())  # карта постоянная, а бой — нет
 	if core:
 		core.boxes_set(MapGen.phys_boxes)
 	bush_mat = built.bush_mat

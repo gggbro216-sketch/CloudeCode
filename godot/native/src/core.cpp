@@ -452,7 +452,7 @@ METHOD(terrain_generate) {
 	self->cell = (float)a.num(10);
 	self->ws = (float)a.num(11);
 	if (seeds.size() < 3) seeds.resize(3, 0);
-	self->rng ^= (uint32_t)seeds[0] * 2654435761u ^ (uint32_t)seeds[1];
+	self->rng = (uint32_t)seeds[0] * 2654435761u ^ (uint32_t)seeds[1];  // карта постоянная: тот же генератор для маски земли
 	if (self->rng == 0) self->rng = 0x9e3779b9u;
 	int N = self->tn;
 	float ws = self->ws;
@@ -563,6 +563,13 @@ METHOD(terrain_generate) {
 	}
 	self->build_cmax();
 	ret_f32(r, bases.data(), bases.size());
+}
+
+// Новое зерно генератора боя (после постоянной карты бой снова случаен)
+METHOD(rng_seed) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	self->rng = (uint32_t)a.integer(0) | 1u;
 }
 
 METHOD(terrain_heights) {
@@ -3252,7 +3259,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "terrain_set", terrain_set }, { "height", height }, { "terrain_generate", terrain_generate },
 		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_collision", terrain_collision },
 		{ "obst_set", obst_set }, { "blocked_at", blocked_at }, { "straight", straight }, { "boxes_set", boxes_set },
-		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add },
+		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed },
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },

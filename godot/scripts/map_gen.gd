@@ -74,6 +74,24 @@ static func make_zones(mode: String) -> Array:
 	return out
 
 
+## Карты постоянные: у каждой своё зерно — расстановка, рельеф, маска земли, постройки, кусты, трава
+## и камешки одни и те же в каждом бою.
+const MAP_SALT := 1943
+
+
+static func map_seed(map_key: String) -> int:
+	return (map_key.hash() ^ MAP_SALT) & 0x3fffffff
+
+
+## Зоны всех режимов разом: места вокруг них свободны и выровнены, поэтому раскладка карты одна
+## во всех режимах (меняются только флаги баз).
+static func all_zones() -> Array:
+	var out: Array = []
+	for m in ["standard", "encounter", "supremacy"]:
+		out.append_array(make_zones(m))
+	return out
+
+
 static func _zone(p: Vector2, r: float, side: int, label: String) -> Zone:
 	var z := Zone.new()
 	z.pos = p

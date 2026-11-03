@@ -17,6 +17,13 @@ var noise_img: Image  # шум шейдера земли — по нему же 
 var core: Object = null  # C++ этого боя (SteelCore, см. native.gd); null — всё считает GDScript
 
 
+var map_seed := 0  # зерно карты (карты постоянные): шум рельефа и маска земли от него
+
+
+func _seed(k: int) -> int:
+	return hash([map_seed, k]) & 0x3fffffff
+
+
 func height(x: float, z: float) -> float:
 	if core:
 		return core.height(x, z)
@@ -141,7 +148,7 @@ func _generate_native(map_key: String, zones: Array, obst: Array, craters: Array
 	var cf := PackedFloat32Array()
 	for cr in craters:
 		cf.append_array([cr.x, cr.y, cr.z])
-	var bases: PackedFloat32Array = core.terrain_generate(PackedInt32Array([randi(), randi(), randi()]), float(M.relief),
+	var bases: PackedFloat32Array = core.terrain_generate(PackedInt32Array([_seed(1), _seed(2), _seed(3)]), float(M.relief),
 		map_key == "alamein", float(M.get("edge", 1.0)), hf, zf, of, cf, N, ORIGIN, CELL, D.WS)
 	h = core.terrain_heights()
 	for i in obst.size():
@@ -153,14 +160,14 @@ func _generate_heights(map_key: String, zones: Array, obst: Array, craters: Arra
 	var relief: float = M.relief
 	var ws := D.WS
 	var big := FastNoiseLite.new()
-	big.seed = randi()
+	big.seed = _seed(1)
 	big.frequency = 0.0028
 	big.fractal_octaves = 3
 	var small := FastNoiseLite.new()
-	small.seed = randi()
+	small.seed = _seed(2)
 	small.frequency = 0.02
 	var ridge := FastNoiseLite.new()
-	ridge.seed = randi()
+	ridge.seed = _seed(3)
 	ridge.frequency = 0.0016
 	ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
 	h.resize((N + 1) * (N + 1))
@@ -245,7 +252,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	mask = Image.create(S, S, false, Image.FORMAT_RGBA8)
 	mask.fill(Color(0, 0, 0, 1))
 	var rng := RandomNumberGenerator.new()
-	rng.randomize()
+	rng.seed = _seed(4)
 	if map_key == "prokhorovka" or map_key == "normandy":
 		# поля с бороздами
 		for f in 24:
