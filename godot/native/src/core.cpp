@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <queue>
+#include <string>
 
 
 
@@ -318,10 +319,32 @@ std::vector<V2> Core::nav_path(V2 from, V2 to, bool safe, float r) const {
 	std::vector<int> ids;
 	int start = sy * nn + sx, end = ey * nn + ex;
 	if (!solid[start] && !solid[end]) {
+		// буферы A* живут между вызовами (у каждого потока свои) и не очищаются: узел «свежий», если его
+		// поколение равно текущему. Раньше каждый запрос заводил по ~1,2 МБ (g, parent, closed на всю сетку).
 		size_t total = (size_t)nn * nn;
-		std::vector<float> g(total, FLT_MAX);
-		std::vector<int> parent(total, -1);
-		std::vector<uint8_t> closed(total, 0);
+		struct Scratch {
+			std::vector<float> g;
+			std::vector<int> parent;
+			std::vector<uint32_t> gen_g, gen_closed;
+			uint32_t gen = 0;
+		};
+		static thread_local Scratch sc;
+		if (sc.g.size() != total) {
+			sc.g.assign(total, 0.0f);
+			sc.parent.assign(total, -1);
+			sc.gen_g.assign(total, 0);
+			sc.gen_closed.assign(total, 0);
+			sc.gen = 0;
+		}
+		if (++sc.gen == 0) {
+			std::fill(sc.gen_g.begin(), sc.gen_g.end(), 0u);
+			std::fill(sc.gen_closed.begin(), sc.gen_closed.end(), 0u);
+			sc.gen = 1;
+		}
+		const uint32_t gen = sc.gen;
+		auto gval = [&](int id) { return sc.gen_g[id] == gen ? sc.g[id] : FLT_MAX; };
+		auto is_closed = [&](int id) { return sc.gen_closed[id] == gen; };
+		auto parent_of = [&](int id) { return sc.gen_g[id] == gen ? sc.parent[id] : -1; };
 		struct Node {
 			float f, g;
 			int id;
@@ -329,7 +352,9 @@ std::vector<V2> Core::nav_path(V2 from, V2 to, bool safe, float r) const {
 		// как у AStarGrid2D: меньший f; при равенстве — больший g (ближе к цели)
 		auto cmp = [](const Node &a, const Node &b) { return a.f > b.f || (a.f == b.f && a.g < b.g); };
 		std::priority_queue<Node, std::vector<Node>, decltype(cmp)> open(cmp);
-		g[start] = 0.0f;
+		sc.gen_g[start] = gen;
+		sc.g[start] = 0.0f;
+		sc.parent[start] = -1;
 		open.push({ octile(ex - sx, ey - sy), 0.0f, start });
 		int best = start;
 		float best_h = octile(ex - sx, ey - sy), best_g = 0.0f;
@@ -337,10 +362,10 @@ std::vector<V2> Core::nav_path(V2 from, V2 to, bool safe, float r) const {
 		while (!open.empty()) {
 			Node cur = open.top();
 			open.pop();
-			if (closed[cur.id]) {
+			if (is_closed(cur.id)) {
 				continue;
 			}
-			closed[cur.id] = 1;
+			sc.gen_closed[cur.id] = gen;
 			int cx = cur.id % nn, cy = cur.id / nn;
 			float hh = octile(ex - cx, ey - cy);
 			if (hh < best_h || (hh <= best_h && cur.g < best_g)) {
@@ -362,23 +387,24 @@ std::vector<V2> Core::nav_path(V2 from, V2 to, bool safe, float r) const {
 						continue;
 					}
 					int nid = ny * nn + nx;
-					if (solid[nid] || closed[nid]) {
+					if (solid[nid] || is_closed(nid)) {
 						continue;
 					}
 					if (dx && dy && (solid[cy * nn + nx] || solid[ny * nn + cx])) {
 						continue;
 					}
 					float ng = cur.g + octile(dx, dy) * w[nid];
-					if (ng < g[nid]) {
-						g[nid] = ng;
-						parent[nid] = cur.id;
+					if (ng < gval(nid)) {
+						sc.gen_g[nid] = gen;
+						sc.g[nid] = ng;
+						sc.parent[nid] = cur.id;
 						open.push({ ng + octile(ex - nx, ey - ny), ng, nid });
 					}
 				}
 			}
 		}
 		int tail = found ? end : best;
-		for (int c = tail; c != -1; c = parent[c]) {
+		for (int c = tail; c != -1; c = parent_of(c)) {
 			ids.push_back(c);
 			if (c == start) {
 				break;
@@ -3340,6 +3366,94 @@ METHOD(cores_alive) {
 	ret_int(r, g_cores.load());
 }
 
+// Память процесса из /proc (на Android FileAccess движка в /proc не пускает). Ответ — числа:
+// 0 RSS, 1 пик RSS, 2 виртуальная, 3 swap, 4 потоков, 5 открытых файлов, 6 PSS всего, 7 свободно в системе
+// (всё в МБ, кроме счётчиков), 8–13 PSS по категориям (из smaps, только при full): куча, Java/ART,
+// библиотеки, память видеодрайвера (mali/kgsl/dmabuf/ion/gralloc), ассеты (apk/pck/шрифты), прочее.
+#include <cstdio>
+#include <cstring>
+#ifndef __EMSCRIPTEN__
+#include <dirent.h>
+#endif
+static long proc_kb(const char *text, const char *key) {
+	const char *p = strstr(text, key);
+	if (!p) return -1;
+	return atol(p + strlen(key));
+}
+static std::string slurp(const char *path, size_t cap) {
+	std::string out;
+	FILE *f = fopen(path, "r");
+	if (!f) return out;
+	char buf[4096];
+	size_t n;
+	while (out.size() < cap && (n = fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+	fclose(f);
+	return out;
+}
+METHOD(proc_stats) {
+	SELF;
+	float o[14];
+	for (float &v : o) v = -1.0f;
+#ifndef __EMSCRIPTEN__
+	bool full = a.n > 0 && a.boolean(0);
+	std::string st = slurp("/proc/self/status", 16384);
+	if (!st.empty()) {
+		long v;
+		if ((v = proc_kb(st.c_str(), "VmRSS:")) >= 0) o[0] = v / 1024.0f;
+		if ((v = proc_kb(st.c_str(), "VmHWM:")) >= 0) o[1] = v / 1024.0f;
+		if ((v = proc_kb(st.c_str(), "VmSize:")) >= 0) o[2] = v / 1024.0f;
+		if ((v = proc_kb(st.c_str(), "VmSwap:")) >= 0) o[3] = v / 1024.0f;
+		if ((v = proc_kb(st.c_str(), "Threads:")) >= 0) o[4] = (float)v;
+	}
+	if (DIR *d = opendir("/proc/self/fd")) {
+		int n = 0;
+		while (readdir(d)) n++;
+		closedir(d);
+		o[5] = (float)std::max(0, n - 2);
+	}
+	std::string mi = slurp("/proc/meminfo", 8192);
+	if (!mi.empty()) {
+		long v = proc_kb(mi.c_str(), "MemAvailable:");
+		if (v >= 0) o[7] = v / 1024.0f;
+	}
+	std::string ru = slurp("/proc/self/smaps_rollup", 8192);
+	if (!ru.empty()) {
+		long v = proc_kb(ru.c_str(), "Pss:");
+		if (v >= 0) o[6] = v / 1024.0f;
+	}
+	if (full) {
+		double cat[6] = { 0, 0, 0, 0, 0, 0 };
+		if (FILE *f = fopen("/proc/self/smaps", "r")) {
+			char line[1024];
+			int cur = 5;
+			bool have = false;
+			while (fgets(line, sizeof(line), f)) {
+				char c0 = line[0];
+				bool hdr = ((c0 >= '0' && c0 <= '9') || (c0 >= 'a' && c0 <= 'f')) && strchr(line, '-') && strchr(line, '-') < line + 17;
+				if (hdr) {
+					const char *path = strchr(line, '/');
+					const char *br = strchr(line, '[');
+					std::string name = path ? path : (br ? br : "");
+					have = true;
+					auto has = [&](const char *k) { return name.find(k) != std::string::npos; };
+					if (has("mali") || has("kgsl") || has("dmabuf") || has("/ion") || has("gralloc") || has("graphics") || has("/dev/")) cur = 3;
+					else if (has("dalvik") || has(".art") || has(".oat") || has(".odex") || has(".vdex") || has(".dex") || has(".jar")) cur = 1;
+					else if (has(".so")) cur = 2;
+					else if (has(".apk") || has(".pck") || has(".ttf") || has(".otf") || has("/data/") || has("/system/")) cur = 4;
+					else if (name.empty() || has("[heap]") || has("scudo") || has("libc_malloc") || has("jemalloc") || has("[anon:")) cur = 0;
+					else cur = 5;
+				} else if (have && strncmp(line, "Pss:", 4) == 0) {
+					cat[cur] += atol(line + 4);
+				}
+			}
+			fclose(f);
+			for (int k = 0; k < 6; k++) o[8 + k] = (float)(cat[k] / 1024.0);
+		}
+	}
+#endif
+	ret_f32(r, o, 14);
+}
+
 void register_core(GDExtensionClassLibraryPtr lib) {
 	const char *C = "SteelCore";
 	register_class(lib, C, "RefCounted", create_core, destroy_core);
@@ -3350,7 +3464,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "terrain_set", terrain_set }, { "height", height }, { "terrain_generate", terrain_generate },
 		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_collision", terrain_collision },
 		{ "obst_set", obst_set }, { "blocked_at", blocked_at }, { "straight", straight }, { "boxes_set", boxes_set },
-		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive },
+		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive }, { "proc_stats", proc_stats },
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },

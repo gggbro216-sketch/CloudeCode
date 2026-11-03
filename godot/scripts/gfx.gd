@@ -14,6 +14,14 @@ static var _boxes := {}  # ключ стиля → [текстура, поле �
 const SS := 3  # во сколько раз текстуры панелей чётче экранных пикселей
 
 
+## Заготовить текстуры заранее (на экране загрузки), чтобы первый кадр боя не подвисал на их рисовании.
+static func warm(boxes: Array) -> void:
+	for n in [32, 96, 256]:
+		_disc(n)
+	for sb: StyleBoxFlat in boxes:
+		_box_entry(sb)
+
+
 ## Закрашенный круг.
 static func circle(cv: CanvasItem, c: Vector2, r: float, col: Color) -> void:
 	if r <= 0.0 or col.a <= 0.0:
@@ -88,16 +96,7 @@ static func polygon(cv: CanvasItem, pts: PackedVector2Array, col: Color) -> void
 
 ## Панель со скруглёнными углами и рамкой по параметрам StyleBoxFlat — девятью кусками одной текстуры.
 static func box(cv: CanvasItem, sb: StyleBoxFlat, rect: Rect2) -> void:
-	var key: String = sb.get_meta("gfx_key", "")
-	if key == "":
-		key = "%s|%s|%d|%d" % [sb.bg_color.to_html(true), sb.border_color.to_html(true), int(sb.border_width_left), int(sb.corner_radius_top_left)]
-		sb.set_meta("gfx_key", key)
-	var e: Array
-	if _boxes.has(key):
-		e = _boxes[key]
-	else:
-		e = _make_box(sb.bg_color, sb.border_color, int(sb.border_width_left), int(sb.corner_radius_top_left))
-		_boxes[key] = e
+	var e := _box_entry(sb)
 	var tex: Texture2D = e[0]
 	var m: int = e[1]  # поле в пикселях экрана
 	var s := float(SS)
@@ -118,6 +117,16 @@ static func box(cv: CanvasItem, sb: StyleBoxFlat, rect: Rect2) -> void:
 			if dr.size.x <= 0.0 or dr.size.y <= 0.0:
 				continue
 			cv.draw_texture_rect_region(tex, dr, Rect2(us[i], us[j], us[i + 1] - us[i], us[j + 1] - us[j]))
+
+
+static func _box_entry(sb: StyleBoxFlat) -> Array:
+	var key: String = sb.get_meta("gfx_key", "")
+	if key == "":
+		key = "%s|%s|%d|%d" % [sb.bg_color.to_html(true), sb.border_color.to_html(true), int(sb.border_width_left), int(sb.corner_radius_top_left)]
+		sb.set_meta("gfx_key", key)
+	if not _boxes.has(key):
+		_boxes[key] = _make_box(sb.bg_color, sb.border_color, int(sb.border_width_left), int(sb.corner_radius_top_left))
+	return _boxes[key]
 
 
 static func _make_box(bg: Color, border: Color, bw: int, rad: int) -> Array:

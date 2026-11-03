@@ -77,6 +77,7 @@ func _ready() -> void:
 	add_child(slow)
 	xray = XRayScript.new()
 	add_child(xray)
+	Gfx.warm([sb_panel, _sb("0a0c08", D.AMBER, 2, 22, 0.6), _sb("0a0c08", UI.LINE, 2, 22, 0.6)])
 	_build_dead()
 	_build_pause()
 	_build_result()

@@ -48,6 +48,7 @@ const SESSION_PATH := "user://session.json"
 var session := {"state": "hangar", "battles": 0, "hist": []}
 var last_crash := {}  # прошлый запуск оборвался в бою: что о нём известно (показывает ангар)
 var _session_t := 0.0
+var _marks := 0
 var _worst_frame := 0.0  # самый долгий кадр с прошлой отметки, с
 
 
@@ -86,11 +87,28 @@ static func _kb(text: String, key: String) -> int:
 
 
 ## Память процесса и системы (вместе с драйвером видеокарты и C++): rss/pss/swap/hwm в МБ, число потоков,
-## свободно в системе (МБ). -1 — система не сообщает.
-static func proc_info() -> Dictionary:
+## открытых файлов, свободно в системе (МБ) и PSS по категориям cat (куча, Java, библиотеки, видеодрайвер,
+## ассеты, прочее) — последнее только при full (читается smaps, это десятки миллисекунд). -1 — не сообщается.
+## C++ читает /proc сам; без библиотеки — через FileAccess или (Android) cat.
+static func proc_info(full := false) -> Dictionary:
+	var d := {"rss": -1, "hwm": -1, "swap": -1, "thr": -1, "pss": -1, "avail": -1, "fds": -1, "cat": []}
+	var nc: Object = Native.shared()
+	if nc and nc.has_method("proc_stats"):
+		var v: PackedFloat32Array = nc.proc_stats(full)
+		if v.size() >= 14 and v[0] >= 0.0:
+			d.rss = roundi(v[0])
+			d.hwm = roundi(v[1])
+			d.swap = roundi(v[3])
+			d.thr = int(v[4])
+			d.fds = int(v[5])
+			d.pss = roundi(v[6])
+			d.avail = roundi(v[7])
+			if full and v[8] >= 0.0:
+				for k in 6:
+					d.cat.append(roundi(v[8 + k]))
+			return d
 	var pid := OS.get_process_id()
 	var st := _proc_text("/proc/self/status" if OS.get_name() != "Android" else "/proc/%d/status" % pid)
-	var d := {"rss": -1, "hwm": -1, "swap": -1, "thr": -1, "pss": -1, "avail": -1}
 	if st != "":
 		var rss := _kb(st, "VmRSS")
 		d.rss = rss / 1024 if rss >= 0 else -1
@@ -117,16 +135,20 @@ static func process_mb() -> int:
 
 ## Состояние сеанса и память — в файл (маленький, пишется при смене состояния и раз в 20 с в бою)
 ## и строкой в журнал движка (user://logs): по нему видно, росла ли память от боя к бою.
-func session_mark(state: String, extra := {}) -> void:
+func session_mark(state: String, extra := {}, full := false) -> void:
 	session.state = state
 	session.merge(extra, true)
 	session.ram_mb = roundi(OS.get_static_memory_usage() / 1048576.0)
-	var pi := proc_info()
+	# полный разбор (smaps) — на переходах, пока идёт экран загрузки; в бою — только лёгкая часть
+	var pi := proc_info(full or state != "battle")
 	session.proc_mb = int(pi.rss)
 	session.pss_mb = int(pi.pss)
 	session.hwm_mb = int(pi.hwm)
 	session.swap_mb = int(pi.swap)
 	session.thr = int(pi.thr)
+	session.fds = int(pi.fds)
+	if not (pi.cat as Array).is_empty():
+		session.cat = pi.cat  # PSS, МБ: куча, Java, библиотеки, видеодрайвер, ассеты, прочее
 	session.video_mb = roundi(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0)
 	var mi := OS.get_memory_info()
 	session.free_mb = roundi(float(mi.get("available", 0)) / 1048576.0)
@@ -148,13 +170,28 @@ func session_mark(state: String, extra := {}) -> void:
 		h[3] = maxi(int(h[3]), int(session.proc_mb))
 		h[4] = maxi(int(h[4]), int(session.ram_mb))
 		h[5] = maxi(int(h[5]), int(session.video_mb))
-	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ (PSS %d, пик %d, swap %d, потоков %d), видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
+	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ (PSS %d, пик %d, swap %d, потоков %d, файлов %d, разбор [куча, Java, библ., видеодрайвер, ассеты, прочее] %s), видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
 		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.pss_mb,
-		session.hwm_mb, session.swap_mb, session.thr, session.video_mb,
+		session.hwm_mb, session.swap_mb, session.thr, session.fds, str(session.get("cat", [])), session.video_mb,
 		session.free_mb, session.fps, session.worst_ms, session.nodes, session.cores])
+	_session_save()
+
+
+func _session_save() -> void:
 	var f := FileAccess.open(SESSION_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(session))
+
+
+## Событие жизненного цикла приложения (свернули, вернулись, предупреждение о нехватке памяти) — в журнал
+## сеанса: если игра оборвётся, по отчёту видно, что происходило перед этим.
+func _life(what: String) -> void:
+	var ev: Array = session.get("ev", [])
+	ev.append("%s · %s · бой %d · %d с · %d" % [what, session.state, int(session.battles), int(session.get("clock", 0)), Time.get_ticks_msec() / 1000])
+	while ev.size() > 14:
+		ev.pop_front()
+	session.ev = ev
+	_session_save()
 
 
 ## Новая строка истории боёв: [номер, карта, память процесса после загрузки, её пик, пик Godot, пик видео].
@@ -171,7 +208,8 @@ func _process(delta: float) -> void:
 		_session_t -= delta
 		if _session_t <= 0.0:
 			_session_t = 20.0
-			session_mark("battle")
+			_marks += 1
+			session_mark("battle", {}, _marks % 4 == 0)  # полный разбор памяти — раз в 80 с, остальное лёгкое
 
 
 ## 3D рисуется в уменьшенном разрешении и растягивается — главная экономия видеокарты на экране 1440p.
@@ -414,8 +452,10 @@ func _clear_scene() -> void:
 	if battle:
 		battle.queue_free()
 		battle = null
-	await get_tree().process_frame
-	await get_tree().process_frame
+	for i in 5:
+		await get_tree().process_frame
+	# драйвер освобождает ресурсы отложенно: даём ему закончить освобождение старой сцены до новой
+	RenderingServer.force_sync()
 
 
 ## Экран загрузки поверх всего: пока строится бой, игра показывает, что она жива и чем занята.
@@ -505,7 +545,7 @@ func start_battle() -> void:
 	if not b.loaded:
 		await b.load_done
 	_hist_begin(map_key)
-	session_mark("battle")
+	session_mark("battle", {}, true)
 	_hide_loading()
 	_switching = false
 
@@ -552,6 +592,17 @@ func _on_leave(again: bool) -> void:
 
 
 func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED:
+			_life("свёрнута")
+		NOTIFICATION_APPLICATION_RESUMED:
+			_life("вернулась")
+		NOTIFICATION_APPLICATION_FOCUS_OUT:
+			_life("потеряла фокус")
+		NOTIFICATION_APPLICATION_FOCUS_IN:
+			_life("фокус вернулся")
+		NOTIFICATION_OS_MEMORY_WARNING:
+			_life("СИСТЕМА ПРОСИТ ПАМЯТЬ")
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		# кнопка «Назад» на Android: пауза в бою
 		if battle and battle.loaded and not battle.over:
