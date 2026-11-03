@@ -2,6 +2,8 @@
 // и A*, слияние геометрии, процедурные текстуры. Каждая функция повторяет GDScript-версию
 // (она остаётся запасной, если библиотеки нет) — так результаты можно сверить.
 #include "common.h"
+
+#include <atomic>
 #include "noise.h"
 
 #include <algorithm>
@@ -3246,8 +3248,21 @@ void aim_run(Core *self, V3 o, V3 far, V3 mz, V3 vel, int p, float out[7]) {
 	}
 }
 
-static void *create_core() { return new Core(); }
-static void destroy_core(void *p) { delete (Core *)p; }
+// Сколько ядер живо (журнал сеанса: ядро прошлого боя должно освобождаться)
+static std::atomic<int> g_cores{ 0 };
+static void *create_core() {
+	g_cores++;
+	return new Core();
+}
+static void destroy_core(void *p) {
+	g_cores--;
+	delete (Core *)p;
+}
+
+METHOD(cores_alive) {
+	SELF;
+	ret_int(r, g_cores.load());
+}
 
 void register_core(GDExtensionClassLibraryPtr lib) {
 	const char *C = "SteelCore";
@@ -3259,7 +3274,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "terrain_set", terrain_set }, { "height", height }, { "terrain_generate", terrain_generate },
 		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_collision", terrain_collision },
 		{ "obst_set", obst_set }, { "blocked_at", blocked_at }, { "straight", straight }, { "boxes_set", boxes_set },
-		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed },
+		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive },
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },

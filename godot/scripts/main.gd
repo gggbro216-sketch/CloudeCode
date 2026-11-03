@@ -6,6 +6,7 @@ const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
 const HangarScript = preload("res://scripts/hangar.gd")
 const BattleScript = preload("res://scripts/battle.gd")
+const Native = preload("res://scripts/native.gd")
 const SAVE_PATH := "user://save.json"
 
 var save := {
@@ -86,6 +87,8 @@ func session_mark(state: String, extra := {}) -> void:
 	session.worst_ms = roundi(_worst_frame * 1000.0)
 	session.nodes = int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
 	session.objects = int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	var nc: Object = Native.shared()
+	session.cores = int(nc.cores_alive()) if nc and nc.has_method("cores_alive") else -1
 	_worst_frame = 0.0
 	if battle:
 		session.clock = roundi(battle.clock)
@@ -96,9 +99,9 @@ func session_mark(state: String, extra := {}) -> void:
 		h[3] = maxi(int(h[3]), int(session.proc_mb))
 		h[4] = maxi(int(h[4]), int(session.ram_mb))
 		h[5] = maxi(int(h[5]), int(session.video_mb))
-	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ, видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d" % [
+	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ, видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
 		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.video_mb,
-		session.free_mb, session.fps, session.worst_ms, session.nodes])
+		session.free_mb, session.fps, session.worst_ms, session.nodes, session.cores])
 	var f := FileAccess.open(SESSION_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(session))

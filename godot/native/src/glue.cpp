@@ -12,7 +12,7 @@ static GDExtensionInterfaceVariantGetPtrDestructor get_dtor;
 static GDExtensionInterfaceVariantGetPtrBuiltinMethod get_method;
 static GDExtensionInterfaceStringNameNewWithLatin1Chars string_name_new;
 static GDExtensionInterfaceStringNewWithLatin1Chars string_new;
-static GDExtensionInterfaceClassdbConstructObject2 construct_object;
+static GDExtensionInterfaceClassdbConstructObject3 construct_object;
 static GDExtensionInterfaceObjectSetInstance object_set_instance;
 static GDExtensionInterfaceClassdbRegisterExtensionClass6 register_class6;
 static GDExtensionInterfaceClassdbRegisterExtensionClassMethod register_method_fn;
@@ -62,7 +62,9 @@ void load(GDExtensionInterfaceGetProcAddress p_get_proc) {
 	PROC(get_method, GDExtensionInterfaceVariantGetPtrBuiltinMethod, "variant_get_ptr_builtin_method");
 	PROC(string_name_new, GDExtensionInterfaceStringNameNewWithLatin1Chars, "string_name_new_with_latin1_chars");
 	PROC(string_new, GDExtensionInterfaceStringNewWithLatin1Chars, "string_new_with_latin1_chars");
-	PROC(construct_object, GDExtensionInterfaceClassdbConstructObject2, "classdb_construct_object2");
+	// construct_object3: объект сразу со счётчиком ссылок = 1 (так ждёт create_instance в Godot 4.7). Со старой
+	// construct_object2 у RefCounted-объекта оставалась лишняя ссылка, и ядро боя не освобождалось никогда.
+	PROC(construct_object, GDExtensionInterfaceClassdbConstructObject3, "classdb_construct_object3");
 	PROC(object_set_instance, GDExtensionInterfaceObjectSetInstance, "object_set_instance");
 	PROC(register_class6, GDExtensionInterfaceClassdbRegisterExtensionClass6, "classdb_register_extension_class6");
 	PROC(register_method_fn, GDExtensionInterfaceClassdbRegisterExtensionClassMethod, "classdb_register_extension_class_method");
