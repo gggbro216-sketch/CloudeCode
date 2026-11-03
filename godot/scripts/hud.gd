@@ -5,6 +5,7 @@ extends Control
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
 const Gfx = preload("res://scripts/gfx.gd")
+const XRayScript = preload("res://scripts/xray.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const SR := 90.0  # радиус джойстика
 
@@ -51,6 +52,7 @@ var mini_tex: ImageTexture  # неподвижный слой миникарты
 var cv: CanvasItem = self  # на чём сейчас рисуем
 var slow: Control
 var slow_t := 0.0
+var xray: Control  # рентген попадания (xray.gd)
 
 var brief_box: Control
 var dead_box: Control
@@ -73,9 +75,21 @@ func _ready() -> void:
 	slow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slow.draw.connect(_draw_slow)
 	add_child(slow)
+	xray = XRayScript.new()
+	add_child(xray)
 	_build_dead()
 	_build_pause()
 	_build_result()
+
+
+var _sbs := {}  # рамки, которые рисуются каждый кадр, — по одной на набор цветов
+
+
+func _sb(bg: String, border: String, bw: int, radius: int, alpha: float) -> StyleBoxFlat:
+	var k := "%s|%s|%d|%d|%s" % [bg, border, bw, radius, alpha]
+	if not _sbs.has(k):
+		_sbs[k] = UI.box(bg, border, bw, radius, alpha, 0.0)
+	return _sbs[k]
 
 
 func team_color(team: int) -> Color:
@@ -235,6 +249,8 @@ func _process(delta: float) -> void:
 		gun_has = false
 	margins = UI.safe(self)
 	var s := size
+	if xray.visible:
+		xray.position = Vector2(s.x - xray.size.x - 14.0 - margins.z, 86.0 + margins.y)
 	var r := 18.0 + margins.z
 	var bt := 14.0 + margins.w
 	pause_c = Vector2(s.x - r - 32.0, 14.0 + margins.y + 32.0)
@@ -695,7 +711,7 @@ func _draw_damage(p, cx: float, y: float) -> void:
 	for it in items:
 		var c := Vector2(x, y)
 		var col: Color = it[2]
-		Gfx.box(cv, UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
+		Gfx.box(cv, _sb("0a0c08", col.to_html(false), 2, 10, 0.72), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
 		_icon(it[0], c, col)
 		if it[3] >= 0.0:
 			Gfx.arc(cv, c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0)
@@ -767,7 +783,7 @@ func _draw_controls() -> void:
 	_text(fire_c + Vector2(0, 9), label, 24, Color("1b1405") if ready else col_text, true, 0)
 	# автоприцел
 	var ac := col_amber if auto_aim else col_dim
-	Gfx.box(cv, UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
+	Gfx.box(cv, _sb("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6), auto_rect)
 	_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
 	# снайперский прицел
 	var on: bool = battle.sniper

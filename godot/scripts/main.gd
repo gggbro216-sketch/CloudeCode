@@ -11,7 +11,7 @@ const SAVE_PATH := "user://save.json"
 
 var save := {
 	"battles": 0, "wins": 0, "kills": 0, "best_dmg": 0, "silver": D.START_SILVER, "free_xp": 0,
-	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75, "eco": false,
+	"tank": "t34_76", "mode": "standard", "map": "random", "hq": true, "history": true, "res": 0.75, "eco": false, "xray": true,
 	"owned": [], "researched": [], "txp": {}, "mods": {}, "mods_res": {}, "cons": ["repair", "medkit", "ext"],
 	"tstats": {}, "last": {}, "ts": 0.0,
 }
@@ -237,6 +237,7 @@ func _load() -> void:
 	if not RES_STEPS.has(float(save.res)):
 		save.res = 0.75
 	save.eco = save.eco == true
+	save.xray = save.xray != false
 
 
 func persist() -> void:
@@ -494,7 +495,7 @@ func start_battle() -> void:
 	session_mark("battle_loading", {"map": map_key, "mode": save.mode, "tank": save.tank, "clock": 0})
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
-	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history,
+	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history, "xray": save.xray,
 		"mods": top_config(save.tank), "cons": save.cons.duplicate()})
 	b.ended.connect(_on_ended)
 	b.leave.connect(_on_leave)

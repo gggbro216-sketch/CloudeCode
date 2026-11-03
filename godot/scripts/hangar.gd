@@ -85,6 +85,7 @@ var map_desc: Label
 var qual_btn: Button
 var res_btn: Button
 var eco_btn: Button
+var xray_btn: Button
 var hist_btn: Button
 var go_btn: Button
 var map_btns := {}
@@ -664,6 +665,11 @@ func _build_ui() -> void:
 		main.toggle_eco()
 		_update_eco())
 	_update_eco()
+	xray_btn = _small_btn(head, "", func():
+		main.save.xray = not main.save.xray
+		main.persist()
+		_update_xray())
+	_update_xray()
 	_small_btn(head, "АВТОРЫ", _show_credits)
 
 	var body := HBoxContainer.new()
@@ -882,6 +888,10 @@ func _update_qual() -> void:
 
 func _update_eco() -> void:
 	eco_btn.text = "ЭКОНОМИЯ:\n30 FPS" if main.save.eco else "ЭКОНОМИЯ:\nВЫКЛ"
+
+
+func _update_xray() -> void:
+	xray_btn.text = "РЕНТГЕН:\nВКЛ" if main.save.xray else "РЕНТГЕН:\nВЫКЛ"
 
 
 func _update_res_btn() -> void:

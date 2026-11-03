@@ -2884,7 +2884,7 @@ struct Item {
 };
 }  // namespace
 
-static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float thick, int part) {
+static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float thick, int part, float *xi = nullptr) {
 	Core *c = h.c;
 	const float U = c->upm;
 	M3 Bp[2];
@@ -2989,6 +2989,12 @@ static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float
 			hit(it, 150.0f * std::pow(k1, 1.2f) + h.rnd(0.0f, 40.0f), 110.0f * k1 * h.rnd(0.8f, 1.2f), k1 > 0.5f ? 0.15f * k1 : 0.0f, 0.25f * k1);
 		}
 	}
+	if (xi) {
+		xi[0] = stop * reach;  // где снаряд остановился или разорвался (ед. карты от места пробития)
+		xi[1] = armed ? (0.6f + 0.35f * std::cbrt(he)) * U : 0.0f;
+		xi[2] = (float)frags;
+		xi[3] = armed ? 1.0f : 0.0f;
+	}
 	(void)part;
 	return boom;
 }
@@ -3050,6 +3056,7 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 		s.dist = RANGE - 250.0f;
 		ev.add({ (float)EV_RICO, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal, s.dmg });
 		ev.add({ (float)EV_REVIS, (float)s.slot, s.pos.x, s.pos.y, s.pos.z, s.vel.x, s.vel.y, s.vel.z });
+		ev.add({ (float)EV_XRAY, (float)i, (float)by, 0.0f, thick, thick / std::max(std::cos(ang), 0.12f), pen, std::acos(cos_a) / DEG, 0.0f, 0.0f, 0.0f, (float)s.hit_part, 0.0f });
 		return;
 	}
 	float eff = thick / std::max(std::cos(ang), 0.12f);
@@ -3062,14 +3069,17 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	if (pen < eff) {
 		ev.add({ (float)EV_NOPEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal, s.dmg, track_zone ? 1.0f : 0.0f });
 		outer_damage(h, s.hit_part, local, zone, s.dmg);
+		ev.add({ (float)EV_XRAY, (float)i, (float)by, 1.0f, thick, eff, pen, std::acos(cos_a) / DEG, 0.0f, 0.0f, 0.0f, (float)s.hit_part, 0.0f });
 		return;
 	}
 	float dmg = std::round(s.dmg * h.rnd(0.75f, 1.25f) * (track_zone ? 0.5f : 1.0f));
 	ev.add({ (float)EV_PEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal });
 	h.kick(dir, cal, 0.2f);
 	// за бронёй: модули и экипаж на пути снаряда, осколки
-	bool boom = internal_damage(h, hp, dir, cal, s.he, thick, s.hit_part);
+	float xi[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	bool boom = internal_damage(h, hp, dir, cal, s.he, thick, s.hit_part, xi);
 	ev.add({ (float)EV_PEN_DMG, (float)i, (float)by, dmg, boom ? 1.0f : 0.0f });
+	ev.add({ (float)EV_XRAY, (float)i, (float)by, 2.0f, thick, eff, pen, std::acos(cos_a) / DEG, xi[0], xi[1], xi[2], (float)s.hit_part, xi[3] });
 }
 
 // Броня, толщины и коробки танков боя. На танк DMG_STATIC чисел: броня ×6, наклон лба башни,

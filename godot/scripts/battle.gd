@@ -212,9 +212,11 @@ func setup(cfg: Dictionary) -> void:
 	player_mods = cfg.get("mods", {})
 	player_cons = cfg.get("cons", player_cons)
 	history = cfg.get("history", true)
+	xray_on = bool(cfg.get("xray", true))
 	side = D.TYPES[player_type].side
 
 
+var xray_on := true  # окно «рентген попадания» (настройка в ангаре)
 var loaded := false  # загрузка закончилась: бой идёт (шаги логики и кадры включены)
 
 
@@ -3225,6 +3227,7 @@ func _radio_events() -> void:
 
 func finish(res: String, why: String) -> void:
 	over = true
+	hud.xray.stop_now()
 	_gameplay(false)
 	result = res
 	reason = why
@@ -3481,9 +3484,11 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 						hud.alert("ГУСЕНИЦА СБИТА", Color(D.AMBER))
 			9:  # отражённый снаряд — новый полёт из точки рикошета
 				_slot_visual(int(ev[q + 1]), Vector3(ev[q + 2], ev[q + 3], ev[q + 4]), Vector3(ev[q + 5], ev[q + 6], ev[q + 7]), 1e9)
+				hud.xray.note_rico(Vector3(ev[q + 5], ev[q + 6], ev[q + 7]))
 			10:  # модуль сменил состояние
 				var was := int(ev[q + 5])
 				var now := int(ev[q + 6])
+				hud.xray.note_module(tanks[int(ev[q + 1])], TankScript.MODS[int(ev[q + 3])], now)
 				if was != now and ev[q + 7] == 0.0:
 					var tk: TankScript = tanks[int(ev[q + 1])]
 					var name: String = TankScript.MODS[int(ev[q + 3])]
@@ -3493,6 +3498,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var role: String = TankScript.CREW[int(ev[q + 3])]
 				var out := ev[q + 5] != 0.0
+				hud.xray.note_crew(tk, role, out)
 				if out:
 					tk.crew_ok[role] = false
 				if tk.is_player:
@@ -3502,6 +3508,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					_popup(tk, TankScript.NAMES[role] + (" ✕" if out else " РАНЕН"), Color("ff6a4a") if out else Color("ffb38a"), by)
 			12:  # пожар
 				var tk: TankScript = tanks[int(ev[q + 1])]
+				hud.xray.note_fire(tk)
 				tk.fire = FIRE_TIME
 				if tk.fire_fx == null:
 					tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
@@ -3514,6 +3521,8 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var by: TankScript = tanks[int(ev[q + 2])]
 				if ev[q + 4] != 0.0:
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
+			16:  # итог попадания для рентген-окна: броня, угол, пробитие, разрыв
+				hud.xray.finish(ev[q + 4], ev[q + 5], ev[q + 6], ev[q + 7], ev[q + 8], ev[q + 9], int(ev[q + 10]), ev[q + 12] != 0.0)
 			20:  # выстрел
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var mz := Vector3(ev[q + 3], ev[q + 4], ev[q + 5])
@@ -3614,6 +3623,10 @@ func _world_hit_fx(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void
 	var cal: float = ev[q + 10]
 	tk.hits_taken += 1
 	fx.hit_sparks(hp)
+	if xray_on and (by.is_player or tk.is_player):
+		hud.xray.begin(tk, by, hp, dir, 0 if kind == 5 else (1 if kind == 7 else 2), cal)
+	else:
+		hud.xray.rec = {}
 	match kind:
 		5:
 			_popup(tk, "РИКОШЕТ", Color("cfd3d8"), by)

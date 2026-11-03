@@ -88,14 +88,15 @@ static func polygon(cv: CanvasItem, pts: PackedVector2Array, col: Color) -> void
 
 ## Панель со скруглёнными углами и рамкой по параметрам StyleBoxFlat — девятью кусками одной текстуры.
 static func box(cv: CanvasItem, sb: StyleBoxFlat, rect: Rect2) -> void:
-	var bw := int(sb.border_width_left)
-	var rad := int(sb.corner_radius_top_left)
-	var key := "%s|%s|%d|%d" % [sb.bg_color.to_html(true), sb.border_color.to_html(true), bw, rad]
+	var key: String = sb.get_meta("gfx_key", "")
+	if key == "":
+		key = "%s|%s|%d|%d" % [sb.bg_color.to_html(true), sb.border_color.to_html(true), int(sb.border_width_left), int(sb.corner_radius_top_left)]
+		sb.set_meta("gfx_key", key)
 	var e: Array
 	if _boxes.has(key):
 		e = _boxes[key]
 	else:
-		e = _make_box(sb.bg_color, sb.border_color, bw, rad)
+		e = _make_box(sb.bg_color, sb.border_color, int(sb.border_width_left), int(sb.corner_radius_top_left))
 		_boxes[key] = e
 	var tex: Texture2D = e[0]
 	var m: int = e[1]  # поле в пикселях экрана
