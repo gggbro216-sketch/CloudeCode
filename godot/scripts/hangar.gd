@@ -64,6 +64,7 @@ var tree_sel := ""
 ## Полоски характеристик выбранного танка.
 class TankBars extends Control:
 	var T: Dictionary = {}
+	var key := ""
 	var font: Font
 
 	func _ready() -> void:
@@ -75,8 +76,9 @@ class TankBars extends Control:
 			return
 		var A: Array = T.armor
 		var rows := [
-			["Прочность", "%d" % int(T.hp), float(T.hp) / 1800.0],
-			["Урон / пробитие", "%d / %d мм" % [int(T.dmg), int(T.pen)], float(T.pen) / 230.0],
+			["Экипаж", "%d чел." % D.crew_n(key), float(D.crew_n(key)) / 5.0],
+			["Пробитие / ВВ снаряда", "%d мм · %s" % [int(T.pen), ("%d г" % int(D.shell_he(T))) if D.shell_he(T) > 0.0 else "болванка"],
+				float(T.pen) / 230.0],
 			["Броня лба", "%d / %d мм" % [A[0], A[3]], float(A[0]) / 150.0],
 			["Скорость", "%d км/ч" % roundi(float(T.kmh) * D.SPEED_K), float(T.kmh) / 58.0],
 			["Мощность", "%d л.с. · %.1f т" % [int(T.power), float(T.mass)], float(T.power) / float(T.mass) / 16.0],
@@ -909,6 +911,7 @@ func _show_tank_info() -> void:
 	tier_lbl.text = "УРОВЕНЬ %s · %s · %s" % [D.ROMAN[int(B.tier)], String(B.cls).to_upper(), String(B.nation).to_upper()]
 	name_lbl.text = String(T.name).to_upper()
 	tank_bars.T = T
+	tank_bars.key = key
 	tank_bars.queue_redraw()
 	xp_lbl.text = "Опыт танка: %s" % _num(main.txp(key))
 	var slots: Dictionary = D.MODULES.get(key, {})
@@ -1178,7 +1181,7 @@ static func _effect(slot: String, lo: Dictionary, hi: Dictionary) -> String:
 		"gun":
 			return "Урон %d → %d, пробитие %d → %d мм, перезарядка %.1f → %.1f с" % [lo.dmg, hi.dmg, lo.pen, hi.pen, lo.reload, hi.reload]
 		"turret":
-			return "Броня лба башни %d → %d мм, поворот %d → %d °/с, прочность %d → %d" % [lo.armor[3], hi.armor[3], lo.tspd, hi.tspd, lo.hp, hi.hp]
+			return "Броня лба башни %d → %d мм, поворот %d → %d °/с, обзор %d → %d м" % [lo.armor[3], hi.armor[3], lo.tspd, hi.tspd, roundi(float(lo.spot) * D.SPOT_K), roundi(float(hi.spot) * D.SPOT_K)]
 		"engine":
 			return "Мощность %d → %d л.с.: быстрее разгон и подъём в гору" % [lo.power, hi.power]
 	return "Поворот корпуса %d → %d °/с" % [roundi(float(lo.turn)), roundi(float(hi.turn))]

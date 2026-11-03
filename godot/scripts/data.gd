@@ -562,6 +562,60 @@ const RADIO := {
 }
 
 
+## Экипаж (человек): 5 — командир, наводчик, заряжающий, мехвод, радист; 4 — без радиста; 3 — командир,
+## наводчик, мехвод; 2 — командир (он же наводчик и заряжающий) и мехвод.
+const CREW_N := {"t34_76": 4, "t34": 5, "kv1": 5, "is2": 4, "sherman": 5, "firefly": 4, "cromwell": 5, "chaffee": 5,
+	"crusader": 3, "pz3": 5, "pz4": 5, "stug": 4, "panther": 5, "tiger2": 5, "tiger": 5, "m13_40": 4, "jagdpanther": 5,
+	"su100": 4, "pz38t": 4, "l6_40": 2, "m15_42": 4, "hetzer": 4, "nashorn": 5, "ferdinand": 5, "jagdtiger": 5, "stuart": 4,
+	"lee": 5, "churchill": 5, "comet": 5, "kv2": 5, "su85": 4, "luchs": 4, "tiger_p": 5, "pz4f2": 5, "p26": 4, "turan": 5,
+	"m10": 5, "easy8": 5, "pershing": 5, "matilda": 4, "t70": 2, "isu152": 5}
+
+
+static func crew_n(key: String) -> int:
+	if TYPES.has(key) and TYPES[key].has("crew"):
+		return int(TYPES[key].crew)
+	return int(CREW_N.get(key, 4))
+
+
+## Масса ВВ в бронебойном снаряде, г (в тротиловом эквиваленте, упрощённо по стране и калибру):
+## каморные снаряды СССР, Германии, США рвутся за бронёй; британские и малокалиберные — сплошные болванки.
+## Орудие сменили модулем — калибр другой, и снаряд тоже.
+static func shell_he(T: Dictionary) -> float:
+	if T.has("he"):
+		return float(T.he)
+	var cal: float = T.caliber
+	match String(T.get("nation", "")):
+		"СССР":
+			if cal <= 25.0: return 0.0
+			if cal <= 57.0: return 20.0  # 45 мм БР-240
+			if cal <= 77.0: return 150.0  # 76 мм БР-350А
+			if cal <= 86.0: return 48.0  # 85 мм БР-365
+			if cal <= 101.0: return 65.0  # 100 мм БР-412
+			if cal <= 123.0: return 156.0  # 122 мм БР-471
+			return 480.0  # 152 мм БР-540
+		"Германия":
+			if cal <= 25.0: return 0.0
+			if cal <= 38.0: return 13.0  # 3,7 см PzGr
+			if cal <= 51.0: return 17.0  # 5 см PzGr 39
+			if cal <= 76.0: return 29.0  # 7,5 см PzGr 39
+			if cal <= 89.0: return 109.0  # 8,8 см PzGr 39
+			return 300.0  # 12,8 см PzGr 43
+		"США":
+			if cal <= 38.0: return 0.0  # 37 мм M51 — сплошной
+			if cal <= 77.0: return 64.0  # 75/76 мм M61/M62
+			return 137.0  # 90 мм M82
+		"Великобритания":
+			# 2-, 6-, 17-фунтовые и 77 мм — сплошные болванки; 75 мм — американский M61
+			return 64.0 if absf(cal - 75.0) < 0.6 else 0.0
+		"Италия":
+			if cal <= 25.0: return 0.0
+			if cal <= 48.0: return 31.0  # 47 мм EP
+			return 48.0  # 75 мм EP
+		"Венгрия":
+			return 30.0 if cal >= 70.0 else 0.0
+	return 0.0
+
+
 ## Производные величины в единицах карты.
 static func derived(T: Dictionary) -> Dictionary:
 	return {

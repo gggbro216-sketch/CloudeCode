@@ -171,6 +171,7 @@ struct Core {
 	struct Shell {
 		V3 pos, vel;
 		float dmg, pen, cal, dist;
+		float he = 0.0f;  // ВВ в снаряде, г (0 — сплошная болванка)
 		int owner, rico, slot;
 		bool whiz = false, dead = false;
 		// попадание в танк на этом шаге (разбирает shell_hit)
@@ -193,7 +194,14 @@ struct Core {
 		int fire_by = -1, shots = 0, hits_taken = 0, pens_taken = 0;
 		float mod[6] = { 100, 100, 100, 100, 100, 100 };
 		float fix[6] = { -1, -1, -1, -1, -1, -1 };  // до полевого ремонта уничтоженного модуля; < 0 — не чинится
-		bool crew[4] = { true, true, true, true };
+		// экипаж: 0 командир, 1 наводчик, 2 заряжающий, 3 мехвод, 4 радист; место есть / жив / здоровье
+		bool crew_has[5] = { true, true, true, true, false };
+		bool crew[5] = { true, true, true, true, false };
+		float crew_hp[5] = { 100, 100, 100, 100, 0 };
+		float swap_t[5] = { -1, -1, -1, -1, -1 };  // подмена: через сколько займёт место (< 0 — нет)
+		float swap_hp[5] = { 0, 0, 0, 0, 0 };  // здоровье того, кто пересаживается
+		float he = 0;  // ВВ снаряда, г
+		bool gun_crew = true, drive_crew = true;  // есть кому стрелять / вести
 		bool alive = true, player = false, immobile = false, popping = false;
 		float speed_k = 1, accel_k = 1, turn_k = 1, tspd_k = 1, reload_k = 1, aim_k = 1, disp_k = 1, spot_k = 1;
 		bool cons_has[3] = { false, false, false }, cons_used[3] = { false, false, false };

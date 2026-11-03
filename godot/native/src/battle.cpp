@@ -6,6 +6,9 @@
 // (эффекты, звуки, надписи, рация) и короткие сводки для интерфейса.
 #include "common.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 namespace {
 
 // ---------- методы движка (хэши из extension_api.json Godot 4.7) ----------
@@ -77,7 +80,7 @@ inline float linear_to_db(float v) { return 20.0f * std::log10(v); }
 enum WorldEv {
 	W_SHOT = 20,  // танк, трассер, дуло xyz, направление xyz, калибр, скорость снаряда
 	W_DMG,  // танк, кто, урон, вид (0 — снаряд, 2 — таран)
-	W_KILL,  // танк, кто, башню сорвало
+	W_KILL,  // танк, кто, башню сорвало, причина (0 прочее, 1 экипаж выбыл, 2 боеукладка, 3 сгорел экипаж)
 	W_WALL,  // танк, сила удара
 	W_TREE,  // танк, дерево, куда падает x, z
 	W_RAM,  // танк, другой
@@ -88,15 +91,18 @@ enum WorldEv {
 	W_SPOTTED,  // танк, направление «по часам» от наблюдаемого
 	W_ZONE,  // зона, чья теперь
 	W_FINISH,  // итог (1 победа, 2 поражение, 3 ничья), причина
+	W_SWAP,  // танк, место, откуда пересел: член экипажа занял место выбывшего
 };
 
 enum { CONS_REPAIR, CONS_MEDKIT, CONS_EXT };
-enum { CREW_COMMANDER, CREW_GUNNER, CREW_LOADER, CREW_DRIVER };
+enum { CREW_COMMANDER, CREW_GUNNER, CREW_LOADER, CREW_DRIVER, CREW_RADIO, CREW_N };
 const float REPAIR_T[6] = { -1, 10, 8, 8, 12, -1 };  // полевой ремонт: орудие, погон, приборы, боеукладка
-const float TRACK_REPAIR = 7.0f, FIRE_TIME = 6.0f;
+const float TRACK_REPAIR = 7.0f, FIRE_TIME = 14.0f;
+const float SWAP_TIME = 6.0f;  // за сколько член экипажа пересаживается на место выбывшего
+const float BURN_CREW = 3.2f;  // пожар: здоровья экипажа в секунду
 
 const int VIEW = 9;  // на танк: x, z, земля, жив, виден 0, виден 1, прочность, курс корпуса, курс башни
-const int DET = 43;  // подробно об игроке и наблюдаемом (поля — Battle._mirror_detail)
+const int DET = 50;  // подробно об игроке и наблюдаемом (поля — Battle._mirror_detail)
 const int OUT = 34;  // прицел, счёт, заслуги, итог; дальше по 5 чисел на зону
 const int IN = 17;  // ввод: ход, камера, огонь, снаряжение, автопилот, автоприцел, наблюдаемый, …
 
@@ -121,30 +127,50 @@ static void recalc(Core::TankDyn &d, bool casemate) {
 	d.tspd_k = casemate ? 1.0f : tk[mstate(d.mod[MOD_TURRET])];
 	d.spot_k = sk[mstate(d.mod[MOD_OPTICS])];
 	d.reload_k = rk[mstate(d.mod[MOD_AMMO])];
-	if (!d.crew[CREW_COMMANDER]) {
+	// экипаж: без наводчика (его некому заменить) не стрелять, без мехвода — не ехать
+	d.gun_crew = d.crew[CREW_GUNNER] || (!d.crew_has[CREW_GUNNER] && d.crew[CREW_COMMANDER]);
+	d.drive_crew = d.crew[CREW_DRIVER];
+	if (!d.drive_crew) d.immobile = true;
+	if (d.crew_has[CREW_COMMANDER] && !d.crew[CREW_COMMANDER]) {
 		d.spot_k *= 0.8f;
 		d.reload_k *= 1.08f;
-		d.aim_k *= 1.08f;
+		d.aim_k *= 1.1f;
 	}
-	if (!d.crew[CREW_GUNNER]) {
-		d.aim_k *= 1.6f;
-		d.disp_k *= 1.25f;
-		d.tspd_k *= 0.75f;
+	if (d.crew_has[CREW_LOADER] && !d.crew[CREW_LOADER]) {
+		d.reload_k *= 1.6f;  // заряжает наводчик
 	}
-	if (!d.crew[CREW_LOADER]) {
-		d.reload_k *= 1.5f;
-	}
-	if (!d.crew[CREW_DRIVER]) {
-		d.speed_k *= 0.85f;
-		d.accel_k *= 0.6f;
-		d.turn_k *= 0.7f;
-	}
+	// раненые работают медленнее
+	if (d.crew[CREW_GUNNER] && d.crew_hp[CREW_GUNNER] < 50.0f) d.aim_k *= 1.15f;
+	if (d.crew[CREW_LOADER] && d.crew_hp[CREW_LOADER] < 50.0f) d.reload_k *= 1.15f;
+	if (d.crew[CREW_DRIVER] && d.crew_hp[CREW_DRIVER] < 50.0f) d.accel_k *= 0.85f;
 }
 
+// сколько человек живо (с теми, кто пересаживается)
 static int crew_left(const Core::TankDyn &d) {
 	int n = 0;
-	for (bool c : d.crew) n += c ? 1 : 0;
+	for (int k = 0; k < CREW_N; k++) n += (d.crew[k] || d.swap_t[k] >= 0.0f) ? 1 : 0;
 	return n;
+}
+
+static bool crew_wounded(const Core::TankDyn &d) {
+	for (int k = 0; k < CREW_N; k++) {
+		if (d.crew[k] && d.crew_hp[k] < 100.0f) return true;
+	}
+	return false;
+}
+
+// «Состояние» танка 0–1 (вместо прочности): здоровье экипажа и модули. По нему ИИ решает, отходить
+// ли, а урон по танку — разница состояний (так считаются заслуги и серебро).
+static float condition(const Core::TankDyn &d) {
+	float ch = 0.0f, cn = 0.0f;
+	for (int k = 0; k < CREW_N; k++) {
+		if (!d.crew_has[k]) continue;
+		cn += 1.0f;
+		ch += (d.crew[k] ? d.crew_hp[k] : (d.swap_t[k] >= 0.0f ? d.swap_hp[k] : 0.0f)) / 100.0f;
+	}
+	float mh = 0.0f;
+	for (float m : d.mod) mh += clampf(m, 0.0f, 100.0f) / 100.0f;
+	return 0.78f * ch / std::max(cn, 1.0f) + 0.22f * mh / 6.0f;
 }
 
 static bool cons_needed(const Core::TankDyn &d, int c) {
@@ -156,7 +182,7 @@ static bool cons_needed(const Core::TankDyn &d, int c) {
 			}
 			return false;
 		case CONS_MEDKIT:
-			return crew_left(d) < 4;
+			return crew_wounded(d);
 		default:
 			return d.fire > 0.0f;
 	}
@@ -202,8 +228,11 @@ struct Step {
 			d.track_broken = 0.0f;
 			for (float &f : d.fix) f = -1.0f;
 		} else if (k == CONS_MEDKIT) {
-			if (crew_left(d) == 4) return false;
-			for (bool &cr : d.crew) cr = true;
+			// аптечка лечит раненых (выбывших не поднимает)
+			if (!crew_wounded(d)) return false;
+			for (int m = 0; m < CREW_N; m++) {
+				if (d.crew[m]) d.crew_hp[m] = 100.0f;
+			}
 		} else {
 			if (d.fire <= 0.0f) return false;
 			d.fire = 0.0f;
@@ -211,6 +240,7 @@ struct Step {
 		d.cons_cd[k] = c->w.cons_cd[k];
 		d.cons_used[k] = true;
 		recalc(d, c->ds[i].casemate);
+		d.hp = std::max(1.0f, condition(d) * d.max_hp);
 		ev.add({ (float)W_CONS, (float)i, (float)k });
 		return true;
 	}
@@ -228,7 +258,8 @@ struct Step {
 			if (need && k == CONS_REPAIR) {
 				need = d.track_broken > 0.0f || mstate(d.mod[MOD_ENGINE]) == 0 || mstate(d.mod[MOD_GUN]) == 0;
 			} else if (need && k == CONS_MEDKIT) {
-				need = !(d.crew[CREW_GUNNER] && d.crew[CREW_LOADER] && d.crew[CREW_DRIVER]);
+				need = false;
+				for (int m = 0; m < CREW_N; m++) need = need || (d.crew[m] && d.crew_hp[m] < 55.0f);
 			}
 			if (!need) {
 				d.cons_t[k] = -1.0f;
@@ -243,15 +274,15 @@ struct Step {
 		}
 	}
 
-	// урон (как Battle._damage); tag: 0 — снаряд, 1 — пожар, 2 — таран
-	void damage(int i, float amount, int by, int tag) {
+	// заслуги за урон: amount — сколько «состояния» танка (в единицах прежней прочности) снято;
+	// tag: 0 — снаряд, 1 — пожар, 2 — таран
+	void credit(int i, float amount, int by, int tag) {
 		Core::TankDyn &d = c->td[i];
-		if (!d.alive || !(amount > 0.0f)) return;
+		if (!(amount > 0.0f)) return;
 		Core::World &w = c->w;
-		float real = std::min(amount, std::ceil(d.hp));
-		d.hp -= amount;
+		float real = amount;
 		T(i)[P_HIT_T] = c->clock;
-		if (by >= 0) {
+		if (by >= 0 && by != i) {
 			c->td[by].dmg_dealt += real;
 			if (team(by) == 0 && team(i) == 1) d.lit = std::max(d.lit, 2.0f);
 			if (by == w.player) {
@@ -270,10 +301,77 @@ struct Step {
 			}
 			ev.add({ (float)W_DMG, (float)i, (float)by, amount, (float)tag });
 		}
-		if (d.hp <= 0.0f) kill(i, by);
 	}
 
-	void kill(int i, int by) {
+	// после удара: новое «состояние», заслуги стрелку; меньше двух человек — танк выбыл
+	void update(int i, int by, int tag, int why = 1) {
+		Core::TankDyn &d = c->td[i];
+		if (!d.alive) return;
+		float now = condition(d) * d.max_hp;
+		float amount = d.hp - now;
+		d.hp = std::max(now, 1.0f);
+		if (amount > 0.0f) credit(i, amount, by, tag);
+		if (crew_left(d) < 2) destroy(i, by, why);
+	}
+
+	// уничтожен: остаток «состояния» — в заслуги стрелку
+	void destroy(int i, int by, int why) {
+		Core::TankDyn &d = c->td[i];
+		if (!d.alive) return;
+		credit(i, d.hp, by, 0);
+		kill(i, by, why);
+	}
+
+	// ранение члена экипажа; выбыл — на его место пересядет кто сможет
+	void crew_hit(int i, int k, float dmg, int by) {
+		Core::TankDyn &d = c->td[i];
+		if (!d.alive || k < 0 || k >= CREW_N || !d.crew[k] || !(dmg > 0.0f)) return;
+		d.crew_hp[k] -= dmg;
+		if (d.crew_hp[k] > 0.0f) {
+			recalc(d, c->ds[i].casemate);
+			return;
+		}
+		d.crew_hp[k] = 0.0f;
+		d.crew[k] = false;
+		try_swap(d);
+		recalc(d, c->ds[i].casemate);
+		(void)by;
+	}
+
+	// подмена: место наводчика и мехвода важнее, их занимают радист или заряжающий, место заряжающего — радист
+	static void try_swap(Core::TankDyn &d) {
+		static const int need[3] = { CREW_GUNNER, CREW_DRIVER, CREW_LOADER };
+		for (int slot : need) {
+			if (!d.crew_has[slot] || d.crew[slot] || d.swap_t[slot] >= 0.0f) continue;
+			int donor = -1;
+			if (d.crew_has[CREW_RADIO] && d.crew[CREW_RADIO]) {
+				donor = CREW_RADIO;
+			} else if (slot != CREW_LOADER && d.crew_has[CREW_LOADER] && d.crew[CREW_LOADER]) {
+				donor = CREW_LOADER;
+			}
+			if (donor < 0) continue;
+			d.swap_hp[slot] = d.crew_hp[donor];
+			d.swap_t[slot] = SWAP_TIME;
+			d.crew[donor] = false;
+			d.crew_hp[donor] = 0.0f;
+		}
+	}
+
+	// таран: удар достаётся экипажу и двигателю (в долях прежней прочности)
+	void ram_hit(int i, float amount, int by) {
+		Core::TankDyn &d = c->td[i];
+		if (!d.alive || !(amount > 0.0f)) return;
+		float frac = amount / std::max(d.max_hp, 1.0f);
+		for (int k = 0; k < CREW_N; k++) {
+			if (d.crew[k]) d.crew_hp[k] = std::max(1.0f, d.crew_hp[k] - frac * 80.0f * rnd(0.6f, 1.2f));
+		}
+		int was, now;
+		hit_module(i, MOD_ENGINE, frac * 60.0f, was, now);
+		recalc(d, c->ds[i].casemate);
+		update(i, by, 2);
+	}
+
+	void kill(int i, int by, int why = 0) {
 		Core::TankDyn &d = c->td[i];
 		Core::World &w = c->w;
 		d.alive = false;
@@ -301,7 +399,11 @@ struct Step {
 			if (p) gd::call_bool(api.set_emitting, p, false);
 		}
 		d.dust_on = d.mud_on = 0;
-		ev.add({ (float)W_KILL, (float)i, (float)by, pop ? 1.0f : 0.0f });
+		ev.add({ (float)W_KILL, (float)i, (float)by, pop ? 1.0f : 0.0f, (float)why });
+		if (std::getenv("STEEL_DEBUG_KILL")) {
+			std::fprintf(stderr, "KILL tank=%d by=%d why=%d pens=%d hits=%d crew_left=%d he=%.0f\n", i, by, why, d.pens_taken, d.hits_taken, crew_left(d),
+				by >= 0 ? c->td[by].he : -1.0f);
+		}
 	}
 
 	void start_fire(int i, int by) {
@@ -350,6 +452,7 @@ struct Step {
 			s.pos = p;
 			s.vel = vel;
 			s.dmg = d.dmg;
+			s.he = d.he;
 			s.pen = DS.pen;
 			s.cal = DS.cal;
 			s.dist = 0.0f;
@@ -555,11 +658,11 @@ struct Step {
 				int k = (int)e[1], i = (int)e[2];
 				if (k < 0 || (size_t)k >= c->shells.size() || i < 0 || i >= n()) continue;
 				Core::TankDyn &d = c->td[i];
-				float st[12];
+				float st[13];
 				st[0] = d.alive ? 1.0f : 0.0f;
 				st[1] = d.fire > 0.0f ? 1.0f : 0.0f;
 				for (int m = 0; m < 6; m++) st[2 + m] = d.mod[m];
-				for (int m = 0; m < 4; m++) st[8 + m] = d.crew[m] ? 1.0f : 0.0f;
+				for (int m = 0; m < CREW_N; m++) st[8 + m] = !d.crew_has[m] ? -1.0f : (d.crew[m] ? d.crew_hp[m] : 0.0f);
 				EvOut he;
 				resolve_hit(c, c->shells[k], st, he);
 				c->shells[k].hit_tank = -1;
@@ -633,34 +736,37 @@ struct Step {
 					T(i)[P_VX] *= 0.4f;
 					T(i)[P_VY] *= 0.4f;
 				}
-				break;
+				forward(e);
+				update(i, (int)e[2], 0);
+				return;
 			}
 			case EV_CREW: {
-				int i = (int)e[1], k = (int)e[3];
+				// ранение: e[4] — урон; в e[5] для GDScript — выбыл ли (1) или ранен (0)
+				int i = (int)e[1], by = (int)e[2], k = (int)e[3];
 				Core::TankDyn &d = c->td[i];
-				if (!d.crew[k]) return;
-				d.crew[k] = false;
-				recalc(d, c->ds[i].casemate);
-				break;
+				if (k < 0 || k >= CREW_N || !d.crew[k] || !d.alive) return;
+				crew_hit(i, k, e[4], by);
+				e[5] = d.crew[k] ? 0.0f : 1.0f;
+				forward(e);
+				update(i, by, 0);
+				return;
 			}
 			case EV_FIRE:
 				start_fire((int)e[1], (int)e[2]);
 				break;
 			case EV_PEN_DMG: {
+				// прочности нет: пробитие уничтожает танк только подрывом боеукладки (или экипаж уже выбыл)
 				int i = (int)e[1], by = (int)e[2];
 				Core::TankDyn &d = c->td[i];
-				float dmg = e[3];
-				if (e[4] != 0.0f) {
-					w.stat[7]++;
-					dmg = d.hp + 1.0f;
-				}
-				size_t at = ev.v.size();
+				bool was_alive = d.alive;
 				forward(e);
-				damage(i, dmg, by, 0);
-				if (d.alive && crew_left(d) == 0) {
-					ev.v[at + 5] = 1.0f;  // «экипаж выбыл»
-					damage(i, d.hp + 1.0f, by, 0);
+				if (e[4] != 0.0f && d.alive) {
+					w.stat[7]++;
+					destroy(i, by, 2);
+				} else {
+					update(i, by, 0);
 				}
+				(void)was_alive;
 				return;
 			}
 			default:
@@ -795,7 +901,7 @@ METHOD(world_init) {
 	if (!need(a, 5, e)) return;
 	std::vector<float> P = f32(a, 0), st = f32(a, 1), k = f32(a, 2);
 	int n = (int)(P.size() / PHYS);
-	if (n <= 0 || (int)self->ts.size() < n || (int)self->ds.size() < n || (int)self->ai.size() < n || (int)st.size() < n * 11) {
+	if (n <= 0 || (int)self->ts.size() < n || (int)self->ds.size() < n || (int)self->ai.size() < n || (int)st.size() < n * 13) {
 		ret_bool(r, false);
 		return;
 	}
@@ -804,7 +910,7 @@ METHOD(world_init) {
 	self->td.assign(n, Core::TankDyn());
 	for (int i = 0; i < n; i++) {
 		Core::TankDyn &d = self->td[i];
-		const float *q = &st[(size_t)i * 11];
+		const float *q = &st[(size_t)i * 13];
 		d.spot = q[0];
 		d.reload = q[1];
 		d.dmg = q[2];
@@ -814,6 +920,16 @@ METHOD(world_init) {
 		d.max_hp = d.hp = q[6];
 		d.player = q[7] != 0.0f;
 		for (int c = 0; c < 3; c++) d.cons_has[c] = q[8 + c] != 0.0f;
+		// экипаж: 5 — все места, 4 — без радиста, 3 — командир, наводчик, мехвод, 2 — командир (он же наводчик) и мехвод
+		int nc = (int)clampf(q[11], 2.0f, 5.0f);
+		const bool has[4][5] = { { 1, 0, 0, 1, 0 }, { 1, 1, 0, 1, 0 }, { 1, 1, 1, 1, 0 }, { 1, 1, 1, 1, 1 } };
+		for (int k = 0; k < CREW_N; k++) {
+			d.crew_has[k] = has[nc - 2][k];
+			d.crew[k] = d.crew_has[k];
+			d.crew_hp[k] = d.crew_has[k] ? 100.0f : 0.0f;
+			d.swap_t[k] = -1.0f;
+		}
+		d.he = std::max(0.0f, q[12]);
 		d.alive = P[(size_t)i * PHYS + P_ALIVE] != 0.0f;
 		d.rl = P[(size_t)i * PHYS + P_RL];
 		d.rl_max = d.reload;
@@ -923,10 +1039,31 @@ METHOD(world_step) {
 			}
 		}
 		if (fixed) recalc(d, self->ds[i].casemate);
+		// подмена членов экипажа
+		for (int k = 0; k < CREW_N; k++) {
+			if (d.swap_t[k] < 0.0f) continue;
+			d.swap_t[k] -= dt;
+			if (d.swap_t[k] <= 0.0f) {
+				d.swap_t[k] = -1.0f;
+				d.crew[k] = true;
+				d.crew_hp[k] = std::max(1.0f, d.swap_hp[k]);
+				recalc(d, self->ds[i].casemate);
+				S.ev.add({ (float)W_SWAP, (float)i, (float)k });
+			}
+		}
+		// пожар жжёт экипаж и двигатель; не потушен — экипаж сгорит
 		if (d.fire > 0.0f) {
 			d.fire -= dt;
-			S.damage(i, d.max_hp * 0.018f * dt, d.fire_by >= 0 ? d.fire_by : i, 1);  // 1,8 % прочности в секунду
-			if (d.fire <= 0.0f) S.ev.add({ (float)W_FIRE_OUT, (float)i });
+			int by = d.fire_by >= 0 ? d.fire_by : i;
+			for (int k = 0; k < CREW_N; k++) {
+				if (d.crew[k]) {
+					d.crew_hp[k] -= BURN_CREW * dt * S.rnd(0.6f, 1.4f);
+					if (d.crew_hp[k] <= 0.0f) S.crew_hit(i, k, 1.0f, by);
+				}
+			}
+			d.mod[MOD_ENGINE] = std::max(0.0f, d.mod[MOD_ENGINE] - 1.5f * dt);
+			S.update(i, by, 1, 3);
+			if (d.fire <= 0.0f && d.alive) S.ev.add({ (float)W_FIRE_OUT, (float)i });
 			if (!d.alive) continue;
 		}
 		if (w.over) {
@@ -990,7 +1127,7 @@ METHOD(world_step) {
 				}
 			}
 			// огонь и снаряжение
-			if (in[8] != 0.0f && d.rl <= 0.0f && mstate(d.mod[MOD_GUN]) > 0) S.shoot(i);
+			if (in[8] != 0.0f && d.rl <= 0.0f && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew) S.shoot(i);
 			if (in[9] >= 0.0f) S.use_cons(i, (int)in[9]);
 		} else {
 			// бот (и игрок на автопилоте): снаряжение, решения, ход и огонь — в физике
@@ -1008,7 +1145,7 @@ METHOD(world_step) {
 			t[P_BOT] = 1.0f;
 			int tg = self->ai[i].tg;
 			t[P_RL] = d.rl;
-			t[P_CAN_FIRE] = tg >= 0 && tg < n && self->td[tg].alive && mstate(d.mod[MOD_GUN]) > 0 ? 1.0f : 0.0f;
+			t[P_CAN_FIRE] = tg >= 0 && tg < n && self->td[tg].alive && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew ? 1.0f : 0.0f;
 		}
 		// дым подбитого — только у видимых и не слишком далёких
 		float dx = t[P_X] - S.T(w.watch)[P_X], dy = t[P_Y] - S.T(w.watch)[P_Y];
@@ -1044,7 +1181,7 @@ METHOD(world_step) {
 		float *t = S.T(i);
 		if (t[P_BOT] != 0.0f) {
 			if (t[P_STUCK] != 0.0f) self->td[i].path_t = 0.0f;  // застрял: новый маршрут
-			if (t[P_FIRE] != 0.0f && self->td[i].alive) S.shoot(i);
+			if (t[P_FIRE] != 0.0f && self->td[i].alive && self->td[i].gun_crew) S.shoot(i);
 		}
 	}
 	for (size_t q = 0; q + 4 < pev.size(); q += 5) {
@@ -1059,8 +1196,8 @@ METHOD(world_step) {
 			float ma = self->ts[i].mass, mb = self->ts[j].mass;
 			w.stat[4]++;
 			float en = closing * closing * 0.006f;
-			S.damage(j, std::round(en * ma / (ma + mb) * 2.0f), i, 2);
-			S.damage(i, std::round(en * mb / (ma + mb) * 0.8f), j, 2);
+			S.ram_hit(j, std::round(en * ma / (ma + mb) * 2.0f), i);
+			S.ram_hit(i, std::round(en * mb / (ma + mb) * 0.8f), j);
 			S.ev.add({ (float)W_RAM, (float)i, (float)j });
 		}
 	}
@@ -1131,6 +1268,10 @@ METHOD(world_step) {
 			f[18 + m] = d.fix[m];
 		}
 		for (int k = 0; k < 4; k++) f[24 + k] = d.crew[k] ? 1.0f : 0.0f;
+		// экипаж подробно: здоровье (−1 — места нет, −2 — пересаживается), есть кому стрелять и вести
+		for (int k = 0; k < CREW_N; k++) f[43 + k] = !d.crew_has[k] ? -1.0f : (d.swap_t[k] >= 0.0f ? -2.0f : (d.crew[k] ? d.crew_hp[k] : 0.0f));
+		f[48] = d.gun_crew ? 1.0f : 0.0f;
+		f[49] = d.drive_crew ? 1.0f : 0.0f;
 		for (int k = 0; k < 3; k++) {
 			f[28 + k] = d.cons_cd[k];
 			f[31 + k] = d.cons_used[k] ? 1.0f : 0.0f;

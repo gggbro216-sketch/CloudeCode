@@ -38,8 +38,10 @@ const MOD_MSG := {
 	"ammo": ["БОЕУКЛАДКА ПОВРЕЖДЕНА", "БОЕУКЛАДКА РАЗБИТА"],
 	"fuel": ["ТОПЛИВНЫЕ БАКИ ПРОБИТЫ", "ТОПЛИВНЫЕ БАКИ РАЗБИТЫ"],
 }
-const CREW_MSG := {"commander": "КОМАНДИР РАНЕН", "gunner": "НАВОДЧИК РАНЕН", "loader": "ЗАРЯЖАЮЩИЙ РАНЕН",
-	"driver": "МЕХВОД РАНЕН"}
+const CREW_MSG := {"commander": "КОМАНДИР ВЫБЫЛ", "gunner": "НАВОДЧИК ВЫБЫЛ", "loader": "ЗАРЯЖАЮЩИЙ ВЫБЫЛ",
+	"driver": "МЕХВОД ВЫБЫЛ", "radio": "РАДИСТ ВЫБЫЛ"}
+const SEAT_MSG := {"gunner": "НА МЕСТЕ НАВОДЧИКА", "driver": "НА МЕСТЕ МЕХВОДА", "loader": "НА МЕСТЕ ЗАРЯЖАЮЩЕГО"}
+const KILL_WHY := ["", "ЭКИПАЖ ВЫБЫЛ", "БОЕУКЛАДКА", "ЭКИПАЖ СГОРЕЛ"]
 const FIXED_MSG := {"gun": "ОРУДИЕ ВОССТАНОВЛЕНО", "turret": "ПОГОН БАШНИ ВОССТАНОВЛЕН",
 	"optics": "ПРИБОРЫ ВОССТАНОВЛЕНЫ", "ammo": "БОЕУКЛАДКА ВОССТАНОВЛЕНА"}
 # Следы гусениц: рисунок траков, глубже на мягком грунте; умножают цвет земли и медленно тают.
@@ -1094,7 +1096,7 @@ func _world_init() -> void:
 		var T := tk.T
 		st.append_array([float(T.spot), float(T.reload), float(T.dmg), float(T.speed), float(T.tspd), float(T.W), tk.max_hp,
 			1.0 if tk.is_player else 0.0, 1.0 if tk.cons.has("repair") else 0.0, 1.0 if tk.cons.has("medkit") else 0.0,
-			1.0 if tk.cons.has("ext") else 0.0])
+			1.0 if tk.cons.has("ext") else 0.0, float(D.crew_n(tk.type_key)), D.shell_he(T)])
 	var k := PackedFloat32Array([D.CAP_RATE, D.SUP_GOAL, D.CONSUMABLES.repair.cd, D.CONSUMABLES.medkit.cd, D.CONSUMABLES.ext.cd])
 	if not core.world_init(P, st, k, trk_mm, TRK):
 		_start_nav_thread()  # движок не той версии: методы узлов не нашлись — остаётся прежний путь
@@ -3487,15 +3489,17 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					var name: String = TankScript.MODS[int(ev[q + 3])]
 					tk.mod_hp[name] = 0.0 if now == 0 else (30.0 if now == 1 else 100.0)
 					_module_fx(tk, tanks[int(ev[q + 2])], name, now)
-			11:  # член экипажа
+			11:  # член экипажа ранен (ev[5] = 0) или выбыл (1)
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var role: String = TankScript.CREW[int(ev[q + 3])]
-				tk.crew_ok[role] = false
+				var out := ev[q + 5] != 0.0
+				if out:
+					tk.crew_ok[role] = false
 				if tk.is_player:
-					hud.alert(CREW_MSG[role], Color("ff6a4a"))
+					hud.alert(CREW_MSG[role] if out else TankScript.NAMES[role] + " РАНЕН", Color("ff6a4a") if out else Color("ffb36a"))
 				var by: TankScript = tanks[int(ev[q + 2])]
 				if by.is_player:
-					_popup(tk, TankScript.NAMES[role], Color("ff8a6a"), by)
+					_popup(tk, TankScript.NAMES[role] + (" ✕" if out else " РАНЕН"), Color("ff6a4a") if out else Color("ffb38a"), by)
 			12:  # пожар
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				tk.fire = FIRE_TIME
@@ -3510,8 +3514,6 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var by: TankScript = tanks[int(ev[q + 2])]
 				if ev[q + 4] != 0.0:
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
-				if ev[q + 5] != 0.0:
-					_popup(tk, "ЭКИПАЖ ВЫБЫЛ", Color("ff6a4a"), by)
 			20:  # выстрел
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var mz := Vector3(ev[q + 3], ev[q + 4], ev[q + 5])
@@ -3527,14 +3529,23 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				sfx.gun(cal, mz)
 			21:  # урон: число над танком
 				var tk: TankScript = tanks[int(ev[q + 1])]
-				var amount: float = ev[q + 3]
+				# прочности нет: число урона не показываем, только таран
 				var col := Color("ff8a6a") if tk.is_player else Color.WHITE
-				var label := ("ТАРАН -%d" % int(amount)) if int(ev[q + 4]) == 2 else "-%d" % int(amount)
-				texts.append({"pos": tk.top() + Vector3(0, 8, 0), "s": label, "col": col, "life": 1.2})
-				if tk == watch:
+				if int(ev[q + 4]) == 2:
+					texts.append({"pos": tk.top() + Vector3(0, 8, 0), "s": "ТАРАН", "col": col, "life": 1.2})
+				if tk == watch and int(ev[q + 4]) != 1:
 					shake = maxf(shake, 8.0)
-			22:  # уничтожен
-				_world_kill(tanks[int(ev[q + 1])], tanks[int(ev[q + 2])] if ev[q + 2] >= 0.0 else null, ev[q + 3] != 0.0)
+			22:  # уничтожен (ev[4] — причина)
+				var why := int(ev[q + 4])
+				var by_k: TankScript = tanks[int(ev[q + 2])] if ev[q + 2] >= 0.0 else null
+				if why == 1 or why == 3:
+					_popup(tanks[int(ev[q + 1])], KILL_WHY[why], Color("ff6a4a"), by_k)
+				_world_kill(tanks[int(ev[q + 1])], by_k, ev[q + 3] != 0.0)
+			33:  # член экипажа пересел на место выбывшего
+				var tk: TankScript = tanks[int(ev[q + 1])]
+				var seat: String = TankScript.CREW[int(ev[q + 2])]
+				if tk.is_player and SEAT_MSG.has(seat):
+					hud.alert(SEAT_MSG[seat], Color("9ad07a"))
 			23:  # удар о постройку
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				sfx.play3d("impact_stone", tk.center(), -6.0)
@@ -3713,7 +3724,7 @@ func _world_mirror(view: PackedFloat32Array, dp: PackedFloat32Array, dw: PackedF
 
 ## Подробно о танке для HUD и камеры (поля — DET в native/src/battle.cpp).
 func _mirror_detail(tk: TankScript, d: PackedFloat32Array) -> void:
-	if d.size() < 43:
+	if d.size() < 50:
 		return
 	tk.rl = d[0]
 	tk.rl_max = d[1]
@@ -3748,6 +3759,10 @@ func _mirror_detail(tk: TankScript, d: PackedFloat32Array) -> void:
 	tk.lit = d[38]
 	tk.recoil = d[39]
 	tk.dmg_dealt = d[42]
+	for c in 5:
+		tk.crew_hp[TankScript.CREW[c]] = d[43 + c]
+	tk.gun_crew = d[48] != 0.0
+	tk.drive_crew = d[49] != 0.0
 
 
 ## Опыт и серебро, посчитанные в C++ (те же строки, что rewards()).

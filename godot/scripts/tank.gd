@@ -7,10 +7,14 @@ const Models = preload("res://scripts/tank_models.gd")
 
 ## Модули: прочность 0–100. Больше 50 — исправен, 1–50 — повреждён, 0 — уничтожен.
 const MODS := ["engine", "gun", "turret", "optics", "ammo", "fuel"]
-const CREW := ["commander", "gunner", "loader", "driver"]
+const CREW := ["commander", "gunner", "loader", "driver", "radio"]
+## Места экипажа по численности (как в C++): 5 — все, 4 — без радиста, 3 — без заряжающего и радиста,
+## 2 — командир (он же наводчик и заряжающий) и мехвод.
+const CREW_SEATS := {5: ["commander", "gunner", "loader", "driver", "radio"], 4: ["commander", "gunner", "loader", "driver"],
+	3: ["commander", "gunner", "driver"], 2: ["commander", "driver"]}
 const NAMES := {"engine": "ДВИГАТЕЛЬ", "gun": "ОРУДИЕ", "turret": "ПОГОН", "optics": "ПРИБОРЫ",
 	"ammo": "БОЕУКЛАДКА", "fuel": "БАКИ", "commander": "КОМАНДИР", "gunner": "НАВОДЧИК",
-	"loader": "ЗАРЯЖАЮЩИЙ", "driver": "МЕХВОД"}
+	"loader": "ЗАРЯЖАЮЩИЙ", "driver": "МЕХВОД", "radio": "РАДИСТ"}
 ## Полевой ремонт уничтоженного модуля до «повреждён», с. Двигатель не чинится: танк встаёт.
 const REPAIR := {"gun": 10.0, "turret": 8.0, "optics": 8.0, "ammo": 12.0}
 const MARKS := 8  # следов попаданий на каждой части
@@ -83,6 +87,10 @@ var engine_fx: GPUParticles3D  # дым разбитого моторного о
 var mod_hp := {}
 var mod_fix := {}  # уничтоженный модуль → секунд до полевого ремонта
 var crew_ok := {}
+var crew_has := {}  # есть ли такое место в экипаже этого танка
+var crew_hp := {}  # здоровье экипажа 0–100 (−2 — пересаживается на место выбывшего)
+var gun_crew := true  # есть кому стрелять
+var drive_crew := true  # есть кому вести
 var layout: Array = []  # места модулей и экипажа: {name, part ("hull" | "top"), c, h (полуразмеры) | r}
 var speed_k := 1.0  # множители характеристик от повреждений и потерь экипажа
 var accel_k := 1.0
@@ -399,8 +407,11 @@ func add_mark(part: String, world_pos: Vector3, world_dir: Vector3, radius: floa
 func _init_damage() -> void:
 	for m in MODS:
 		mod_hp[m] = 100.0
+	var seats: Array = CREW_SEATS[clampi(D.crew_n(type_key), 2, 5)]
 	for c in CREW:
-		crew_ok[c] = true
+		crew_has[c] = seats.has(c)
+		crew_ok[c] = true  # нет такого места — не в счёт (путь без C++)
+		crew_hp[c] = 100.0 if seats.has(c) else -1.0
 	var U := D.UPM
 	var L: float = float(T.len) * U
 	var W: float = float(T.wid) * U
@@ -411,6 +422,9 @@ func _init_damage() -> void:
 		{"name": "ammo", "part": "hull", "c": Vector3(0.02 * L, 0.32 * hh, 0), "h": Vector3(0.14 * L, 0.15 * hh, 0.26 * W)},
 		{"name": "driver", "part": "hull", "c": Vector3(0.5 * L - 1.15 * U, 0.62 * hh, -0.42 * U), "r": 0.42 * U},
 	]
+	if seats.has("radio"):
+		# радист-пулемётчик — в корпусе справа от мехвода
+		layout.append({"name": "radio", "part": "hull", "c": Vector3(0.5 * L - 1.15 * U, 0.62 * hh, 0.42 * U), "r": 0.42 * U})
 	var f := up_max.x
 	var b := -up_min.x
 	var hw := up_max.z
@@ -420,9 +434,14 @@ func _init_damage() -> void:
 	if not casemate:
 		layout.append({"name": "turret", "part": "top", "c": Vector3(0, 0.08 * h, 0), "h": Vector3(0.45 * minf(f, b), 0.09 * h, 0.5 * hw)})
 	layout.append({"name": "optics", "part": "top", "c": Vector3(-0.3 * b, 0.9 * h, -0.3 * hw), "h": Vector3(0.22, 0.14, 0.22) * U})
-	layout.append({"name": "gunner", "part": "top", "c": Vector3(0.25 * f, 0.45 * h, -0.4 * hw), "r": 0.4 * U})
-	layout.append({"name": "commander", "part": "top", "c": Vector3(-0.45 * b, 0.55 * h, -0.35 * hw), "r": 0.4 * U})
-	layout.append({"name": "loader", "part": "top", "c": Vector3(0.0, 0.45 * h, 0.45 * hw), "r": 0.4 * U})
+	if seats.has("gunner"):
+		layout.append({"name": "gunner", "part": "top", "c": Vector3(0.25 * f, 0.45 * h, -0.4 * hw), "r": 0.4 * U})
+	if seats.size() == 2:
+		layout.append({"name": "commander", "part": "top", "c": Vector3(-0.1 * b, 0.5 * h, 0.0), "r": 0.42 * U})
+	else:
+		layout.append({"name": "commander", "part": "top", "c": Vector3(-0.45 * b, 0.55 * h, -0.35 * hw), "r": 0.4 * U})
+	if seats.has("loader"):
+		layout.append({"name": "loader", "part": "top", "c": Vector3(0.0, 0.45 * h, 0.45 * hw), "r": 0.4 * U})
 	recalc()
 
 
@@ -550,7 +569,14 @@ func cons_needed(name: String) -> bool:
 				if mod_state(m) < 2:
 					return true
 		"medkit":
-			return crew_left() < CREW.size()
+			for c in CREW:
+				if not crew_has[c]:
+					continue
+				if float(crew_hp[c]) > 0.0 and float(crew_hp[c]) < 100.0:
+					return true  # ранен
+				if not crew_ok[c] and float(crew_hp[c]) >= 100.0:
+					return true  # путь без C++: выбывший поднимается аптечкой
+			return false
 		"ext":
 			return fire > 0.0
 	return false

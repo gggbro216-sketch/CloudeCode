@@ -331,9 +331,6 @@ func _draw_world() -> void:
 		if s == null:
 			continue
 		var col := team_color(tk.team)
-		var bw := 58.0
-		cv.draw_rect(Rect2(s.x - bw / 2 - 1, s.y - 1, bw + 2, 7), Color(0, 0, 0, 0.6))
-		cv.draw_rect(Rect2(s.x - bw / 2, s.y, bw * clampf(tk.hp / tk.max_hp, 0.0, 1.0), 5), col)
 		_text(Vector2(s.x, s.y - 6), tk.callsign, 16, col, true, 4)
 		# маркер-треугольник команды
 		cv.draw_colored_polygon(PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
@@ -619,18 +616,8 @@ func _draw_hp() -> void:
 	var p = battle.player
 	var cx := size.x / 2
 	var y := size.y - 14.0 - margins.w - 52.0
-	var f: float = clampf(p.hp / p.max_hp, 0.0, 1.0)
-	var c := Color(UI.TEXT)
-	if f > 0.5:
-		c = Color("7bc65a")
-	elif f > 0.25:
-		c = col_amber
-	else:
-		c = col_foe
 	_text(Vector2(cx, y), String(p.T.name).to_upper(), 14, col_dim, true, 3)
-	cv.draw_rect(Rect2(cx - 150, y + 6, 300, 14), Color(0.04, 0.05, 0.03, 0.75))
-	cv.draw_rect(Rect2(cx - 149, y + 7, 298 * f, 12), c)
-	_text(Vector2(cx, y + 42), "%d / %d" % [ceili(maxf(p.hp, 0.0)), int(p.max_hp)], 20, col_text, true, 4)
+	_draw_crew(p, cx, y + 26)
 	if not p.alive:
 		return
 	# скорость и состояние модулей
@@ -644,6 +631,47 @@ func _draw_hp() -> void:
 		ac.a = clampf(float(a.t) * 1.5, 0.0, 1.0)
 		_text(Vector2(cx, ay), a.text, 19, ac, true, 5)
 		ay -= 26
+
+
+const CREW_SHORT := {"commander": "КОМ", "gunner": "НАВ", "loader": "ЗАР", "driver": "МЕХ", "radio": "РАД"}
+
+
+## Экипаж (прочности нет): значок на каждое место. Зелёный — здоров, жёлтый — ранен, красный крест — выбыл,
+## мигающий — пересаживается на место выбывшего. Под ним — нет наводчика / мехвода.
+func _draw_crew(p, cx: float, y: float) -> void:
+	var seats: Array = []
+	for cr in TankScript.CREW:
+		if p.crew_has.get(cr, false):
+			seats.append(cr)
+	var step := 46.0
+	var x0 := cx - step * (seats.size() - 1) / 2.0
+	cv.draw_rect(Rect2(x0 - 26, y - 22, step * (seats.size() - 1) + 52, 48), Color(0.04, 0.05, 0.03, 0.6))
+	var blink := fmod(Time.get_ticks_msec() / 1000.0, 0.8) < 0.4
+	for i in seats.size():
+		var cr: String = seats[i]
+		var hp := float(p.crew_hp.get(cr, 100.0))
+		var c := Vector2(x0 + i * step, y - 4)
+		var col := Color("7bc65a")
+		if hp == -2.0:
+			col = col_amber if blink else Color(col_amber, 0.35)
+		elif hp <= 0.0:
+			col = col_foe
+		elif hp < 60.0:
+			col = col_amber
+		# фигурка: голова и плечи
+		cv.draw_circle(c + Vector2(0, -7), 5.5, col)
+		cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 9), c + Vector2(-7, 0), c + Vector2(7, 0), c + Vector2(10, 9)]), col)
+		if hp == 0.0:
+			cv.draw_line(c + Vector2(-11, -12), c + Vector2(11, 10), Color("ffffff"), 2.5)
+			cv.draw_line(c + Vector2(11, -12), c + Vector2(-11, 10), Color("ffffff"), 2.5)
+		elif hp > 0.0 and hp < 100.0:
+			cv.draw_rect(Rect2(c.x - 12, c.y + 12, 24, 3), Color(0, 0, 0, 0.6))
+			cv.draw_rect(Rect2(c.x - 12, c.y + 12, 24 * hp / 100.0, 3), col)
+		_text(c + Vector2(0, 26), CREW_SHORT[cr], 10, col_dim, true, 3)
+	if p.alive and not p.gun_crew:
+		_text(Vector2(cx, y - 44), "НЕКОМУ СТРЕЛЯТЬ", 15, col_foe, true, 3)
+	elif p.alive and not p.drive_crew:
+		_text(Vector2(cx, y - 44), "НЕКОМУ ВЕСТИ", 15, col_foe, true, 3)
 
 
 ## Панель повреждений: только то, что не в порядке. Жёлтое — повреждено, красное — уничтожено
@@ -662,9 +690,6 @@ func _draw_damage(p, cx: float, y: float) -> void:
 		items.append(["track", "ГУСЕНИЦА", col_amber, 1.0 - p.track_broken / 7.0])
 	if p.fire > 0.0:
 		items.append(["fire", "ПОЖАР", Color("ff7a3a"), -1.0])
-	for cr in TankScript.CREW:
-		if not p.crew_ok[cr]:
-			items.append(["crew", TankScript.NAMES[cr], col_foe, -1.0])
 	if items.is_empty():
 		return
 	var step := 58.0

@@ -2813,8 +2813,8 @@ static float armor_of(const Core::DmgStatic &d, int part, V3 n, const M3 &B, V3 
 	return thick;
 }
 
-// Состояние танка, которое присылает GDScript к каждому попаданию.
-enum { ST_ALIVE, ST_BURNING, ST_MOD, ST_CREW = ST_MOD + 6, ST_N = ST_CREW + 4 };
+// Состояние танка к каждому попаданию: жив, горит, модули ×6, экипаж ×5 (здоровье; 0 — выбыл, < 0 — места нет).
+enum { ST_ALIVE, ST_BURNING, ST_MOD, ST_CREW = ST_MOD + 6, ST_N = ST_CREW + 5, ST_N_OLD = ST_CREW + 4 };
 static inline int mod_state(float v) { return v > 50.0f ? 2 : (v > 0.0f ? 1 : 0); }
 
 struct HitCtx {
@@ -2839,7 +2839,7 @@ struct HitCtx {
 		bool boom = false;
 		float roll = c->randf();
 		bool burn = (m == MOD_ENGINE && roll < (now > 0 ? 0.15f : 0.3f)) || (m == MOD_FUEL && roll < 0.35f);
-		if (now != was && m == MOD_AMMO && now == 0 && c->randf() < 0.6f) {
+		if (now != was && m == MOD_AMMO && now == 0 && c->randf() < 0.3f) {
 			boom = true;
 		}
 		ev->add({ (float)EV_MODULE, (float)i, (float)by, (float)m, amount, (float)was, (float)now, boom ? 1.0f : 0.0f });
@@ -2848,12 +2848,14 @@ struct HitCtx {
 		}
 		return boom;
 	}
-	void crew(int k) {
-		if (st[ST_CREW + k] == 0.0f) {
+	bool crew_alive(int k) const { return st[ST_CREW + k] > 0.0f; }
+	// ранение члена экипажа (здоровье 0–100); EV_CREW: танк, стрелок, место, урон
+	void crew(int k, float dmg = 200.0f) {
+		if (!crew_alive(k) || !(dmg > 0.0f)) {
 			return;
 		}
-		st[ST_CREW + k] = 0.0f;
-		ev->add({ (float)EV_CREW, (float)i, (float)by, (float)k });
+		st[ST_CREW + k] = std::max(0.0f, st[ST_CREW + k] - dmg);
+		ev->add({ (float)EV_CREW, (float)i, (float)by, (float)k, dmg });
 	}
 	// толчок корпусу (как Battle._hit_kick)
 	void kick(V3 dir, float cal, float k) {
@@ -2866,65 +2868,128 @@ struct HitCtx {
 	}
 };
 
-// За бронёй снаряд летит ещё ~3 м и задевает модули и экипаж (как Battle._internal_damage).
-static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float dmg, int part) {
+// Заброневое действие (упрощённо, как в War Thunder):
+//  1) сам снаряд летит дальше ~3,5 м и бьёт всё на пути (экипаж почти наверняка насмерть), теряя энергию;
+//  2) конус осколков брони от места пробития: чем толще пробитый лист против калибра, тем их больше;
+//  3) каморный снаряд (ВВ > 0) рвётся через ~1,2 м за бронёй (если лист достаточно толст, чтобы взвёлся
+//     взрыватель): осколки во все стороны, радиус — от массы ВВ; сплошная болванка не рвётся.
+// Боеукладка от удара может сдетонировать, баки и двигатель — загореться. true — взрыв боеукладки.
+namespace {
+struct Item {
+	int k;  // номер в раскладке
+	V3 c, h;  // в осях своей части
+	float r;
+	bool top, crew;
+	int idx;
+};
+}  // namespace
+
+static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float thick, int part) {
 	Core *c = h.c;
-	V3 seg = v3mul(dir, 3.0f * c->upm);
-	M3 Bh, Bt;
-	V3 Oh, Ot;
-	c->part_xf(h.i, 0, Bh, Oh);
-	c->part_xf(h.i, 1, Bt, Ot);
+	const float U = c->upm;
+	M3 Bp[2];
+	V3 Op[2];
+	c->part_xf(h.i, 0, Bp[0], Op[0]);
+	c->part_xf(h.i, 1, Bp[1], Op[1]);
 	const std::vector<Core::LayoutItem> &L = c->layout[h.i];
-	std::vector<std::pair<float, int>> path;
-	for (size_t k = 0; k < L.size(); k++) {
-		const Core::LayoutItem &it = L[k];
-		const M3 &B = it.top ? Bt : Bh;
-		V3 o = B.tmul(v3sub(hp, it.top ? Ot : Oh)), d = B.tmul(seg);
-		float t = -1.0f;
-		if (it.r > 0.0f) {
-			V3 cl = closest_on(it.c, o, d);
-			if (v3len(v3sub(cl, it.c)) < it.r) {
-				t = v3len(v3sub(cl, o)) / std::max(v3len(d), 1e-6f);
-			}
-		} else {
-			float tt;
-			V3 nn;
-			if (slab(o, d, v3sub(it.c, it.h), v3add(it.c, it.h), tt, nn)) {
-				t = tt;
-			}
-		}
-		if (t >= 0.0f) {
-			path.push_back({ t, (int)k });
-		}
-	}
-	std::stable_sort(path.begin(), path.end(), [](const std::pair<float, int> &x, const std::pair<float, int> &y) { return x.first < y.first; });
 	bool boom = false;
-	float energy = 1.0f;
-	std::vector<int> hurt;
-	auto hurt_has = [&](int k) { return std::find(hurt.begin(), hurt.end(), k) != hurt.end(); };
-	for (auto &e : path) {
-		const Core::LayoutItem &it = L[e.second];
+	// точка мира в оси части
+	auto local = [&](V3 p, bool top) { return Bp[top].tmul(v3sub(p, Op[top])); };
+	auto alive = [&](const Core::LayoutItem &it) { return !it.crew || h.crew_alive(it.idx); };
+	// первое попадание луча p→p+seg в живой член экипажа или модуль: t (0..1) и номер; -1 — мимо
+	auto ray = [&](V3 p, V3 seg, std::vector<std::pair<float, int>> *all) {
+		float best = 2.0f;
+		int bk = -1;
+		for (size_t k = 0; k < L.size(); k++) {
+			const Core::LayoutItem &it = L[k];
+			if (!alive(it)) continue;
+			V3 o = local(p, it.top), d = Bp[it.top].tmul(seg);
+			float t = -1.0f;
+			if (it.r > 0.0f) {
+				V3 cl = closest_on(it.c, o, d);
+				if (v3len(v3sub(cl, it.c)) < it.r) t = v3len(v3sub(cl, o)) / std::max(v3len(d), 1e-6f);
+			} else {
+				float tt;
+				V3 nn;
+				if (slab(o, d, v3sub(it.c, it.h), v3add(it.c, it.h), tt, nn)) t = tt;
+			}
+			if (t < 0.0f || t > 1.0f) continue;
+			if (all) all->push_back({ t, (int)k });
+			if (t < best) {
+				best = t;
+				bk = (int)k;
+			}
+		}
+		return std::make_pair(best, bk);
+	};
+	// удар по модулю: детонация боеукладки и пожар — с вероятностью от силы удара
+	auto hit_module = [&](int m, float dmg, float det_k, float fire_k) {
+		if (h.module(m, dmg)) boom = true;
+		if (m == MOD_AMMO && c->randf() < det_k) boom = true;
+		if ((m == MOD_FUEL || m == MOD_ENGINE) && c->randf() < fire_k) h.fire();
+	};
+	auto hit = [&](const Core::LayoutItem &it, float crew_dmg, float mod_dmg, float det_k, float fire_k) {
 		if (it.crew) {
-			if (c->randf() < 0.75f && !hurt_has(it.idx)) {
-				hurt.push_back(it.idx);
-			}
+			h.crew(it.idx, crew_dmg);
 		} else {
-			if (h.module(it.idx, dmg * 0.42f * energy * h.rnd(0.8f, 1.2f))) {
-				boom = true;
+			hit_module(it.idx, mod_dmg, det_k, fire_k);
+		}
+	};
+
+	// 1) снаряд за бронёй
+	float reach = 3.5f * U;
+	float fuse = 1.2f * U;
+	bool armed = he > 0.0f && thick >= cal * 0.12f;  // тонкий лист не взводит взрыватель: снаряд прошивает насквозь
+	std::vector<std::pair<float, int>> path;
+	ray(hp, v3mul(dir, reach), &path);
+	std::stable_sort(path.begin(), path.end(), [](const std::pair<float, int> &x, const std::pair<float, int> &y) { return x.first < y.first; });
+	float energy = 1.0f;
+	float stop = armed ? fuse / reach : 1.0f;
+	for (auto &e : path) {
+		if (e.first > stop) break;
+		const Core::LayoutItem &it = L[e.second];
+		if (!alive(it)) continue;
+		hit(it, (cal >= 30.0f ? 150.0f : 90.0f) * energy * h.rnd(0.8f, 1.2f), (45.0f + cal * 0.55f) * energy * h.rnd(0.8f, 1.2f), 0.22f * energy, 0.3f * energy);
+		energy *= it.crew ? 0.85f : 0.65f;
+		if (armed && !it.crew && e.first * reach > 0.3f * U) {
+			stop = e.first;  // крупный модуль останавливает снаряд — разрыв здесь
+			break;
+		}
+	}
+	// 2) осколки брони: конус ~20°, длина ~2,4 м
+	float ratio = clampf(thick / std::max(cal, 1.0f), 0.2f, 2.5f);
+	int frags = (int)clampf(std::round(3.0f + cal / 14.0f * ratio), 3.0f, 16.0f);
+	V3 u = std::fabs(dir.y) < 0.9f ? v3norm({ -dir.z, 0.0f, dir.x }) : V3{ 1.0f, 0.0f, 0.0f };
+	V3 w = { dir.y * u.z - dir.z * u.y, dir.z * u.x - dir.x * u.z, dir.x * u.y - dir.y * u.x };
+	float cone = std::tan(20.0f * PI_F / 180.0f);
+	for (int f = 0; f < frags; f++) {
+		float a = h.rnd(0.0f, 2.0f * PI_F), rr = cone * std::sqrt(c->randf());
+		V3 fd = v3norm(v3add(dir, v3add(v3mul(u, std::cos(a) * rr), v3mul(w, std::sin(a) * rr))));
+		auto fh = ray(hp, v3mul(fd, 2.4f * U * h.rnd(0.6f, 1.0f)), nullptr);
+		if (fh.second >= 0) hit(L[fh.second], h.rnd(18.0f, 48.0f), h.rnd(8.0f, 22.0f), 0.02f, 0.03f);
+	}
+	// 3) разрыв каморного снаряда
+	if (armed) {
+		V3 ep = v3add(hp, v3mul(dir, stop * reach));
+		float R = (0.6f + 0.35f * std::cbrt(he)) * U;
+		for (size_t k = 0; k < L.size(); k++) {
+			const Core::LayoutItem &it = L[k];
+			if (!alive(it)) continue;
+			V3 o = local(ep, it.top);
+			float dist;
+			if (it.r > 0.0f) {
+				dist = std::max(0.0f, v3len(v3sub(o, it.c)) - it.r);
+			} else {
+				V3 q = { std::max(0.0f, std::fabs(o.x - it.c.x) - it.h.x), std::max(0.0f, std::fabs(o.y - it.c.y) - it.h.y),
+					std::max(0.0f, std::fabs(o.z - it.c.z) - it.h.z) };
+				dist = v3len(q);
 			}
-			energy *= 0.75f;
+			if (dist >= R) continue;
+			float k1 = 1.0f - dist / R;
+			hit(it, 150.0f * std::pow(k1, 1.2f) + h.rnd(0.0f, 40.0f), 110.0f * k1 * h.rnd(0.8f, 1.2f), k1 > 0.5f ? 0.15f * k1 : 0.0f, 0.25f * k1);
 		}
 	}
-	// осколки брони ранят соседей по отделению
-	bool top = part == 1;
-	for (const Core::LayoutItem &it : L) {
-		if (it.crew && it.top == top && !hurt_has(it.idx) && c->randf() < 0.06f) {
-			hurt.push_back(it.idx);
-		}
-	}
-	for (int k : hurt) {
-		h.crew(k);
-	}
+	(void)part;
 	return boom;
 }
 
@@ -3003,7 +3068,7 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	ev.add({ (float)EV_PEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal });
 	h.kick(dir, cal, 0.2f);
 	// за бронёй: модули и экипаж на пути снаряда, осколки
-	bool boom = internal_damage(h, hp, dir, s.dmg * (track_zone ? 0.5f : 1.0f), s.hit_part);
+	bool boom = internal_damage(h, hp, dir, cal, s.he, thick, s.hit_part);
 	ev.add({ (float)EV_PEN_DMG, (float)i, (float)by, dmg, boom ? 1.0f : 0.0f });
 }
 
@@ -3054,7 +3119,7 @@ METHOD(layout_set) {
 		it.c = { f[k + 3], f[k + 4], f[k + 5] };
 		it.h = { f[k + 6], f[k + 7], f[k + 8] };
 		it.r = f[k + 9];
-		if ((it.crew && (it.idx < 0 || it.idx > 3)) || (!it.crew && (it.idx < 0 || it.idx > 5))) continue;
+		if ((it.crew && (it.idx < 0 || it.idx > 4)) || (!it.crew && (it.idx < 0 || it.idx > 5))) continue;
 		L.push_back(it);
 	}
 }
@@ -3151,6 +3216,7 @@ METHOD(shell_hit) {
 	if (!need(a, 2, e)) return;
 	int k = (int)a.integer(0);
 	std::vector<float> st = f32(a, 1);
+	if (st.size() == (size_t)ST_N_OLD) st.push_back(-1.0f);  // старый пакет: 4 члена экипажа, места радиста нет
 	EvOut ev;
 	if (k >= 0 && (size_t)k < self->shells.size() && st.size() >= (size_t)ST_N) {
 		Core::Shell &s = self->shells[k];
