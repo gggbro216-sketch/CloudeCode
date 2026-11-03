@@ -4,6 +4,7 @@ extends Control
 
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
+const Gfx = preload("res://scripts/gfx.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const SR := 90.0  # радиус джойстика
 
@@ -333,7 +334,7 @@ func _draw_world() -> void:
 		var col := team_color(tk.team)
 		_text(Vector2(s.x, s.y - 6), tk.callsign, 16, col, true, 4)
 		# маркер-треугольник команды
-		cv.draw_colored_polygon(PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
+		Gfx.polygon(cv, PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
 	for tx in battle.texts:
 		var s = _proj(tx.pos + Vector3(0, (1.3 - float(tx.life)) * 22.0, 0))
 		if s == null:
@@ -355,17 +356,14 @@ func _draw_crosshair() -> void:
 		var dark := Color(0.02, 0.02, 0.02, 0.92)
 		cv.draw_rect(Rect2(0, 0, c.x - r, size.y), dark)
 		cv.draw_rect(Rect2(c.x + r, 0, size.x - c.x - r, size.y), dark)
-		var ring := PackedVector2Array()
-		for i in 49:
-			ring.append(c + Vector2.from_angle(TAU * i / 48.0) * r)
-		cv.draw_polyline(ring, dark, 40.0)
+		Gfx.arc(cv, c, r, 0.0, TAU, 96, dark, 40.0)
 		cv.draw_line(c + Vector2(-r, 0), c + Vector2(-26, 0), Color(0, 0, 0, 0.7), 2.0)
 		cv.draw_line(c + Vector2(26, 0), c + Vector2(r, 0), Color(0, 0, 0, 0.7), 2.0)
 		cv.draw_line(c + Vector2(0, 26), c + Vector2(0, r), Color(0, 0, 0, 0.7), 2.0)
 		for k in range(1, 5):
 			cv.draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
 	else:
-		cv.draw_circle(c, 2.0, Color(1, 1, 1, 0.8))
+		Gfx.circle(cv, c, 2.0, Color(1, 1, 1, 0.8))
 	if not w.alive or battle.gun_point == null or not gun_has:
 		return
 	var s = _proj(gun_s)
@@ -379,14 +377,14 @@ func _draw_crosshair() -> void:
 		_text(s + Vector2(0, r + 30), "ПРЕДЕЛ НАВОДКИ", 14, col, true, 3)
 	else:
 		col = _pen_color()
-	cv.draw_arc(s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0, true)
-	cv.draw_arc(s, r, 0, TAU, 48, col, 2.0, true)
+	Gfx.arc(cv, s, r, 0, TAU, 48, Color(0, 0, 0, 0.45), 4.0)
+	Gfx.arc(cv, s, r, 0, TAU, 48, col, 2.0)
 	if w.rl > 0:
 		var k: float = 1.0 - w.rl / maxf(float(w.rl_max), 0.01)
-		cv.draw_arc(s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
+		Gfx.arc(cv, s, r + 6, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0)
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
 		cv.draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
-	cv.draw_circle(s, 1.8, col)
+	Gfx.circle(cv, s, 1.8, col)
 
 
 func _pen_color() -> Color:
@@ -404,28 +402,28 @@ func _pen_color() -> Color:
 func _draw_top() -> void:
 	var cx := size.x / 2
 	var top := 12.0 + margins.y
-	cv.draw_style_box(sb_panel, Rect2(cx - 160, top, 320, 46))
+	Gfx.box(cv, sb_panel, Rect2(cx - 160, top, 320, 46))
 	_text(Vector2(cx - 108, top + 34), str(battle.alive_count(0)), 30, col_ally, true, 0)
 	_text(Vector2(cx - 40, top + 30), "ПРОТИВ", 14, col_dim, true, 0)
 	_text(Vector2(cx + 28, top + 34), str(battle.alive_count(1)), 30, col_foe, true, 0)
 	_text(Vector2(cx + 106, top + 31), _fmt_t(D.TIME_LIMIT - battle.clock), 20, col_text, true, 0)
 	var y := top + 56
 	if battle.mode == "supremacy":
-		cv.draw_style_box(sb_panel, Rect2(cx - 130, y, 260, 44))
+		Gfx.box(cv, sb_panel, Rect2(cx - 130, y, 260, 44))
 		_text(Vector2(cx - 98, y + 30), str(int(battle.score[0])), 20, col_ally, true, 0)
 		_text(Vector2(cx + 98, y + 30), str(int(battle.score[1])), 20, col_foe, true, 0)
 		for i in battle.zones.size():
 			var z = battle.zones[i]
 			var c := Vector2(cx + (i - 1) * 44.0, y + 22)
 			var fill := Color(1, 1, 1, 0.15) if z.side < 0 else team_color(z.side)
-			cv.draw_circle(c, 16, fill)
-			cv.draw_arc(c, 16, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
+			Gfx.circle(cv, c, 16, fill)
+			Gfx.arc(cv, c, 16, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0)
 			var pr: float = maxf(z.prog[0], z.prog[1])
 			if pr > 0:
 				var pc := col_ally if z.prog[0] > z.prog[1] else col_foe
-				cv.draw_arc(c, 19, -PI / 2, -PI / 2 + TAU * pr / 100.0, 32, pc, 4.0, true)
+				Gfx.arc(cv, c, 19, -PI / 2, -PI / 2 + TAU * pr / 100.0, 32, pc, 4.0)
 			if z.n[0] > 0 and z.n[1] > 0 and int(battle.clock * 3) % 2 == 0:
-				cv.draw_arc(c, 23, 0, TAU, 32, col_amber, 2.0, true)
+				Gfx.arc(cv, c, 23, 0, TAU, 32, col_amber, 2.0)
 			_text(c + Vector2(0, 7), z.label, 18, Color.WHITE if z.side < 0 else Color(0.08, 0.1, 0.05), true, 0)
 		y += 52
 	else:
@@ -443,7 +441,7 @@ func _draw_top() -> void:
 				bars.append(["ПРОТИВНИК ЗАХВАТЫВАЕТ", z.prog[1], col_foe])
 		for b in bars:
 			var v: float = b[1]
-			cv.draw_style_box(sb_panel, Rect2(cx - 160, y, 320, 34))
+			Gfx.box(cv, sb_panel, Rect2(cx - 160, y, 320, 34))
 			_text(Vector2(cx, y + 18), "%s  %d%%" % [b[0], int(v)], 14, b[2], true, 0)
 			cv.draw_rect(Rect2(cx - 150, y + 24, 300, 5), Color(1, 1, 1, 0.12))
 			cv.draw_rect(Rect2(cx - 150, y + 24, 300 * v / 100.0, 5), b[2])
@@ -571,24 +569,24 @@ func _draw_minimap() -> void:
 	cv.draw_texture_rect(mini_tex, Rect2(o, Vector2(sz, sz)), false)
 	for z in battle.zones:
 		var c := Color.WHITE if z.side < 0 else team_color(z.side)
-		cv.draw_arc(o + z.pos * k, float(z.r) * k, 0, TAU, 24, c, 2.0, true)
+		Gfx.arc(cv, o + z.pos * k, float(z.r) * k, 0, TAU, 24, c, 2.0)
 		if z.label != "":
 			_text(o + z.pos * k + Vector2(0, 5), z.label, 13, Color.WHITE, true, 3)
 	var w = battle.watch
 	var wp: Vector2 = o + w.pos * k
 	var yaw: float = battle.cam_yaw
 	var cone := PackedVector2Array([wp, wp + Vector2.from_angle(yaw - 0.5) * 42.0, wp + Vector2.from_angle(yaw + 0.5) * 42.0])
-	cv.draw_colored_polygon(cone, Color(1, 1, 1, 0.16))
+	Gfx.polygon(cv, cone, Color(1, 1, 1, 0.16))
 	for tk in battle.tanks:
 		if not tk.alive or (tk.team == 1 and not tk.vis[0]):
 			continue
 		var c := team_color(tk.team)
 		var tp: Vector2 = o + tk.pos * k
 		if tk.is_player:
-			cv.draw_circle(tp, 6.0, c)
-			cv.draw_arc(tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0, true)
+			Gfx.circle(cv, tp, 6.0, c)
+			Gfx.arc(cv, tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0)
 		else:
-			cv.draw_circle(tp, 4.5, c)
+			Gfx.circle(cv, tp, 4.5, c)
 	cv.draw_rect(Rect2(o, Vector2(sz, sz)), Color(UI.LINE), false, 2.0)
 
 
@@ -659,8 +657,8 @@ func _draw_crew(p, cx: float, y: float) -> void:
 		elif hp < 60.0:
 			col = col_amber
 		# фигурка: голова и плечи
-		cv.draw_circle(c + Vector2(0, -7), 5.5, col)
-		cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 9), c + Vector2(-7, 0), c + Vector2(7, 0), c + Vector2(10, 9)]), col)
+		Gfx.circle(cv, c + Vector2(0, -7), 5.5, col)
+		Gfx.polygon(cv, PackedVector2Array([c + Vector2(-10, 9), c + Vector2(-7, 0), c + Vector2(7, 0), c + Vector2(10, 9)]), col)
 		if hp == 0.0:
 			cv.draw_line(c + Vector2(-11, -12), c + Vector2(11, 10), Color("ffffff"), 2.5)
 			cv.draw_line(c + Vector2(11, -12), c + Vector2(-11, 10), Color("ffffff"), 2.5)
@@ -697,10 +695,10 @@ func _draw_damage(p, cx: float, y: float) -> void:
 	for it in items:
 		var c := Vector2(x, y)
 		var col: Color = it[2]
-		cv.draw_style_box(UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
+		Gfx.box(cv, UI.box("0a0c08", col.to_html(false), 2, 10, 0.72, 0.0), Rect2(c - Vector2(22, 22), Vector2(44, 44)))
 		_icon(it[0], c, col)
 		if it[3] >= 0.0:
-			cv.draw_arc(c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0, true)
+			Gfx.arc(cv, c, 27, -PI / 2, -PI / 2 + TAU * clampf(it[3], 0.0, 1.0), 32, Color("9ad07a"), 3.0)
 		_text(c + Vector2(0, 38), it[1], 10, col, true, 3)
 		x += step
 
@@ -716,36 +714,36 @@ func _icon(kind: String, c: Vector2, col: Color) -> void:
 			cv.draw_rect(Rect2(c + Vector2(-14, -2), Vector2(21, 4)), col)
 			cv.draw_rect(Rect2(c + Vector2(5, -7), Vector2(9, 14)), col)
 		"turret":
-			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 8), c + Vector2(-10, -3), c + Vector2(3, -7),
+			Gfx.polygon(cv, PackedVector2Array([c + Vector2(-13, 8), c + Vector2(-10, -3), c + Vector2(3, -7),
 				c + Vector2(10, -1), c + Vector2(10, 8)]), col)
 			cv.draw_rect(Rect2(c + Vector2(8, -3), Vector2(8, 3)), col)
 		"optics":
-			cv.draw_arc(c, 11, 0, TAU, 24, col, 2.5, true)
-			cv.draw_circle(c, 4.5, col)
+			Gfx.arc(cv, c, 11, 0, TAU, 24, col, 2.5)
+			Gfx.circle(cv, c, 4.5, col)
 		"ammo":
 			cv.draw_rect(Rect2(c + Vector2(-4, -3), Vector2(8, 14)), col)
-			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-4, -3), c + Vector2(4, -3), c + Vector2(0, -12)]), col)
+			Gfx.polygon(cv, PackedVector2Array([c + Vector2(-4, -3), c + Vector2(4, -3), c + Vector2(0, -12)]), col)
 		"fuel":
 			cv.draw_rect(Rect2(c + Vector2(-8, -7), Vector2(16, 18)), col)
 			cv.draw_line(c + Vector2(-3, -11), c + Vector2(5, -11), col, 3.0)
 		"track":
-			cv.draw_arc(c + Vector2(-7, 2), 5, 0, TAU, 16, col, 2.0, true)
-			cv.draw_arc(c + Vector2(7, 2), 5, 0, TAU, 16, col, 2.0, true)
+			Gfx.arc(cv, c + Vector2(-7, 2), 5, 0, TAU, 16, col, 2.0)
+			Gfx.arc(cv, c + Vector2(7, 2), 5, 0, TAU, 16, col, 2.0)
 			cv.draw_line(c + Vector2(-7, -5), c + Vector2(7, -5), col, 2.5)
 			cv.draw_line(c + Vector2(-7, 9), c + Vector2(7, 9), col, 2.5)
 		"fire":
-			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -13), c + Vector2(8, 0), c + Vector2(6, 10),
+			Gfx.polygon(cv, PackedVector2Array([c + Vector2(0, -13), c + Vector2(8, 0), c + Vector2(6, 10),
 				c + Vector2(-6, 10), c + Vector2(-8, 0), c + Vector2(-3, -4)]), col)
 		_:
-			cv.draw_circle(c + Vector2(0, -6), 5.5, col)
-			cv.draw_colored_polygon(PackedVector2Array([c + Vector2(-10, 11), c + Vector2(-7, 1), c + Vector2(7, 1),
+			Gfx.circle(cv, c + Vector2(0, -6), 5.5, col)
+			Gfx.polygon(cv, PackedVector2Array([c + Vector2(-10, 11), c + Vector2(-7, 1), c + Vector2(7, 1),
 				c + Vector2(10, 11)]), col)
 
 
 func _draw_controls() -> void:
 	# пауза
-	cv.draw_circle(pause_c, 30, Color(0.04, 0.05, 0.03, 0.6))
-	cv.draw_arc(pause_c, 30, 0, TAU, 32, Color(UI.LINE), 2.0, true)
+	Gfx.circle(cv, pause_c, 30, Color(0.04, 0.05, 0.03, 0.6))
+	Gfx.arc(cv, pause_c, 30, 0, TAU, 32, Color(UI.LINE), 2.0)
 	cv.draw_rect(Rect2(pause_c.x - 8, pause_c.y - 10, 5, 20), col_text)
 	cv.draw_rect(Rect2(pause_c.x + 3, pause_c.y - 10, 5, 20), col_text)
 	var p = battle.player
@@ -753,30 +751,30 @@ func _draw_controls() -> void:
 		return
 	# джойстик движения
 	if move_idx != -1:
-		cv.draw_circle(move_o, SR, Color(1, 1, 1, 0.08))
-		cv.draw_arc(move_o, SR, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0, true)
-		cv.draw_circle(move_o + move * SR, 34, Color(1, 1, 1, 0.45))
+		Gfx.circle(cv, move_o, SR, Color(1, 1, 1, 0.08))
+		Gfx.arc(cv, move_o, SR, 0, TAU, 48, Color(1, 1, 1, 0.4), 2.0)
+		Gfx.circle(cv, move_o + move * SR, 34, Color(1, 1, 1, 0.45))
 	else:
 		_text(Vector2(140 + margins.x, size.y - 30 - margins.w), "◀ ДВИЖЕНИЕ ▶", 13, Color(1, 1, 1, 0.35), true, 0)
 	# огонь с кольцом перезарядки
 	var ready: bool = p.rl <= 0 and p.can_fire()
-	cv.draw_circle(fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
+	Gfx.circle(cv, fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
 	if not ready and p.rl > 0:
 		var k: float = 1.0 - p.rl / maxf(float(p.rl_max), 0.01)
-		cv.draw_arc(fire_c, fire_r - 4, -PI / 2, -PI / 2 + TAU * k, 64, col_amber, 8.0, true)
-	cv.draw_circle(fire_c, fire_r - 10, col_amber if ready else Color("6c5a2a"))
+		Gfx.arc(cv, fire_c, fire_r - 4, -PI / 2, -PI / 2 + TAU * k, 64, col_amber, 8.0)
+	Gfx.circle(cv, fire_c, fire_r - 10, col_amber if ready else Color("6c5a2a"))
 	var label := "ОГОНЬ" if ready else ("%.1f" % p.rl if p.rl > 0 else "РЕМОНТ")
 	_text(fire_c + Vector2(0, 9), label, 24, Color("1b1405") if ready else col_text, true, 0)
 	# автоприцел
 	var ac := col_amber if auto_aim else col_dim
-	cv.draw_style_box(UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
+	Gfx.box(cv, UI.box("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6, 0.0), auto_rect)
 	_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
 	# снайперский прицел
 	var on: bool = battle.sniper
-	cv.draw_circle(zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
-	cv.draw_arc(zoom_c, 40, 0, TAU, 40, col_amber if on else Color(UI.LINE), 2.0, true)
+	Gfx.circle(cv, zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
+	Gfx.arc(cv, zoom_c, 40, 0, TAU, 40, col_amber if on else Color(UI.LINE), 2.0)
 	var zc := Color("1b1405") if on else col_text
-	cv.draw_arc(zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5, true)
+	Gfx.arc(cv, zoom_c + Vector2(-2, -4), 12, 0, TAU, 24, zc, 2.5)
 	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
@@ -788,13 +786,13 @@ func _draw_cons(p) -> void:
 		var cc: Vector2 = cons_c[c]
 		var cd: float = p.cons[c]
 		var need: bool = cd <= 0.0 and p.cons_needed(c)
-		cv.draw_circle(cc, 30, Color(0.04, 0.05, 0.03, 0.62))
-		cv.draw_arc(cc, 30, 0, TAU, 40, col_amber if need else Color(UI.LINE), 3.0 if need else 2.0, true)
+		Gfx.circle(cv, cc, 30, Color(0.04, 0.05, 0.03, 0.62))
+		Gfx.arc(cv, cc, 30, 0, TAU, 40, col_amber if need else Color(UI.LINE), 3.0 if need else 2.0)
 		var col := col_text if cd <= 0.0 else col_dim
 		_cons_icon(c, cc, col)
 		if cd > 0.0:
 			var k: float = 1.0 - cd / float(D.CONSUMABLES[c].cd)
-			cv.draw_arc(cc, 26, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0, true)
+			Gfx.arc(cv, cc, 26, -PI / 2, -PI / 2 + TAU * k, 40, col_amber, 3.0)
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
 		else:
 			_text(cc + Vector2(0, 46), ["1", "2", "3"][["repair", "medkit", "ext"].find(c)], 11, col_dim, true, 3)
@@ -805,7 +803,7 @@ func _cons_icon(kind: String, c: Vector2, col: Color) -> void:
 		"repair":
 			# гаечный ключ
 			cv.draw_line(c + Vector2(-9, 9), c + Vector2(6, -6), col, 5.0, true)
-			cv.draw_arc(c + Vector2(8, -8), 6, PI * 0.9, PI * 2.4, 16, col, 3.5, true)
+			Gfx.arc(cv, c + Vector2(8, -8), 6, PI * 0.9, PI * 2.4, 16, col, 3.5)
 		"medkit":
 			cv.draw_rect(Rect2(c + Vector2(-4, -12), Vector2(8, 24)), col)
 			cv.draw_rect(Rect2(c + Vector2(-12, -4), Vector2(24, 8)), col)

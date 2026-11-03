@@ -59,18 +59,60 @@ func _session_start() -> void:
 	session_mark("hangar")
 
 
-## Память всего процесса (вместе с драйвером видеокарты и C++), МБ; -1 — система не сообщает.
-static func process_mb() -> int:
-	var f := FileAccess.open("/proc/self/status", FileAccess.READ)
-	if f == null:
-		return -1
-	for i in 64:
-		var l := f.get_line()
-		if l.begins_with("VmRSS:"):
-			return int(l.split(":")[1].strip_edges().split(" ")[0]) / 1024
-		if f.eof_reached():
-			break
+## Содержимое файла из /proc. На Android движок не пускает FileAccess в /proc (пути вне user:// идут
+## через Java), поэтому там читаем системным cat — по номеру своего процесса.
+static func _proc_text(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f:
+		var t := ""
+		for i in 400:
+			t += f.get_line() + "\n"
+			if f.eof_reached():
+				break
+		if t.length() > 8:
+			return t
+	if OS.get_name() == "Android":
+		var out := []
+		if OS.execute("cat", [path], out) == 0 and out.size() > 0:
+			return String(out[0])
+	return ""
+
+
+static func _kb(text: String, key: String) -> int:
+	for l in text.split("\n"):
+		if l.begins_with(key + ":"):
+			return int(l.split(":")[1].strip_edges().split(" ")[0])
 	return -1
+
+
+## Память процесса и системы (вместе с драйвером видеокарты и C++): rss/pss/swap/hwm в МБ, число потоков,
+## свободно в системе (МБ). -1 — система не сообщает.
+static func proc_info() -> Dictionary:
+	var pid := OS.get_process_id()
+	var st := _proc_text("/proc/self/status" if OS.get_name() != "Android" else "/proc/%d/status" % pid)
+	var d := {"rss": -1, "hwm": -1, "swap": -1, "thr": -1, "pss": -1, "avail": -1}
+	if st != "":
+		var rss := _kb(st, "VmRSS")
+		d.rss = rss / 1024 if rss >= 0 else -1
+		var hwm := _kb(st, "VmHWM")
+		d.hwm = hwm / 1024 if hwm >= 0 else -1
+		var sw := _kb(st, "VmSwap")
+		d.swap = sw / 1024 if sw >= 0 else -1
+		d.thr = _kb(st, "Threads")
+	var sm := _proc_text("/proc/self/smaps_rollup" if OS.get_name() != "Android" else "/proc/%d/smaps_rollup" % pid)
+	if sm != "":
+		var pss := _kb(sm, "Pss")
+		d.pss = pss / 1024 if pss >= 0 else -1
+	var mi := _proc_text("/proc/meminfo")
+	if mi != "":
+		var av := _kb(mi, "MemAvailable")
+		d.avail = av / 1024 if av >= 0 else -1
+	return d
+
+
+## Память всего процесса, МБ; -1 — система не сообщает.
+static func process_mb() -> int:
+	return int(proc_info().rss)
 
 
 ## Состояние сеанса и память — в файл (маленький, пишется при смене состояния и раз в 20 с в бою)
@@ -79,10 +121,17 @@ func session_mark(state: String, extra := {}) -> void:
 	session.state = state
 	session.merge(extra, true)
 	session.ram_mb = roundi(OS.get_static_memory_usage() / 1048576.0)
-	session.proc_mb = process_mb()
+	var pi := proc_info()
+	session.proc_mb = int(pi.rss)
+	session.pss_mb = int(pi.pss)
+	session.hwm_mb = int(pi.hwm)
+	session.swap_mb = int(pi.swap)
+	session.thr = int(pi.thr)
 	session.video_mb = roundi(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0)
 	var mi := OS.get_memory_info()
-	session.free_mb = roundi(float(mi.get("available", -1048576)) / 1048576.0)
+	session.free_mb = roundi(float(mi.get("available", 0)) / 1048576.0)
+	if session.free_mb <= 0:
+		session.free_mb = int(pi.avail)
 	session.fps = roundi(Engine.get_frames_per_second())
 	session.worst_ms = roundi(_worst_frame * 1000.0)
 	session.nodes = int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
@@ -99,8 +148,9 @@ func session_mark(state: String, extra := {}) -> void:
 		h[3] = maxi(int(h[3]), int(session.proc_mb))
 		h[4] = maxi(int(h[4]), int(session.ram_mb))
 		h[5] = maxi(int(h[5]), int(session.video_mb))
-	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ, видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
-		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.video_mb,
+	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ (PSS %d, пик %d, swap %d, потоков %d), видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
+		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.pss_mb,
+		session.hwm_mb, session.swap_mb, session.thr, session.video_mb,
 		session.free_mb, session.fps, session.worst_ms, session.nodes, session.cores])
 	var f := FileAccess.open(SESSION_PATH, FileAccess.WRITE)
 	if f:
