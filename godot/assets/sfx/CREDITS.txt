@@ -19,3 +19,15 @@ bendodge — «Incoming Artillery.wav», CC-BY 3.0, https://freesound.org/s/1709
 Aegersum — «Cannon artillery - distant gunshots.wav», CC-BY 3.0, https://freesound.org/s/345844/
 reinsamba — «chimney fire.wav», CC-BY 4.0, https://freesound.org/s/18766/
 klankbeeld — «wind cornfield 1613PM 220529_0375.wav», CC-BY 4.0, https://freesound.org/s/673807/
+
+Крики экипажа (assets/sfx/crew, собраны tools/import_screams.py)
+Настоящие записи криков — OpenGameArt.org:
+creativeheroes — «Helmut Scream», CC-BY 3.0, https://freesound.org/people/creativeheroes/sounds/84353/ (в паке «Aargh!» от Bonsaiheldin)
+thanvannispen — «Male_Thijs_loud_scream», CC-BY 3.0, https://freesound.org/people/thanvannispen/sounds/9432/ (в паке «Aargh!» от Bonsaiheldin)
+JohnsonBrandEditing — «human male scream multi», CC0, https://freesound.org/people/JohnsonBrandEditing/sounds/173944/ (в паке «Aargh!» от Bonsaiheldin)
+megaboots — «Male Grunt/Yelling sounds», CC0 / OGA-BY 3.0, https://opengameart.org/content/male-gruntyelling-sounds
+EmoPreben (загрузил Marscaleb) — «Painsounds v2», CC0, https://opengameart.org/content/pain-sounds
+«Man hurt sounds», CC0, https://opengameart.org/ (ManHurt.ogg)
+Слова-выкрики («Nein!», «Hilfe!», «Mein Bein!», «Help!», «My leg!» и др.) синтезированы голосами Piper:
+Thorsten Müller — «Thorsten (high)», немецкий, CC0; Joe — «en_US-joe-medium», английский, CC0. Речь доведена до выкрика
+и вместе с настоящим криком пропущена через «стальную коробку» (металлическая реверберация) скриптом import_screams.py.

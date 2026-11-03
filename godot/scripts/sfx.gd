@@ -24,6 +24,11 @@ var muted := false
 var ui: AudioStreamPlayer
 var wind: AudioStreamPlayer
 var distant_t := 8.0
+var crew_cache := {}  # «de_wound_3» → поток (грузим по мере надобности)
+var crew_last := {}  # танк (instance id) → время последнего крика, чтобы не орали без перерыва
+var crew_clock := 0.0
+var crew_on := true
+const CREW_N := {"wound": 6, "die": 6, "fire": 4, "boom": 3}
 
 
 func _ready() -> void:
@@ -72,6 +77,7 @@ func _load(id: String, loop: bool):
 
 
 func _process(delta: float) -> void:
+	crew_clock += delta
 	# далёкая канонада для атмосферы
 	distant_t -= delta
 	if distant_t <= 0.0:
@@ -112,6 +118,41 @@ func play2d(id: String, vol := 0.0) -> void:
 	p.stream = streams[id]
 	p.volume_db = vol
 	p.play()
+
+
+## Крик экипажа: Ось — по-немецки, Союзники — по-английски. kind: wound (ранен), die (выбыл),
+## fire (горим), boom (взрыв боеукладки). own — свой танк игрока: звук «в голове», громче.
+func crew(axis: bool, kind: String, key: int, at: Vector3, own: bool) -> void:
+	if muted or not crew_on:
+		return
+	if (kind == "wound" or kind == "fire") and crew_last.has(key) and crew_clock - float(crew_last[key]) < (3.0 if kind == "fire" else 1.4):
+		return
+	if crew_last.size() > 96:
+		crew_last.clear()
+	crew_last[key] = crew_clock
+	var id := "%s_%s_%d" % ["de" if axis else "en", kind, randi() % int(CREW_N[kind]) + 1]
+	if not crew_cache.has(id):
+		var path := DIR + "crew/crew_" + id + ".ogg"
+		crew_cache[id] = load(path) if ResourceLoader.exists(path) else null
+	var st = crew_cache[id]
+	if st == null:
+		return
+	if own:
+		var p: AudioStreamPlayer = pool2d[next2d]
+		next2d = (next2d + 1) % pool2d.size()
+		p.stream = st
+		p.volume_db = 1.0
+		p.pitch_scale = randf_range(0.96, 1.06)
+		p.play()
+		return
+	var p3: AudioStreamPlayer3D = pool[next]
+	next = (next + 1) % pool.size()
+	p3.stream = st
+	p3.global_position = at
+	p3.unit_size = 55.0
+	p3.volume_db = 2.0 if kind != "wound" else 0.0
+	p3.pitch_scale = randf_range(0.96, 1.06)
+	p3.play()
 
 
 func gun(caliber: float, at: Vector3) -> void:

@@ -1693,6 +1693,7 @@ func _shell_events(ev: PackedFloat32Array, dt: float) -> void:
 				var dmg: float = ev[q + 3]
 				if ev[q + 4] != 0.0:
 					stat.ammo += 1
+					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 					dmg = tk.hp + 1.0
 				_damage(tk, dmg, by, "")
@@ -1949,9 +1950,15 @@ func _module_changed(tk: TankScript, by: TankScript, name: String, now: int) -> 
 		_popup(tk, TankScript.NAMES[name], Color("ffb04a"), by)
 
 
+## Крик экипажа танка: язык по стороне машины.
+func _cry(tk: TankScript, kind: String) -> void:
+	sfx.crew(D.TYPES[tk.type_key].side == "axis", kind, tk.get_instance_id(), tk.center(), tk.is_player)
+
+
 func _crew_hit(tk: TankScript, by: TankScript, role_name: String) -> void:
 	if not tk.wound(role_name):
 		return
+	_cry(tk, "wound")
 	if tk.is_player:
 		hud.alert(CREW_MSG[role_name], Color("ff6a4a"))
 	if by.is_player:
@@ -1964,6 +1971,7 @@ func _start_fire(tk: TankScript, by: TankScript) -> void:
 	stat.fire += 1
 	tk.fire = FIRE_TIME
 	tk.set_meta("fire_by", by)
+	_cry(tk, "fire")
 	if tk.fire_fx == null:
 		tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
 	tk.fire_fx.emitting = true
@@ -3499,6 +3507,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var role: String = TankScript.CREW[int(ev[q + 3])]
 				var out := ev[q + 5] != 0.0
 				hud.xray.note_crew(tk, role, out)
+				_cry(tk, "die" if out else "wound")
 				if out:
 					tk.crew_ok[role] = false
 				if tk.is_player:
@@ -3509,6 +3518,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 			12:  # пожар
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				hud.xray.note_fire(tk)
+				_cry(tk, "fire")
 				tk.fire = FIRE_TIME
 				if tk.fire_fx == null:
 					tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
@@ -3520,6 +3530,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var by: TankScript = tanks[int(ev[q + 2])]
 				if ev[q + 4] != 0.0:
+					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 			16:  # итог попадания для рентген-окна: броня, угол, пробитие, разрыв
 				hud.xray.finish(ev[q + 4], ev[q + 5], ev[q + 6], ev[q + 7], ev[q + 8], ev[q + 9], int(ev[q + 10]), ev[q + 12] != 0.0)
