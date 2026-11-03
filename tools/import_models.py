@@ -41,6 +41,15 @@ SIZES = {
     "su85": (6.15, 3.0, 0.5, 0.92), "tiger_p": (6.7, 3.14, 0.64, 1.0),
     "pz4f2": (5.89, 2.88, 0.4, 0.82), "p26": (5.8, 2.8, 0.4, 1.0), "easy8": (6.0, 2.99, 0.58, 1.0), "pershing": (6.33, 3.51, 0.61, 1.0),
     "t70": (4.29, 2.32, 0.26, 0.8), "isu152": (5.6, 3.07, 0.65, 0.86),
+    "bt7": (5.66, 2.29, 0.26, 0.8), "kv85": (6.68, 3.25, 0.7, 0.9), "brummbar": (5.93, 2.88, 0.4, 0.82),
+    "m18": (5.44, 2.87, 0.36, 0.9), "challenger": (6.55, 2.9, 0.36, 1.0), "tetrarch": (4.42, 2.31, 0.3, 0.9),
+    "t28": (7.52, 3.2, 0.5, 0.9), "l3cc": (3.17, 1.4, 0.18, 0.6), "t34_57": (5.92, 3.0, 0.5, 0.92),
+    "jpz4": (5.9, 3.17, 0.4, 0.82), "grille": (4.95, 2.15, 0.29, 0.95), "sem10525": (5.1, 2.4, 0.26, 1.1),
+    "pz2": (4.81, 2.28, 0.28, 0.85), "aufkl38": (4.51, 2.14, 0.29, 0.95), "stug4": (6.0, 2.88, 0.4, 0.82),
+    "su122": (6.0, 3.0, 0.5, 0.92), "su152": (6.75, 3.25, 0.7, 0.9), "pz3j": (5.52, 2.95, 0.4, 0.85),
+    "pz3n": (5.52, 2.95, 0.4, 0.85), "m5a1": (4.84, 2.29, 0.29, 0.95), "jumbo": (6.27, 2.9, 0.42, 0.98),
+    "a10": (5.51, 2.54, 0.3, 0.98), "grant": (5.64, 2.72, 0.42, 1.0), "turan": (5.55, 2.44, 0.36, 0.9),
+    "luchs": (4.63, 2.48, 0.36, 0.9), "m10": (5.97, 3.05, 0.42, 0.98),
 }
 
 # Модели и правила разметки. Правило — (класс, поле, регулярное выражение) по пути узлов («path»)
@@ -149,6 +158,64 @@ MODELS = {
     "su100": {"uid": "b31f0902aa554702bb265700ce655b25", "bare": r"Track_GP|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
               "clip_y": 2.6, "casemate": True,
               "rules": [("track", "path", r"Track_GP"), ("wheel", "path", r"Tire_Gp")]},
+    "bt7": {"uid": "070eaa7368c34cca9b5c049814c1447a", "bare": r"^$", "auto_yaw": True, "gun_from": "turret",
+            "turret_box": [[-0.72, 2.05, 1.67, -0.9, 0.9]], "ring_x": 0.12, "track_zone": [0.95, 0.76], "wheels_from": ["track", "hull"], "rules": []},
+    "kv85": {"uid": "835f512c089041488fe527b3c94c5685", "bare": r"Material__3", "gun_from": "turret", "wheels_from": ["hull"],
+             "turret_cyl": [0.42, 0.0, 1.75, 1.88], "turret_extra": [[1.9, 4.7, 1.88, 0.3, 2.1]], "turret_yaw": 25.0,
+             "rules": [("track", "mat", r"Material__3")]},
+    "m18": {"uid": "a5c663f8130d4eb094a043ad50497d1e", "flip": True, "bare": r"material_1$", "gun_from": "turret", "wheels_from": ["hull"],
+            "turret_cyl": [-0.3, 0.0, 1.45, 1.5], "turret_extra": [[1.0, 4.6, 1.5, -0.35, 0.35]], "clip_y": 2.75,
+            "rules": [("track", "mat", r"material_1$")]},
+    "challenger": {"uid": "2860859ef4654ade8c6f5cb93de0a6b1", "bare": r"Material001|Material000", "clip_y": 2.75, "wheels_from": ["wheel"],
+                   "rules": [("track", "mat", r"Material001"), ("wheel", "mat", r"Material000"), ("gun", "mat", r"Material004"),
+                             ("turret", "mat", r"Material003")]},
+    "brummbar": {"uid": "775196f74c4648d09c40c1fe1c9036d4", "flip": True, "bare": r"material_2$", "casemate": True,
+                 "gun_box": [[1.95, 3.0, 1.5, -0.12, 0.66]], "wheels_from": ["wheel", "hull"],
+                 "rules": [("track", "mat", r"material_2$"), ("wheel", "mat", r"material_1$")]},
+    "tetrarch": {"uid": "11005cddf2b54145ac29967f01b21a65", "bare": r"^$", "gun_from": "turret", "clip_y": 2.6,
+                 "drop_box": [[-3.0, -1.95, 0.9, -2.0, 2.0]], "track_zone": [0.75, 1.08], "wheels_from": ["track", "hull"],
+                 "rules": [("turret", "mat", r"Turret1")]},
+    "l3cc": {"uid": "dba942f923ae4ce9946716fd74972ba4", "bare": r"^$", "casemate": True, "gun_box": [[0.35, 2.0, 0.92, -0.45, -0.03]],
+             "track_zone": [0.5, 0.56], "wheels_from": ["track", "hull"], "rules": []},
+    "t28": {"uid": "ee0f65924aac45d59eac85b7e7a19db5", "bare": r"^$", "casemate": True, "clip_y": 3.6,
+            "gun_box": [[2.85, 7.6, 1.25, -0.4, 0.4]],
+            "track_zone": [1.0, 1.25], "wheels_from": ["track", "hull"], "rules": []},
+    "t34_57": {"uid": "9245b9b0f35d444292075048321b013e", "bare": r"Truck", "wheels_from": ["hull"],
+               "rules": STAFFORD + [("gun", "path", r"T34 Gun"), ("turret", "path", r"RootNode/Empty($|/)")]},
+    "jpz4": {"uid": "d30023ce813c4c8fa2493b33abaf1243", "flip": True, "bare": r"material_2$", "casemate": True,
+             "gun_box": [[1.9, 5.6, 1.3, -0.4, 0.4]], "wheels_from": ["wheel", "hull"],
+             "rules": [("track", "mat", r"material_2$"), ("wheel", "mat", r"material_1$")]},
+    "grille": {"uid": "2dc8e28c5c2b4f1c8cb0ba6b9e76d3b1", "bare": r"blinn14$|Tire_", "casemate": True, "clip_y": 2.75,
+               "gun_box": [[0.3, 2.9, 1.75, -0.45, 0.35]], "wheels_from": ["wheel", "hull"],
+               "rules": [("track", "mat", r"blinn14$"), ("wheel", "mat", r"Tire_blinn18|blinn20$")]},
+    "sem10525": {"uid": "c9f0db70a5084045839958cfa899676c", "bare": r"^$", "casemate": True, "clip_y": 2.6,
+                 "gun_box": [[1.6, 3.6, 1.2, -0.35, 0.3]], "track_zone": [0.75, 0.95], "wheels_from": ["track", "hull"], "rules": []},
+    "su122": {"uid": "5029c0c064444dcfb797a7e627a57159", "bare": r"blinn2$|Track_Color", "gun_from": "hull", "gun_ymin": 1.3,
+              "clip_y": 2.6, "casemate": True, "wheels_from": ["wheel", "hull"],
+              "rules": [("track", "mat", r"blinn2$"), ("wheel", "mat", r"blinn1$|Track_Color")]},
+    "jumbo": {"uid": "1dd3baf893014f7b8f0336ce73420324", "bare": r"^$", "gun_from": "turret", "clip_y": 3.2,
+              "turret_box": [[-1.7, 3.2, 2.02, -1.1, 1.15]], "track_zone": [0.95, 0.9], "wheels_from": ["track", "hull"], "rules": []},
+    "stug4": {"uid": "6bbee57f422348abb2e480c932fb36bd", "bare": r"^track$", "casemate": True, "gun_from": "hull", "gun_ymin": 1.35,
+              "clip_y": 2.45, "wheels_from": ["wheel", "hull"], "rules": [("track", "mat", r"^track$"), ("wheel", "mat", r"^chassis$")]},
+    "pz2": {"uid": "c45f980006a541ebbecb4ccdf1a8f54d", "bare": r"^Tracks$", "budget_k": 1.5, "gun_from": "turret", "clip_y": 2.4, "wheels_from": ["wheel", "hull"],
+            "rules": [("track", "mat", r"^Tracks$"), ("wheel", "mat", r"^Wheels$"), ("turret", "mat", r"Turret_n_Tools")]},
+    "grant": {"uid": "cb4582a8c0624a62929e885d6f98c03e", "bare": r"^Track$", "casemate": True, "clip_y": 3.4, "wheels_from": ["hull"],
+              "rules": [("track", "mat", r"^Track$"), ("gun", "mat", r"75mmCan")]},
+    "a10": {"uid": "86106c1effe945ddbafc6f9c43006b74", "bare": r"^$", "gun_from": "turret", "clip_y": 2.75, "budget_k": 2.0,
+            "turret_box": [[-0.9, 2.5, 1.62, -0.9, 0.85]], "track_zone": [0.85, 0.95], "wheels_from": ["track", "hull"], "rules": []},
+    "su152": {"uid": "085fbd0b7e544780918cc943cfb047e3", "bare": r"shasy", "casemate": True, "clip_y": 2.45, "budget_k": 1.5,
+              "wheels_from": ["track"], "rules": [("track", "mat", r"shasy"), ("gun", "mat", r"stvol|Material_48")]},
+    "turan": {"uid": "0e8e110c8cd84077834918e89881a63b", "bare": r"^$", "gun_from": "turret", "clip_y": 2.3, "budget_k": 2.0,
+              "turret_box": [[-1.0, 2.5, 1.5, -0.9, 0.9]], "track_zone": [0.6, 0.85], "wheels_from": ["track", "hull"], "rules": []},
+    "luchs": {"uid": "84c248b930024b39a40eeb56f1ac00c6", "flip": True, "bare": r"^$", "gun_from": "turret", "clip_y": 2.45, "budget_k": 2.0,
+              "turret_box": [[-0.7, 2.6, 1.68, -0.85, 0.85]], "track_zone": [0.7, 0.9], "wheels_from": ["track", "hull"], "rules": []},
+    "m10": {"uid": "d05b08775d004cc3b4dc5b6787ec516d", "bare": r"^Tracks$", "clip_y": 2.7,
+            "turret_box": [[-1.3, 4.2, 1.9, -1.3, 1.3]], "wheels_from": ["wheel", "hull"],
+            "rules": [("drop", "mat", r"3_inch_ammo|Inside_|Set_driver|Pedals|Shifter|M10_floor|turret_driver|Rotation_gear|Gunner_periscope|Elevation|Sight_gunner|Radiator"),
+                      ("track", "mat", r"^Tracks$"), ("wheel", "mat", r"Wheels_m10|Small_wheels|Sproket|M10_Rear_wheel"),
+                      ("gun", "mat", r"3_inch_gun")]},
+    "m5a1": {"uid": "8c438b25a58840828cb120194edc03d1", "bare": r"^$", "gun_from": "turret", "clip_y": 2.75,
+             "turret_box": [[-0.85, 2.3, 1.85, -0.85, 0.85]], "track_zone": [0.8, 0.85], "wheels_from": ["track", "hull"], "rules": []},
 }
 
 CLASSES = ["hull", "turret", "gun", "wheel", "track", "drop"]
@@ -286,6 +353,19 @@ def orient(parts, cfg, size):
     for p in parts:
         p["V"] = (p["V"] - off) * s
     return s, (zh - zl) * s
+
+
+def yaw_align(parts):
+    """Модель стоит наискосок: длинную ось (главная ось точек по площади в плане) — вдоль X."""
+    P = np.concatenate([p["V"][p["F"]].mean(1) for p in parts])
+    xz = P[:, [0, 2]] - P[:, [0, 2]].mean(0)
+    w, v = np.linalg.eigh(np.cov(xz.T))
+    a = np.arctan2(v[1, 1], v[0, 1])
+    c, s_ = np.cos(a), np.sin(a)
+    R = np.array([[c, 0, s_], [0, 1, 0], [-s_, 0, c]])
+    for p in parts:
+        p["V"] = p["V"] @ R.T
+        p["N"] = p["N"] @ R.T
 
 
 def explode(parts):
@@ -762,7 +842,7 @@ def corner_normals(v, f, angle=50.0):
     return out.reshape(-1, 3, 3).astype(np.float32)
 
 
-def simplify(verts, idx, target):
+def simplify(verts, idx, target, prune=True, max_err=0.11):
     """Упрощение до бюджета с наименьшей возможной ошибкой (в метрах): мелочь меньше ошибки
     (болты, заклёпки) удаляется целиком."""
     import meshoptimizer as mo
@@ -771,10 +851,10 @@ def simplify(verts, idx, target):
     pos = np.ascontiguousarray(verts[:, :3])
     flat = idx.reshape(-1).astype(np.uint32)
     best = flat
-    for err in (0.002, 0.004, 0.007, 0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.08, 0.11):
+    for err in [e for e in (0.002, 0.004, 0.007, 0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.08, 0.11) if e <= max_err]:
         dst = np.zeros(len(flat), np.uint32)
         k = mo.simplify(dst, flat, pos, target_index_count=target * 3, target_error=err,
-                        options=mo.SIMPLIFY_PRUNE | mo.SIMPLIFY_ERROR_ABSOLUTE)
+                        options=(mo.SIMPLIFY_PRUNE if prune else 0) | mo.SIMPLIFY_ERROR_ABSOLUTE)
         if k == 0:
             break
         best = dst[:k]
@@ -881,6 +961,8 @@ def process(key, folder, dbg=None):
         for p in parts:
             p["V"] = p["V"] @ R.T
             p["N"] = p["N"] @ R.T
+    if cfg.get("auto_yaw"):
+        yaw_align(parts)
     classify(parts, cfg)
     scale, width = orient(parts, cfg, size)
     S = explode(parts)
@@ -891,6 +973,28 @@ def process(key, folder, dbg=None):
     for box in cfg.get("turret_box", []):
         x0, x1, y0, z0, z1 = box
         S["cls"][(S["cls"] == HULL) & (cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > y0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)] = TURRET
+    for x0, x1, y0, z0, z1 in cfg.get("drop_box", []):
+        S["cls"][(cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > y0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)] = DROP
+    for x0, x1, y0, z0, z1 in cfg.get("gun_box", []):
+        S["cls"][(S["cls"] != DROP) & (cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > y0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)] = GUN
+    if "turret_cyl" in cfg:
+        # башня не отделена: всё выше y0 в круге (cx, cz, r) и в коробках turret_extra — башня
+        cx, cz, r, y0 = cfg["turret_cyl"]
+        sel = (S["cls"] == HULL) & (cen[:, 1] > y0) & (np.hypot(cen[:, 0] - cx, cen[:, 2] - cz) < r)
+        for x0, x1, by0, z0, z1 in cfg.get("turret_extra", []):
+            sel |= (S["cls"] == HULL) & (cen[:, 0] > x0) & (cen[:, 0] < x1) & (cen[:, 1] > by0) & (cen[:, 2] > z0) & (cen[:, 2] < z1)
+        S["cls"][sel] = TURRET
+    if "turret_yaw" in cfg:
+        # башня в модели повёрнута: возвращаем её (и орудие) стволом вперёд вокруг (cx, cz)
+        cx, cz = cfg["turret_cyl"][:2] if "turret_cyl" in cfg else (0.0, 0.0)
+        a = np.radians(cfg["turret_yaw"])
+        c, s_ = np.cos(a), np.sin(a)
+        R = np.array([[c, 0, s_], [0, 1, 0], [-s_, 0, c]])
+        sel = np.isin(S["cls"], [TURRET, GUN])
+        o = np.array([cx, 0.0, cz])
+        S["P"][sel] = (S["P"][sel] - o) @ R.T + o
+        S["N"][sel] = S["N"][sel] @ R.T
+        cen = S["P"].mean(1)
     if "track_zone" in cfg:
         # гусеница не отделена в модели: всё низкое у бортов — гусеница (катки из неё выберутся ниже)
         ty, tz = cfg["track_zone"]
@@ -1010,15 +1114,17 @@ def process(key, folder, dbg=None):
         A[sel, :, 4] = 1.0 / w["r"]
         A[sel, :, 5] = w["side"]
     # упрощение по геометрии, нормали, общая развёртка, запекание цвета
-    plan = [("hull", HULL, BUDGET[HULL]), ("wheel", WHEEL, min(5200, BUDGET[WHEEL] * max(1, len(wheels)))),
-            ("turret", TURRET, BUDGET[TURRET]), ("gun", GUN, BUDGET[GUN])]
+    # budget_k — модели из множества тонких деталей: бюджет больше, а «мелочь» не выбрасывается (prune)
+    bk = cfg.get("budget_k", 1.0)
+    plan = [("hull", HULL, int(BUDGET[HULL] * bk)), ("wheel", WHEEL, min(5200, BUDGET[WHEEL] * max(1, len(wheels)))),
+            ("turret", TURRET, int(BUDGET[TURRET] * bk)), ("gun", GUN, BUDGET[GUN])]
     groups, srcs, names = [], [], []
     for name, cl, tgt in plan:
         src = np.where(keep & (S["cls"] == cl))[0]
         if not len(src):
             continue
         v, f = weld_pos(S["P"][src], A[src])
-        f = simplify(v, f, tgt)
+        f = simplify(v, f, tgt, prune=cfg.get("prune", True), max_err=cfg.get("max_err", 0.11))
         groups.append((v, f, corner_normals(v, f)))
         srcs.append(src)
         names.append(name)

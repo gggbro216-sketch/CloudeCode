@@ -160,6 +160,7 @@ func _load() -> void:
 				for k in d:
 					if save.has(k):
 						save[k] = d[k]
+	_migrate_keys()
 	if fresh:
 		# первый запуск или сохранение до появления исследований: стартовые танки и серебро на первую покупку
 		save.silver = maxi(int(save.silver), D.START_SILVER)
@@ -197,6 +198,26 @@ func persist() -> void:
 	var yg := get_node_or_null("/root/Yandex")
 	if yg:
 		yg.save_cloud(json)
+
+
+## Машины, заменённые в 2.4 (для них не нашлось готовых свободных моделей): прогресс переходит на замену.
+func _migrate_keys() -> void:
+	for old in D.RENAMED:
+		var nu: String = D.RENAMED[old]
+		for list in ["owned", "researched"]:
+			var i: int = save[list].find(old)
+			if i >= 0:
+				if save[list].has(nu):
+					save[list].remove_at(i)
+				else:
+					save[list][i] = nu
+		for dict in ["txp", "mods", "mods_res"]:
+			if save[dict].has(old):
+				if not save[dict].has(nu):
+					save[dict][nu] = save[dict][old]
+				save[dict].erase(old)
+		if save.tank == old:
+			save.tank = nu
 
 
 ## Яндекс Игры: прогресс из облака игрока. Новее местного — берём его (игра на другом устройстве).

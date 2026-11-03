@@ -232,6 +232,14 @@ const SPECS := {
 		"tur_x": 0.85, "tpoly": ["hex", 0.9, 1.22, 0.92], "tur_h": 0.72, "tur_top": 0.78, "smooth": false,
 		"mant": "f34", "gun_len": 2.15, "gun_r": [0.075, 0.058], "brake": "none",
 		"cupola": [], "hatch": false},
+	"t34_57": {
+		"L": 5.92, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.96, 0.62], [-2.68, 1.44], [1.5, 1.5], [2.96, 0.76], [2.8, 0.42], [-2.76, 0.42]],
+		"wheels": [1.8, 0.85, -0.12, -1.08, -2.02], "wr": 0.415, "wheel": "spoked",
+		"spr": [-2.66, 0.6, 0.36], "idl": [2.54, 0.58, 0.33], "rollers": [],
+		"tur_x": 0.85, "tpoly": ["hex", 0.9, 1.22, 0.92], "tur_h": 0.72, "tur_top": 0.78, "smooth": false,
+		"mant": "f34", "gun_len": 2.15, "gun_r": [0.075, 0.058], "brake": "none",
+		"cupola": [], "hatch": false},
 	"t34": {
 		"L": 6.1, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
 		"hull": [[-3.05, 0.62], [-2.76, 1.44], [1.6, 1.5], [3.05, 0.76], [2.88, 0.42], [-2.85, 0.42]],
@@ -264,6 +272,14 @@ const SPECS := {
 		"tur_x": -0.15, "tpoly": ["oval", 0.95, 1.28, 0.88], "tur_h": 0.74, "tur_top": 0.87, "smooth": true,
 		"mant": "rotor", "gun_len": 2.3, "gun_r": [0.068, 0.054], "brake": "none",
 		"cupola": [], "hatch": false, "shelf": false},
+	"jumbo": {
+		"L": 6.27, "W": 2.9, "tw": 0.42, "th": 0.98, "up_w": 2.62, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.92, 0.62], [-2.92, 1.88], [1.45, 1.9], [2.35, 1.2], [2.68, 1.1], [2.92, 0.85], [2.86, 0.52], [2.5, 0.4], [-2.7, 0.55]],
+		"wheels": [1.86, 1.26, 0.3, -0.3, -1.26, -1.86], "wr": 0.254, "wheel": "vvss", "bogies": [1.56, 0.0, -1.56],
+		"spr": [2.6, 0.8, 0.31], "idl": [-2.62, 0.5, 0.29], "rollers": [1.4, -0.16, -1.72],
+		"tur_x": -0.15, "tpoly": ["oval", 0.95, 1.28, 0.88], "tur_h": 0.74, "tur_top": 0.87, "smooth": true,
+		"mant": "rotor", "gun_len": 2.3, "gun_r": [0.068, 0.054], "brake": "none",
+		"cupola": [], "hatch": false, "shelf": false},
 	"firefly": {
 		"L": 6.05, "W": 2.62, "tw": 0.42, "th": 0.98, "up_w": 2.62, "camo": "british", "emblem": "usa",
 		"hull": [[-3.02, 0.62], [-3.02, 1.88], [1.52, 1.9], [2.44, 1.2], [2.78, 1.1], [3.02, 0.85], [2.96, 0.52], [2.6, 0.4], [-2.8, 0.55]],
@@ -288,8 +304,8 @@ const SPECS := {
 		"tur_x": 0.32, "tpoly": ["oval", 0.92, 1.08, 0.95], "tur_h": 0.74, "tur_top": 0.8, "smooth": true,
 		"mant": "rounded", "gun_len": 2.95, "gun_r": [0.07, 0.056], "brake": "none",
 		"cupola": [-0.38, -0.45, 0.26, 0.26]},
-	"crusader": {
-		"L": 5.97, "W": 2.77, "tw": 0.3, "th": 0.98, "up_w": 2.6, "camo": "desert", "emblem": "uk",
+	"a10": {
+		"L": 5.51, "W": 2.54, "tw": 0.3, "th": 0.98, "up_w": 2.6, "camo": "desert", "emblem": "uk",
 		"hull": [[-2.98, 0.55], [-2.98, 1.36], [1.15, 1.42], [2.65, 1.12], [2.98, 0.92], [2.9, 0.52], [2.6, 0.42], [-2.75, 0.45]],
 		"wheels": [2.1, 1.05, 0.0, -1.05, -2.1], "wr": 0.4, "wheel": "double",
 		"spr": [-2.72, 0.72, 0.34], "idl": [2.7, 0.62, 0.32], "rollers": [],
@@ -314,6 +330,14 @@ const SPECS := {
 		"cupola": [-0.98, 0.0, 0.33, 0.3], "skirts": 1943},
 	"stug": {
 		"L": 5.4, "W": 2.95, "tw": 0.4, "th": 0.85, "up_w": 2.9, "camo": "german", "emblem": "germany",
+		"hull": [[-2.7, 0.55], [-2.75, 1.38], [1.8, 1.4], [2.48, 1.2], [2.7, 0.92], [2.62, 0.55], [2.32, 0.42], [-2.45, 0.45]],
+		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
+		"spr": [2.42, 0.72, 0.33], "idl": [-2.47, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
+		"tur_x": 0.12, "tpoly": ["stug", 1.1, 1.36, 1.32], "tur_h": 0.66, "tur_top": 0.9, "smooth": false,
+		"mant": "saukopf", "gun_len": 2.34, "gun_r": [0.08, 0.06], "brake": "double",
+		"cupola": [-0.62, -0.7, 0.28, 0.18], "hatch": false, "skirts": 1943, "skirt_y": 0.83, "casemate": true},
+	"stug4": {
+		"L": 6.0, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.9, "camo": "german", "emblem": "germany",
 		"hull": [[-2.7, 0.55], [-2.75, 1.38], [1.8, 1.4], [2.48, 1.2], [2.7, 0.92], [2.62, 0.55], [2.32, 0.42], [-2.45, 0.45]],
 		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
 		"spr": [2.42, 0.72, 0.33], "idl": [-2.47, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
@@ -374,6 +398,13 @@ const SPECS := {
 		"spr": [2.0, 0.65, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.2, -1.0],
 		"tur_x": 0.17, "tpoly": ["pz", 0.75, 0.85, 0.72], "tur_h": 0.62, "tur_top": 0.9, "smooth": false,
 		"mant": "box", "gun_len": 1.7, "gun_r": [0.04, 0.03], "brake": "none", "cupola": [-0.5, 0.0, 0.25, 0.2], "hatch": false},
+	"pz2": {
+		"L": 4.81, "W": 2.28, "tw": 0.28, "th": 0.85, "up_w": 2.1, "camo": "german", "emblem": "germany",
+		"hull": [[-2.3, 0.45], [-2.3, 1.42], [1.4, 1.47], [2.3, 1.1], [2.2, 0.45]],
+		"wheels": [1.3, 0.45, -0.4, -1.25], "wr": 0.39, "wheel": "single",
+		"spr": [2.0, 0.65, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.2, -1.0],
+		"tur_x": 0.17, "tpoly": ["pz", 0.75, 0.85, 0.72], "tur_h": 0.62, "tur_top": 0.9, "smooth": false,
+		"mant": "box", "gun_len": 1.7, "gun_r": [0.04, 0.03], "brake": "none", "cupola": [-0.5, 0.0, 0.25, 0.2], "hatch": false},
 	"l6_40": {
 		"L": 3.82, "W": 1.86, "tw": 0.26, "th": 0.85, "up_w": 1.8, "camo": "italy", "emblem": "italy",
 		"hull": [[-1.9, 0.4], [-1.9, 1.35], [1.1, 1.45], [1.9, 1.0], [1.8, 0.4]],
@@ -427,8 +458,23 @@ const SPECS := {
 		"spr": [1.95, 0.75, 0.33], "idl": [-2.0, 0.45, 0.32], "rollers": [0.0],
 		"tur_x": -0.02, "tpoly": ["hex", 0.7, 0.7, 0.7], "tur_h": 0.55, "tur_top": 0.8, "smooth": false,
 		"mant": "box", "gun_len": 1.6, "gun_r": [0.04, 0.03], "brake": "none", "cupola": [], "hatch": false},
+	"m5a1": {
+		"L": 4.84, "W": 2.29, "tw": 0.29, "th": 0.95, "up_w": 2.2, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.26, 0.45], [-2.26, 1.95], [1.0, 2.0], [2.26, 1.2], [2.15, 0.45]],
+		"wheels": [1.3, 0.85, -0.85, -1.3], "wr": 0.3, "wheel": "vvss", "bogies": [1.07, -1.07],
+		"spr": [1.95, 0.75, 0.33], "idl": [-2.0, 0.45, 0.32], "rollers": [0.0],
+		"tur_x": -0.02, "tpoly": ["hex", 0.7, 0.7, 0.7], "tur_h": 0.55, "tur_top": 0.8, "smooth": false,
+		"mant": "box", "gun_len": 1.6, "gun_r": [0.04, 0.03], "brake": "none", "cupola": [], "hatch": false},
 	"lee": {
 		"L": 5.64, "W": 2.72, "tw": 0.42, "th": 1.0, "up_w": 2.6, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.82, 0.5], [-2.82, 2.25], [1.2, 2.3], [2.82, 1.3], [2.7, 0.45]],
+		"wheels": [1.9, 1.3, 0.3, -0.3, -1.3, -1.9], "wr": 0.254, "wheel": "vvss", "bogies": [1.6, 0.0, -1.6],
+		"spr": [2.5, 0.75, 0.35], "idl": [-2.55, 0.5, 0.32], "rollers": [],
+		"tur_x": -0.2, "tpoly": ["oval", 0.9, 0.9, 0.85], "tur_h": 0.6, "tur_top": 0.8, "smooth": true,
+		"mant": "box", "gun_len": 2.3, "gun_r": [0.07, 0.05], "brake": "none", "cupola": [], "hatch": false,
+		"casemate": true},
+	"grant": {
+		"L": 5.64, "W": 2.72, "tw": 0.42, "th": 1.0, "up_w": 2.6, "camo": "british", "emblem": "usa",
 		"hull": [[-2.82, 0.5], [-2.82, 2.25], [1.2, 2.3], [2.82, 1.3], [2.7, 0.45]],
 		"wheels": [1.9, 1.3, 0.3, -0.3, -1.3, -1.9], "wr": 0.254, "wheel": "vvss", "bogies": [1.6, 0.0, -1.6],
 		"spr": [2.5, 0.75, 0.35], "idl": [-2.55, 0.5, 0.32], "rollers": [],
@@ -458,6 +504,14 @@ const SPECS := {
 		"mant": "box", "gun_len": 2.1, "gun_r": [0.12, 0.09], "brake": "none", "cupola": [], "hatch": false},
 	"su85": {
 		"L": 6.15, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
+		"hull": [[-3.07, 0.62], [-2.78, 1.44], [1.6, 1.5], [3.07, 0.76], [2.9, 0.42], [-2.87, 0.42]],
+		"wheels": [1.85, 0.88, -0.14, -1.12, -2.08], "wr": 0.415, "wheel": "spoked",
+		"spr": [-2.74, 0.6, 0.36], "idl": [2.62, 0.58, 0.33], "rollers": [],
+		"tur_x": 1.0, "tpoly": ["stug", 1.6, 1.4, 1.3], "tur_h": 0.75, "tur_top": 0.9, "smooth": false,
+		"mant": "cast", "gun_len": 2.7, "gun_r": [0.085, 0.064], "brake": "none", "cupola": [-0.6, -0.6, 0.3, 0.25],
+		"hatch": false, "casemate": true},
+	"su122": {
+		"L": 6.0, "W": 3.0, "tw": 0.5, "th": 0.92, "up_w": 3.0, "camo": "green", "emblem": "ussr",
 		"hull": [[-3.07, 0.62], [-2.78, 1.44], [1.6, 1.5], [3.07, 0.76], [2.9, 0.42], [-2.87, 0.42]],
 		"wheels": [1.85, 0.88, -0.14, -1.12, -2.08], "wr": 0.415, "wheel": "spoked",
 		"spr": [-2.74, 0.6, 0.36], "idl": [2.62, 0.58, 0.33], "rollers": [],
@@ -520,14 +574,6 @@ const SPECS := {
 		"spr": [-2.92, 0.8, 0.36], "idl": [2.92, 0.8, 0.33], "rollers": [1.85, 0.0, -1.85],
 		"tur_x": 0.3, "tpoly": ["oval", 1.12, 1.55, 1.18], "tur_h": 0.86, "tur_top": 0.8, "smooth": true,
 		"mant": "cast_big", "gun_len": 4.7, "gun_r": [0.1, 0.075], "brake": "double", "cupola": [-0.55, -0.45, 0.32, 0.3]},
-	"matilda": {
-		"L": 5.61, "W": 2.59, "tw": 0.4, "th": 1.0, "up_w": 2.2, "camo": "desert", "emblem": "uk",
-		"hull": [[-2.8, 0.5], [-2.8, 1.55], [1.55, 1.62], [2.45, 1.28], [2.8, 0.95], [2.68, 0.5], [-2.55, 0.45]],
-		"wheels": [1.9, 1.5, 1.1, 0.7, 0.3, -0.1, -0.5, -0.9, -1.3, -1.7], "wr": 0.2, "wheel": "single",
-		"spr": [-2.5, 0.85, 0.36], "idl": [2.5, 0.85, 0.34], "rollers": [],
-		"tur_x": 0.1, "tpoly": ["oval", 0.95, 1.05, 0.95], "tur_h": 0.72, "tur_top": 0.86, "smooth": true,
-		"mant": "box", "gun_len": 1.85, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [-0.35, -0.3, 0.26, 0.2], "hatch": false,
-		"skirts": 1940},
 	"t70": {
 		"L": 4.29, "W": 2.32, "tw": 0.26, "th": 0.8, "up_w": 2.3, "camo": "green", "emblem": "ussr",
 		"hull": [[-2.14, 0.45], [-2.14, 1.25], [0.9, 1.3], [2.14, 0.9], [2.05, 0.45], [-2.0, 0.42]],
@@ -544,6 +590,15 @@ const SPECS := {
 		"mant": "cast_big", "gun_len": 3.6, "gun_r": [0.14, 0.11], "brake": "none", "cupola": [-0.9, -0.6, 0.3, 0.25],
 		"hatch": false, "casemate": true},
 	# ---- 2.4: новые машины (процедурные) ----
+	"su152": {
+		"L": 6.75, "W": 3.25, "tw": 0.7, "th": 0.9, "up_w": 3.07, "camo": "green", "emblem": "ussr",
+		"hull": [[-3.27, 0.6], [-3.1, 1.56], [1.7, 1.62], [3.27, 0.84], [3.02, 0.44], [-2.95, 0.44]],
+		"wheels": [2.32, 1.38, 0.44, -0.5, -1.44, -2.38], "wr": 0.28, "wheel": "double",
+		"spr": [-2.92, 0.7, 0.34], "idl": [2.92, 0.64, 0.3], "rollers": [1.45, -0.2, -1.85],
+		"tur_x": 0.55, "tpoly": ["stug", 2.4, 2.6, 1.5], "tur_h": 1.0, "tur_top": 0.9, "smooth": false,
+		"mant": "cast_big", "gun_len": 3.6, "gun_r": [0.14, 0.11], "brake": "none", "cupola": [-0.9, -0.6, 0.3, 0.25],
+		"hatch": false, "casemate": true},
+	# ---- 2.4: новые машины (процедурные) ----
 	"bt7": {
 		"L": 5.66, "W": 2.29, "tw": 0.26, "th": 0.8, "up_w": 2.2, "camo": "green", "emblem": "ussr",
 		"hull": [[-2.83, 0.45], [-2.83, 1.32], [0.9, 1.42], [2.83, 0.78], [2.6, 0.4], [-2.6, 0.4]],
@@ -551,13 +606,6 @@ const SPECS := {
 		"spr": [-2.45, 0.62, 0.32], "idl": [2.4, 0.55, 0.3], "rollers": [],
 		"tur_x": 0.45, "tpoly": ["oval", 0.95, 1.1, 0.9], "tur_h": 0.6, "tur_top": 0.85, "smooth": true,
 		"mant": "box", "gun_len": 2.1, "gun_r": [0.05, 0.04], "brake": "none", "cupola": [], "hatch": false},
-	"su76": {
-		"L": 5.0, "W": 2.74, "tw": 0.3, "th": 0.75, "up_w": 2.7, "camo": "green", "emblem": "ussr",
-		"hull": [[-2.5, 0.45], [-2.5, 1.3], [1.6, 1.35], [2.5, 0.85], [2.35, 0.4], [-2.3, 0.4]],
-		"wheels": [1.6, 0.95, 0.3, -0.35, -1.0, -1.65], "wr": 0.25, "wheel": "single",
-		"spr": [2.25, 0.62, 0.27], "idl": [-2.3, 0.55, 0.25], "rollers": [1.2, 0.0, -1.2],
-		"tur_x": -0.9, "tpoly": ["stug", 1.0, 1.3, 1.3], "tur_h": 0.9, "tur_top": 1.0, "smooth": false,
-		"mant": "box", "gun_len": 3.4, "gun_r": [0.07, 0.055], "brake": "double", "cupola": [], "hatch": false, "casemate": true},
 	"kv85": {
 		"L": 6.68, "W": 3.25, "tw": 0.7, "th": 0.9, "up_w": 2.72, "camo": "green", "emblem": "ussr",
 		"hull": [[-3.3, 0.5], [-3.34, 1.2], [-3.02, 1.78], [2.72, 1.78], [3.28, 1.08], [3.34, 0.98], [3.02, 0.42], [-2.98, 0.42]],
@@ -565,7 +613,7 @@ const SPECS := {
 		"spr": [-3.02, 0.66, 0.37], "idl": [3.0, 0.62, 0.34], "rollers": [1.9, 0.0, -1.9],
 		"tur_x": 0.45, "tpoly": ["oval", 1.12, 1.55, 1.2], "tur_h": 0.95, "tur_top": 0.74, "smooth": true,
 		"mant": "cast_big", "gun_len": 4.3, "gun_r": [0.085, 0.064], "brake": "none", "cupola": [-0.78, -0.48, 0.3, 0.32]},
-	"marder3": {
+	"grille": {
 		"L": 4.95, "W": 2.15, "tw": 0.29, "th": 0.95, "up_w": 2.1, "camo": "german", "emblem": "germany",
 		"hull": [[-2.47, 0.45], [-2.47, 1.3], [0.6, 1.36], [2.47, 1.1], [2.37, 0.45]],
 		"wheels": [1.3, 0.45, -0.4, -1.25], "wr": 0.39, "wheel": "single",
@@ -595,15 +643,15 @@ const SPECS := {
 		"spr": [2.4, 0.75, 0.3], "idl": [-2.45, 0.7, 0.28], "rollers": [1.3, 0.0, -1.3],
 		"tur_x": -0.2, "tpoly": ["oval", 0.95, 1.15, 1.15], "tur_h": 0.6, "tur_top": 0.95, "smooth": false,
 		"mant": "box", "gun_len": 4.0, "gun_r": [0.075, 0.058], "brake": "double", "cupola": [], "hatch": false, "shelf": false},
-	"m36": {
-		"L": 5.88, "W": 3.05, "tw": 0.42, "th": 0.98, "up_w": 2.9, "camo": "olive", "emblem": "usa",
+	"t28": {
+		"L": 7.52, "W": 3.15, "tw": 0.5, "th": 0.9, "up_w": 2.9, "camo": "olive", "emblem": "usa",
 		"hull": [[-2.94, 0.62], [-2.94, 1.75], [0.9, 1.85], [2.35, 1.2], [2.7, 1.1], [2.94, 0.85], [2.86, 0.52], [2.5, 0.4], [-2.7, 0.55]],
 		"wheels": [1.86, 1.26, 0.3, -0.3, -1.26, -1.86], "wr": 0.254, "wheel": "vvss", "bogies": [1.56, 0.0, -1.56],
 		"spr": [2.6, 0.8, 0.31], "idl": [-2.62, 0.5, 0.29], "rollers": [1.4, -0.16, -1.72],
 		"tur_x": -0.4, "tpoly": ["oval", 1.2, 1.4, 1.2], "tur_h": 0.75, "tur_top": 0.92, "smooth": true,
-		"mant": "box", "gun_len": 4.7, "gun_r": [0.1, 0.075], "brake": "double", "cupola": [], "hatch": false, "shelf": false},
-	"valentine": {
-		"L": 5.41, "W": 2.63, "tw": 0.36, "th": 0.95, "up_w": 2.4, "camo": "british", "emblem": "uk",
+		"mant": "box", "gun_len": 4.7, "gun_r": [0.1, 0.075], "brake": "double", "cupola": [], "hatch": false, "shelf": false, "casemate": true},
+	"tetrarch": {
+		"L": 4.42, "W": 2.31, "tw": 0.3, "th": 0.9, "up_w": 2.4, "camo": "british", "emblem": "uk",
 		"hull": [[-2.7, 0.5], [-2.7, 1.45], [1.2, 1.55], [2.7, 1.1], [2.6, 0.45], [-2.5, 0.45]],
 		"wheels": [1.7, 1.15, 0.6, -0.6, -1.15, -1.7], "wr": 0.27, "wheel": "single",
 		"spr": [-2.45, 0.75, 0.33], "idl": [2.4, 0.7, 0.3], "rollers": [1.4, 0.0, -1.4],
@@ -617,39 +665,24 @@ const SPECS := {
 		"tur_x": 0.2, "tpoly": ["cromwell", 1.15, 1.2, 1.2], "tur_h": 1.05, "tur_top": 0.94, "smooth": false,
 		"mant": "box", "gun_len": 4.2, "gun_r": [0.085, 0.06], "brake": "double",
 		"cupola": [-0.4, -0.5, 0.3, 0.15], "shelf": false, "em_turret": true},
-	"sem7518": {
-		"L": 5.04, "W": 2.23, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
+	"sem10525": {
+		"L": 5.1, "W": 2.4, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
 		"hull": [[-2.52, 0.45], [-2.52, 1.45], [1.2, 1.52], [2.1, 1.25], [2.52, 1.0], [2.35, 0.45]],
 		"wheels": [1.4, 1.1, 0.8, 0.5, -0.65, -0.95, -1.25, -1.55], "wr": 0.15, "wheel": "vvss", "bogies": [0.95, -1.1],
 		"spr": [2.05, 0.72, 0.4], "idl": [-2.15, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
 		"tur_x": 0.1, "tpoly": ["stug", 1.4, 1.3, 1.1], "tur_h": 0.55, "tur_top": 0.9, "smooth": false,
 		"mant": "box", "gun_len": 1.35, "gun_r": [0.07, 0.055], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
-	"sem9053": {
-		"L": 5.2, "W": 2.2, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
+	"l3cc": {
+		"L": 3.17, "W": 1.4, "tw": 0.18, "th": 0.6, "up_w": 2.2, "camo": "italy", "emblem": "italy",
 		"hull": [[-2.6, 0.45], [-2.6, 1.35], [1.25, 1.45], [2.15, 1.25], [2.6, 1.0], [2.4, 0.45]],
 		"wheels": [1.4, 1.1, 0.8, 0.5, -0.65, -0.95, -1.25, -1.55], "wr": 0.15, "wheel": "vvss", "bogies": [0.95, -1.1],
 		"spr": [2.05, 0.72, 0.4], "idl": [-2.15, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
 		"tur_x": -1.5, "tpoly": ["stug", 0.7, 0.8, 1.0], "tur_h": 0.8, "tur_top": 1.0, "smooth": false,
 		"mant": "plate", "gun_len": 4.8, "gun_r": [0.1, 0.075], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
-	"toldi": {
-		"L": 4.75, "W": 2.14, "tw": 0.28, "th": 0.9, "up_w": 2.1, "camo": "hungary", "emblem": "hungary",
-		"hull": [[-2.37, 0.45], [-2.37, 1.4], [1.1, 1.45], [2.37, 1.05], [2.25, 0.45]],
-		"wheels": [1.45, 0.75, -0.35, -1.05], "wr": 0.35, "wheel": "single",
-		"spr": [2.05, 0.7, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.0, -0.6],
-		"tur_x": 0.2, "tpoly": ["pz", 0.7, 0.75, 0.7], "tur_h": 0.55, "tur_top": 0.9, "smooth": false,
-		"mant": "box", "gun_len": 1.4, "gun_r": [0.025, 0.02], "brake": "none", "cupola": [], "hatch": false},
-	"zrinyi": {
-		"L": 5.9, "W": 2.89, "tw": 0.36, "th": 0.9, "up_w": 2.4, "camo": "hungary", "emblem": "hungary",
-		"hull": [[-2.95, 0.5], [-2.95, 1.45], [1.2, 1.5], [2.3, 1.2], [2.95, 0.95], [2.78, 0.5]],
-		"wheels": [1.75, 1.35, 0.85, 0.45, -0.45, -0.85, -1.35, -1.75], "wr": 0.2, "wheel": "vvss", "bogies": [1.55, 0.65, -0.65, -1.55],
-		"spr": [2.5, 0.75, 0.33], "idl": [-2.55, 0.6, 0.3], "rollers": [1.2, -0.1, -1.4],
-		"tur_x": 0.6, "tpoly": ["stug", 1.5, 1.6, 1.25], "tur_h": 0.7, "tur_top": 0.85, "smooth": false,
-		"mant": "saukopf", "gun_len": 2.2, "gun_r": [0.12, 0.1], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
 }
 
 ## Модификации на модели «родителя»: та же готовая модель и её размеры (характеристики свои, в data.gd).
-const MODEL_OF := {"su122": "su85", "su152": "isu152", "pz3j": "pz3", "pz3n": "pz3", "m5a1": "stuart", "jumbo": "sherman",
-	"achilles": "m10"}
+const MODEL_OF := {"pz3j": "pz3", "pz3n": "pz3", "achilles": "m10"}
 
 
 static func spec_key(key: String) -> String:
