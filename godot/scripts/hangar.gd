@@ -10,17 +10,53 @@ const Geo = preload("res://scripts/geo.gd")
 const TexLib = preload("res://scripts/textures.gd")
 const Native = preload("res://scripts/native.gd")
 
-# Места танков в дереве исследования: [столбец (уровень − 3), строка].
-const TREE_POS := {
-	"allies": {"stuart": [0, 0.55], "lee": [1, 0], "sherman": [2, 0], "firefly": [3, 0], "m10": [2, 0.9], "easy8": [3, 0.9],
-		"pershing": [5, 0.9], "matilda": [1, 1.8], "crusader": [1, 2.7], "cromwell": [2, 2.7], "churchill": [3, 1.8],
-		"comet": [4, 2.7], "chaffee": [2, 3.6], "t70": [0, 4.9], "t34_76": [2, 4.5], "t34": [3, 4.5], "su100": [4, 4.5],
-		"su85": [3, 5.4], "kv1": [3, 6.3], "kv2": [4, 6.3], "is2": [5, 6.3], "isu152": [5, 5.4]},
-	"axis": {"l6_40": [0, 0], "m13_40": [0, 0.9], "m15_42": [1, 0.45], "p26": [2, 0.45], "pz3": [1, 1.8], "pz4": [2, 1.8],
-		"pz4f2": [2, 2.7], "tiger": [3, 1.8], "tiger2": [5, 1.35], "tiger_p": [4, 1.8], "ferdinand": [5, 2.25],
-		"panther": [4, 2.9], "stug": [2, 3.6], "jagdpanther": [4, 3.9], "jagdtiger": [5, 3.9], "pz38t": [0, 4.5],
-		"luchs": [1, 4.5], "turan": [1, 5.4], "hetzer": [1, 3.6], "nashorn": [3, 4.6]},
-}
+# Места танков в дереве исследования: [столбец (уровень − 3), строка] — раскладываются сами (tree_pos):
+# нации полосами, внутри — по уровням, танк встаёт на высоте своих «родителей».
+const TREE_NATIONS := {"allies": ["США", "Великобритания", "СССР"], "axis": ["Италия", "Германия", "Венгрия"]}
+static var _tree_pos := {}
+
+
+static func tree_pos(side: String) -> Dictionary:
+	if _tree_pos.has(side):
+		return _tree_pos[side]
+	var out := {}
+	var base := 0
+	for nat in TREE_NATIONS[side]:
+		var keys: Array = []
+		for k in D.TYPES:
+			if D.TYPES[k].side == side and D.TYPES[k].nation == nat:
+				keys.append(k)
+		keys.sort_custom(func(x, y): return int(D.TYPES[x].tier) < int(D.TYPES[y].tier) or (int(D.TYPES[x].tier) == int(D.TYPES[y].tier) and x < y))
+		var used := {}  # столбец → занятые строки
+		var rows := {}
+		var top := 0
+		for k in keys:
+			var col := int(D.TYPES[k].tier) - 3
+			var want := -1.0
+			var n := 0
+			for par in D.parents(k):
+				if rows.has(par):
+					want = (want * n + float(rows[par])) / (n + 1) if n > 0 else float(rows[par])
+					n += 1
+			var r := int(round(want)) if n > 0 else top
+			if not used.has(col):
+				used[col] = {}
+			while used[col].has(r):
+				r += 1
+			used[col][r] = true
+			rows[k] = r
+			top = maxi(top, r) if n == 0 else top
+			if n == 0:
+				top = r + 1
+		var last := 0
+		for k in rows:
+			last = maxi(last, int(rows[k]))
+			out[k] = [int(D.TYPES[k].tier) - 3, (base + int(rows[k])) * 0.9]
+		base += last + 2
+	_tree_pos[side] = out
+	return out
+
+
 const NATION_COL := {"СССР": "b04a3c", "Германия": "8d8a7c", "США": "6d8650", "Великобритания": "a08650", "Италия": "4f8f5c",
 	"Венгрия": "8f7a3a"}
 const GREEN := "7bc65a"
@@ -1222,7 +1258,7 @@ func _show_tree(side: String) -> void:
 	v.add_child(bar)
 	if tree_sel == "" or D.TYPES[tree_sel].side != side:
 		tree_sel = ""
-		for k in TREE_POS[side]:
+		for k in tree_pos(side):
 			if main.can_research(k) or (main.save.researched.has(k) and not main.save.owned.has(k)):
 				tree_sel = k
 				break
@@ -1331,7 +1367,7 @@ class TreeView extends Control:
 	func _ready() -> void:
 		name = "TreeView"
 		mouse_filter = Control.MOUSE_FILTER_PASS
-		var pos: Dictionary = TREE_POS[side]
+		var pos: Dictionary = hangar.tree_pos(side)
 		var maxr := 0.0
 		for k in pos:
 			maxr = maxf(maxr, float(pos[k][1]))

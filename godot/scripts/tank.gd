@@ -251,7 +251,7 @@ func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: 
 		if part.shape != null:
 			_collider(nm2, part.shape, part.node_col)
 	# удельное давление гусениц на грунт: масса на площадь опоры, к среднему ~7,2 т/м²
-	var S: Dictionary = Models.SPECS[key]
+	var S: Dictionary = Models.SPECS[Models.spec_key(key)]
 	press = clampf(float(T.mass) / (2.0 * float(S.tw) * 0.8 * float(S.L)) / 7.2, 0.8, 1.25)
 	# подвеска: тяжёлая машина раскачивается медленнее и меньше
 	spring_k = 58.0 * pow(30.0 / float(T.mass), 0.4)

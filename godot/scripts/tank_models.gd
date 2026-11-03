@@ -543,7 +543,117 @@ const SPECS := {
 		"tur_x": 0.55, "tpoly": ["stug", 2.4, 2.6, 1.5], "tur_h": 1.0, "tur_top": 0.9, "smooth": false,
 		"mant": "cast_big", "gun_len": 3.6, "gun_r": [0.14, 0.11], "brake": "none", "cupola": [-0.9, -0.6, 0.3, 0.25],
 		"hatch": false, "casemate": true},
+	# ---- 2.4: новые машины (процедурные) ----
+	"bt7": {
+		"L": 5.66, "W": 2.29, "tw": 0.26, "th": 0.8, "up_w": 2.2, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.83, 0.45], [-2.83, 1.32], [0.9, 1.42], [2.83, 0.78], [2.6, 0.4], [-2.6, 0.4]],
+		"wheels": [1.75, 0.6, -0.6, -1.75], "wr": 0.41, "wheel": "single",
+		"spr": [-2.45, 0.62, 0.32], "idl": [2.4, 0.55, 0.3], "rollers": [],
+		"tur_x": 0.45, "tpoly": ["oval", 0.95, 1.1, 0.9], "tur_h": 0.6, "tur_top": 0.85, "smooth": true,
+		"mant": "box", "gun_len": 2.1, "gun_r": [0.05, 0.04], "brake": "none", "cupola": [], "hatch": false},
+	"su76": {
+		"L": 5.0, "W": 2.74, "tw": 0.3, "th": 0.75, "up_w": 2.7, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.5, 0.45], [-2.5, 1.3], [1.6, 1.35], [2.5, 0.85], [2.35, 0.4], [-2.3, 0.4]],
+		"wheels": [1.6, 0.95, 0.3, -0.35, -1.0, -1.65], "wr": 0.25, "wheel": "single",
+		"spr": [2.25, 0.62, 0.27], "idl": [-2.3, 0.55, 0.25], "rollers": [1.2, 0.0, -1.2],
+		"tur_x": -0.9, "tpoly": ["stug", 1.0, 1.3, 1.3], "tur_h": 0.9, "tur_top": 1.0, "smooth": false,
+		"mant": "box", "gun_len": 3.4, "gun_r": [0.07, 0.055], "brake": "double", "cupola": [], "hatch": false, "casemate": true},
+	"kv85": {
+		"L": 6.68, "W": 3.25, "tw": 0.7, "th": 0.9, "up_w": 2.72, "camo": "green", "emblem": "ussr",
+		"hull": [[-3.3, 0.5], [-3.34, 1.2], [-3.02, 1.78], [2.72, 1.78], [3.28, 1.08], [3.34, 0.98], [3.02, 0.42], [-2.98, 0.42]],
+		"wheels": [2.36, 1.42, 0.48, -0.47, -1.41, -2.35], "wr": 0.3, "wheel": "single",
+		"spr": [-3.02, 0.66, 0.37], "idl": [3.0, 0.62, 0.34], "rollers": [1.9, 0.0, -1.9],
+		"tur_x": 0.45, "tpoly": ["oval", 1.12, 1.55, 1.2], "tur_h": 0.95, "tur_top": 0.74, "smooth": true,
+		"mant": "cast_big", "gun_len": 4.3, "gun_r": [0.085, 0.064], "brake": "none", "cupola": [-0.78, -0.48, 0.3, 0.32]},
+	"marder3": {
+		"L": 4.95, "W": 2.15, "tw": 0.29, "th": 0.95, "up_w": 2.1, "camo": "german", "emblem": "germany",
+		"hull": [[-2.47, 0.45], [-2.47, 1.3], [0.6, 1.36], [2.47, 1.1], [2.37, 0.45]],
+		"wheels": [1.3, 0.45, -0.4, -1.25], "wr": 0.39, "wheel": "single",
+		"spr": [2.1, 0.65, 0.3], "idl": [-2.2, 0.6, 0.28], "rollers": [1.2, -1.0],
+		"tur_x": -0.35, "tpoly": ["stug", 1.2, 1.0, 1.05], "tur_h": 0.95, "tur_top": 1.0, "smooth": false,
+		"mant": "plate", "gun_len": 3.6, "gun_r": [0.075, 0.055], "brake": "double", "cupola": [], "hatch": false, "casemate": true},
+	"brummbar": {
+		"L": 5.93, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german", "emblem": "germany",
+		"hull": [[-2.95, 0.5], [-2.95, 1.55], [1.38, 1.6], [1.42, 1.22], [2.42, 1.14], [2.95, 1.0], [2.95, 0.6], [2.7, 0.4], [-2.75, 0.4]],
+		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
+		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
+		"tur_x": 0.55, "tpoly": ["stug", 1.6, 1.75, 1.45], "tur_h": 0.95, "tur_top": 0.85, "smooth": false,
+		"mant": "box", "gun_len": 1.9, "gun_r": [0.15, 0.12], "brake": "none", "cupola": [-1.0, -0.7, 0.3, 0.2], "hatch": false,
+		"casemate": true, "skirts": 1943, "skirt_y": 0.83},
+	"jpz4": {
+		"L": 5.9, "W": 3.17, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german44", "emblem": "germany",
+		"hull": [[-2.95, 0.5], [-2.95, 1.42], [1.2, 1.46], [2.95, 0.62], [2.7, 0.4], [-2.75, 0.4]],
+		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
+		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
+		"tur_x": -0.4, "tpoly": ["stug", 2.0, 1.9, 1.42], "tur_h": 0.5, "tur_top": 0.78, "smooth": false,
+		"mant": "saukopf", "gun_len": 5.2, "gun_r": [0.08, 0.06], "brake": "none", "cupola": [], "hatch": false,
+		"casemate": true, "skirts": 1944, "skirt_y": 0.83},
+	"m18": {
+		"L": 5.44, "W": 2.87, "tw": 0.36, "th": 0.9, "up_w": 2.8, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.72, 0.55], [-2.72, 1.3], [1.2, 1.36], [2.72, 0.9], [2.6, 0.5], [-2.5, 0.5]],
+		"wheels": [1.75, 0.9, 0.05, -0.8, -1.65], "wr": 0.32, "wheel": "double",
+		"spr": [2.4, 0.75, 0.3], "idl": [-2.45, 0.7, 0.28], "rollers": [1.3, 0.0, -1.3],
+		"tur_x": -0.2, "tpoly": ["oval", 0.95, 1.15, 1.15], "tur_h": 0.6, "tur_top": 0.95, "smooth": false,
+		"mant": "box", "gun_len": 4.0, "gun_r": [0.075, 0.058], "brake": "double", "cupola": [], "hatch": false, "shelf": false},
+	"m36": {
+		"L": 5.88, "W": 3.05, "tw": 0.42, "th": 0.98, "up_w": 2.9, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.94, 0.62], [-2.94, 1.75], [0.9, 1.85], [2.35, 1.2], [2.7, 1.1], [2.94, 0.85], [2.86, 0.52], [2.5, 0.4], [-2.7, 0.55]],
+		"wheels": [1.86, 1.26, 0.3, -0.3, -1.26, -1.86], "wr": 0.254, "wheel": "vvss", "bogies": [1.56, 0.0, -1.56],
+		"spr": [2.6, 0.8, 0.31], "idl": [-2.62, 0.5, 0.29], "rollers": [1.4, -0.16, -1.72],
+		"tur_x": -0.4, "tpoly": ["oval", 1.2, 1.4, 1.2], "tur_h": 0.75, "tur_top": 0.92, "smooth": true,
+		"mant": "box", "gun_len": 4.7, "gun_r": [0.1, 0.075], "brake": "double", "cupola": [], "hatch": false, "shelf": false},
+	"valentine": {
+		"L": 5.41, "W": 2.63, "tw": 0.36, "th": 0.95, "up_w": 2.4, "camo": "british", "emblem": "uk",
+		"hull": [[-2.7, 0.5], [-2.7, 1.45], [1.2, 1.55], [2.7, 1.1], [2.6, 0.45], [-2.5, 0.45]],
+		"wheels": [1.7, 1.15, 0.6, -0.6, -1.15, -1.7], "wr": 0.27, "wheel": "single",
+		"spr": [-2.45, 0.75, 0.33], "idl": [2.4, 0.7, 0.3], "rollers": [1.4, 0.0, -1.4],
+		"tur_x": 0.1, "tpoly": ["crusader", 0.75, 0.85, 0.8], "tur_h": 0.6, "tur_top": 0.85, "smooth": false,
+		"mant": "6pdr", "gun_len": 2.0, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [], "hatch": false, "shelf": false},
+	"challenger": {
+		"L": 6.55, "W": 2.9, "tw": 0.36, "th": 1.0, "up_w": 2.7, "camo": "british", "emblem": "usa",
+		"hull": [[-3.27, 0.58], [-3.27, 1.52], [2.88, 1.56], [3.22, 1.46], [3.27, 0.98], [3.1, 0.5], [-3.05, 0.5]],
+		"wheels": [2.6, 1.6, 0.6, -0.4, -1.4, -2.4], "wr": 0.41, "wheel": "double",
+		"spr": [-3.0, 0.74, 0.36], "idl": [3.0, 0.66, 0.34], "rollers": [],
+		"tur_x": 0.2, "tpoly": ["cromwell", 1.15, 1.2, 1.2], "tur_h": 1.05, "tur_top": 0.94, "smooth": false,
+		"mant": "box", "gun_len": 4.2, "gun_r": [0.085, 0.06], "brake": "double",
+		"cupola": [-0.4, -0.5, 0.3, 0.15], "shelf": false, "em_turret": true},
+	"sem7518": {
+		"L": 5.04, "W": 2.23, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
+		"hull": [[-2.52, 0.45], [-2.52, 1.45], [1.2, 1.52], [2.1, 1.25], [2.52, 1.0], [2.35, 0.45]],
+		"wheels": [1.4, 1.1, 0.8, 0.5, -0.65, -0.95, -1.25, -1.55], "wr": 0.15, "wheel": "vvss", "bogies": [0.95, -1.1],
+		"spr": [2.05, 0.72, 0.4], "idl": [-2.15, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
+		"tur_x": 0.1, "tpoly": ["stug", 1.4, 1.3, 1.1], "tur_h": 0.55, "tur_top": 0.9, "smooth": false,
+		"mant": "box", "gun_len": 1.35, "gun_r": [0.07, 0.055], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
+	"sem9053": {
+		"L": 5.2, "W": 2.2, "tw": 0.26, "th": 1.1, "up_w": 2.2, "camo": "italy", "emblem": "italy",
+		"hull": [[-2.6, 0.45], [-2.6, 1.35], [1.25, 1.45], [2.15, 1.25], [2.6, 1.0], [2.4, 0.45]],
+		"wheels": [1.4, 1.1, 0.8, 0.5, -0.65, -0.95, -1.25, -1.55], "wr": 0.15, "wheel": "vvss", "bogies": [0.95, -1.1],
+		"spr": [2.05, 0.72, 0.4], "idl": [-2.15, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
+		"tur_x": -1.5, "tpoly": ["stug", 0.7, 0.8, 1.0], "tur_h": 0.8, "tur_top": 1.0, "smooth": false,
+		"mant": "plate", "gun_len": 4.8, "gun_r": [0.1, 0.075], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
+	"toldi": {
+		"L": 4.75, "W": 2.14, "tw": 0.28, "th": 0.9, "up_w": 2.1, "camo": "hungary", "emblem": "hungary",
+		"hull": [[-2.37, 0.45], [-2.37, 1.4], [1.1, 1.45], [2.37, 1.05], [2.25, 0.45]],
+		"wheels": [1.45, 0.75, -0.35, -1.05], "wr": 0.35, "wheel": "single",
+		"spr": [2.05, 0.7, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.0, -0.6],
+		"tur_x": 0.2, "tpoly": ["pz", 0.7, 0.75, 0.7], "tur_h": 0.55, "tur_top": 0.9, "smooth": false,
+		"mant": "box", "gun_len": 1.4, "gun_r": [0.025, 0.02], "brake": "none", "cupola": [], "hatch": false},
+	"zrinyi": {
+		"L": 5.9, "W": 2.89, "tw": 0.36, "th": 0.9, "up_w": 2.4, "camo": "hungary", "emblem": "hungary",
+		"hull": [[-2.95, 0.5], [-2.95, 1.45], [1.2, 1.5], [2.3, 1.2], [2.95, 0.95], [2.78, 0.5]],
+		"wheels": [1.75, 1.35, 0.85, 0.45, -0.45, -0.85, -1.35, -1.75], "wr": 0.2, "wheel": "vvss", "bogies": [1.55, 0.65, -0.65, -1.55],
+		"spr": [2.5, 0.75, 0.33], "idl": [-2.55, 0.6, 0.3], "rollers": [1.2, -0.1, -1.4],
+		"tur_x": 0.6, "tpoly": ["stug", 1.5, 1.6, 1.25], "tur_h": 0.7, "tur_top": 0.85, "smooth": false,
+		"mant": "saukopf", "gun_len": 2.2, "gun_r": [0.12, 0.1], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
 }
+
+## Модификации на модели «родителя»: та же готовая модель и её размеры (характеристики свои, в data.gd).
+const MODEL_OF := {"su122": "su85", "su152": "isu152", "pz3j": "pz3", "pz3n": "pz3", "m5a1": "stuart", "jumbo": "sherman",
+	"achilles": "m10"}
+
+
+static func spec_key(key: String) -> String:
+	return MODEL_OF.get(key, key)
 
 static var _cache := {}
 
@@ -560,7 +670,7 @@ static func trim(keep: Array) -> void:
 			key = s.substr(5, s.rfind("_") - 5)
 		else:
 			continue
-		if not keep.has(key):
+		if not keep.has(key) and not keep.any(func(x): return spec_key(x) == key):
 			_cache.erase(k)
 
 
@@ -885,7 +995,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		var res: Array = core.tank_build(_native_spec(key, year, paint_cfg))
 		if float(res[8]) >= 0.0:
 			return _build_native(root, key, shadows, year, paint_cfg, res)
-	var S: Dictionary = SPECS[key]
+	var S: Dictionary = SPECS[spec_key(key)]
 	var TT := D.spec(key, year)
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
 	var L: float = S.L
@@ -1107,7 +1217,7 @@ const BRAKE_KINDS := ["double", "double_big", "ball"]
 ## Спецификация для C++: заголовок из 30 чисел, затем списки [длина, значения…] — профиль корпуса (пары),
 ## катки, звёздочка, ленивец, ролики, тележки, командирская башенка.
 static func _native_spec(key: String, year: int, paint_cfg: Dictionary) -> PackedFloat64Array:
-	var S: Dictionary = SPECS[key]
+	var S: Dictionary = SPECS[spec_key(key)]
 	var TT := D.spec(key, year)
 	var wk := WHEEL_KINDS.find(S.wheel)
 	var tk := TPOLY_KINDS.find(S.tpoly[0])
@@ -1137,7 +1247,7 @@ static func _faces_shape(faces: PackedVector3Array) -> ConcavePolygonShape3D:
 
 ## Узлы процедурной модели из C++: те же узлы, материалы и размеры, что у build в GDScript.
 static func _build_native(root: Node3D, key: String, shadows: bool, year: int, paint_cfg: Dictionary, res: Array) -> Dictionary:
-	var S: Dictionary = SPECS[key]
+	var S: Dictionary = SPECS[spec_key(key)]
 	var TT := D.spec(key, year)
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
 	var L: float = S.L
@@ -1261,6 +1371,7 @@ static var use_models := true
 static func model_info(key: String) -> Dictionary:
 	if not use_models:
 		return {}
+	key = spec_key(key)  # модификация — на модели «родителя»
 	var ck := "model_" + key
 	if _cache.has(ck):
 		return _cache[ck]
@@ -1324,7 +1435,7 @@ static func _v3(a: Array) -> Vector3:
 
 ## Танк из готовой модели: тот же набор узлов и размеров, что у процедурной (build).
 static func _build_model(root: Node3D, key: String, info: Dictionary, shadows: bool, paint_cfg: Dictionary) -> Dictionary:
-	var S: Dictionary = SPECS[key]
+	var S: Dictionary = SPECS[spec_key(key)]
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
 	var L: float = S.L
 	var W: float = S.W
