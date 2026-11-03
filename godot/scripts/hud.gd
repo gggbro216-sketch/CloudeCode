@@ -604,7 +604,12 @@ func _draw_minimap() -> void:
 			Gfx.arc(cv, tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0)
 		else:
 			Gfx.circle(cv, tp, 4.5, c)
-	cv.draw_rect(Rect2(o, Vector2(sz, sz)), Color(UI.LINE), false, 2.0)
+	# рамка четырьмя заливными прямоугольниками: draw_rect(…, false, w) заводит новый буфер и VAO на каждый вызов
+	var lc := Color(UI.LINE)
+	cv.draw_rect(Rect2(o.x - 1.0, o.y - 1.0, sz + 2.0, 2.0), lc)
+	cv.draw_rect(Rect2(o.x - 1.0, o.y + sz - 1.0, sz + 2.0, 2.0), lc)
+	cv.draw_rect(Rect2(o.x - 1.0, o.y + 1.0, 2.0, sz - 2.0), lc)
+	cv.draw_rect(Rect2(o.x + sz - 1.0, o.y + 1.0, 2.0, sz - 2.0), lc)
 
 
 ## Последние переговоры под миникартой: позывной и фраза, под ней перевод.
