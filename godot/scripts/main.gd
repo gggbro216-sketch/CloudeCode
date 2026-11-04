@@ -28,11 +28,54 @@ func _ready() -> void:
 	_session_start()
 	apply_res()
 	apply_eco()
-	show_hangar()
+	if FileAccess.file_exists(RESTART_FLAG):
+		# процесс перезапущен между боями ради памяти: сразу в следующий бой
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(RESTART_FLAG))
+		_life("перезапуск между боями")
+		start_battle.call_deferred()
+	else:
+		show_hangar()
 
 
 ## Стрелки и треугольники (→ ▶ ▸ ◀) — из своего маленького шрифта: в браузере нет системных шрифтов,
 ## а во встроенном шрифте Godot этих знаков нет.
+const RESTART_FLAG := "user://restart_battle"
+const RESTART_PSS := 750  # МБ: выше этого между боями процесс перезапускается
+
+
+## Куча процесса (C++ и драйвер видеокарты) в бою растёт ~3,7 МБ/с и между боями не отдаётся системе:
+## к 5-му бою это 2,3 ГБ и Android убивает игру. Пока причину в драйвере не устранить, между боями
+## процесс запускается заново (сохранение лежит на диске) — каждый бой начинается с ~0,3 ГБ.
+## true — перезапуск начат, продолжать переход не нужно.
+func restart_if_heavy(next_battle: bool) -> bool:
+	if OS.get_name() != "Android":
+		return false
+	var pss := int(proc_info(false).pss)
+	if pss < RESTART_PSS:
+		return false
+	_life("перезапуск: PSS %d МБ" % pss)
+	var rt: Object = Engine.get_singleton("AndroidRuntime") if Engine.has_singleton("AndroidRuntime") else null
+	if rt == null:
+		return false
+	var act = rt.getActivity()
+	if act == null:
+		return false
+	var intent = act.getPackageManager().getLaunchIntentForPackage(act.getPackageName())
+	if intent == null:
+		return false
+	persist()
+	_session_save()
+	if next_battle:
+		var f := FileAccess.open(RESTART_FLAG, FileAccess.WRITE)
+		if f:
+			f.store_8(1)
+			f.close()
+	intent.addFlags(0x10008000)  # FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK
+	act.startActivity(intent)
+	get_tree().create_timer(0.5).timeout.connect(func() -> void: OS.kill(OS.get_process_id()))
+	return true
+
+
 func _symbol_font() -> void:
 	var fb: Font = ThemeDB.fallback_font
 	var sym = load("res://assets/fonts/symbols.ttf")
@@ -578,6 +621,8 @@ func _on_leave(again: bool) -> void:
 	_leaving = true
 	var go := func() -> void:
 		_leaving = false
+		if restart_if_heavy(again):
+			return
 		if again:
 			start_battle.call_deferred()
 		else:
