@@ -51,7 +51,13 @@ float Core::height(float x, float z) const {
 	int ix = (int)fx, iz = (int)fz;
 	double tx = fx - ix, tz = fz - iz;
 	size_t i = (size_t)iz * (tn + 1) + ix;
-	return (float)lerpd(lerpd(h[i], h[i + 1], tx), lerpd(h[i + tn + 1], h[i + tn + 2], tx), tz);
+	// по тем же двум треугольникам клетки, что у видимой сетки (terrain_mesh: p q c и q d c, диагональ q–c):
+	// билинейная поверхность на гребнях выше нарисованной — снаряд над холмом «бился о воздух»
+	double ha = h[i], hb = h[i + 1], hc = h[i + tn + 1], hd = h[i + tn + 2];
+	if (tx + tz <= 1.0) {
+		return (float)(ha + (hb - ha) * tx + (hc - ha) * tz);
+	}
+	return (float)(hd + (hc - hd) * (1.0 - tx) + (hb - hd) * (1.0 - tz));
 }
 
 void Core::build_cmax() {
@@ -214,6 +220,9 @@ bool Core::los(V3 a, V3 b) const {
 	V3 d = { b.x - a.x, b.y - a.y, b.z - a.z };
 	if (!terrain_clear(a, b)) {
 		return false;
+	}
+	if (!wobj.empty()) {
+		return mesh_t(a, d, true) > 1.0f;
 	}
 	if (boxes.empty()) {
 		return true;
@@ -707,6 +716,26 @@ METHOD(los) {
 	SELF;
 	if (!need(a, 2, e)) return;
 	ret_bool(r, self->los(a.v3(0), a.v3(1)));
+}
+
+// Для проверок: отрезок a→b против мира — [доля пути (2 — мимо), в землю, по точной коллизии, по коробкам]
+METHOD(world_ray) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	V3 p0 = a.v3(0), p1 = a.v3(1);
+	float t;
+	bool g;
+	self->segment_hit(p0, p1, t, g);
+	V3 d = { p1.x - p0.x, p1.y - p0.y, p1.z - p0.z };
+	float out[4] = { t, g ? 1.0f : 0.0f, self->mesh_t(p0, d, false), self->boxes_t(p0, d) };
+	ret_f32(r, out, 4);
+}
+
+// Сколько в точной коллизии треугольников и кусков
+METHOD(mesh_info) {
+	SELF;
+	float out[2] = { (float)(self->wtri.size() / 9), (float)self->wobj.size() };
+	ret_f32(r, out, 2);
 }
 
 // Засвет всех танков разом. На танк 16 чисел: команда, жив, подсвечен, x, z, глаз xyz, верх xyz,
@@ -2700,6 +2729,165 @@ float Core::boxes_t(V3 a, V3 d) const {
 	return best;
 }
 
+// ---------- Точная коллизия построек: треугольники видимой геометрии ----------
+
+void Core::mesh_build(const std::vector<float> &tri, const std::vector<int> &objs) {
+	wtri.clear();
+	wobj.clear();
+	wtri.reserve(tri.size());
+	// объект режется на куски по клеткам 40×40 (по центру треугольника): у большого квартала или Рейхстага
+	// своя коробка у каждого куска, и луч проверяет только треугольники рядом с собой
+	const float BIN = 40.0f;
+	std::vector<std::pair<int64_t, int>> keyed;
+	for (size_t q = 0; q + 1 < objs.size(); q += 2) {
+		int t0 = objs[q], t1 = objs[q + 1];
+		keyed.clear();
+		for (int t = t0; t < t1; t++) {
+			const float *T = &tri[(size_t)t * 9];
+			float cx = T[0] + (T[3] + T[6]) / 3.0f, cz = T[2] + (T[5] + T[8]) / 3.0f;
+			int64_t kx = (int64_t)std::floor(cx / BIN), kz = (int64_t)std::floor(cz / BIN);
+			keyed.push_back({ (kx + 100000) * 200000 + (kz + 100000), t });
+		}
+		std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<int64_t, int> &x, const std::pair<int64_t, int> &y) { return x.first < y.first; });
+		size_t k = 0;
+		while (k < keyed.size()) {
+			WObj o;
+			o.t0 = (int)(wtri.size() / 9);
+			for (int c = 0; c < 3; c++) {
+				o.lo[c] = FLT_MAX;
+				o.hi[c] = -FLT_MAX;
+			}
+			int64_t key = keyed[k].first;
+			for (; k < keyed.size() && keyed[k].first == key; k++) {
+				const float *T = &tri[(size_t)keyed[k].second * 9];
+				wtri.insert(wtri.end(), T, T + 9);
+				for (int c = 0; c < 3; c++) {
+					float a = T[c], b = T[c] + T[3 + c], d = T[c] + T[6 + c];
+					o.lo[c] = std::min(o.lo[c], std::min(a, std::min(b, d)));
+					o.hi[c] = std::max(o.hi[c], std::max(a, std::max(b, d)));
+				}
+			}
+			o.t1 = (int)(wtri.size() / 9);
+			wobj.push_back(o);
+		}
+	}
+	if (wobj.empty()) {
+		return;
+	}
+	float lo = FLT_MAX, hi = -FLT_MAX;
+	for (const WObj &o : wobj) {
+		lo = std::min(lo, std::min(o.lo[0], o.lo[2]));
+		hi = std::max(hi, std::max(o.hi[0], o.hi[2]));
+	}
+	whash.build(lo - 1.0f, hi + 1.0f, 48.0f);
+	for (size_t i = 0; i < wobj.size(); i++) {
+		const WObj &o = wobj[i];
+		whash.put(o.lo[0], o.lo[2], o.hi[0], o.hi[2], (int)i);
+	}
+}
+
+float Core::mesh_t(V3 a, V3 d, bool any) const {
+	float best = 2.0f;
+	if (wobj.empty() || !finite3(a) || !finite3(d)) {
+		return best;
+	}
+	// куски, уже проверенные этим лучом (номер запроса; у каждого потока свой)
+	thread_local std::vector<uint32_t> stamp;
+	thread_local uint32_t gen = 0;
+	if (stamp.size() < wobj.size()) {
+		stamp.assign(wobj.size(), 0);
+	}
+	if (++gen == 0) {
+		std::fill(stamp.begin(), stamp.end(), 0);
+		gen = 1;
+	}
+	const float cs = whash.cell;
+	const float gx0 = whash.x0 * cs, gz0 = whash.y0 * cs;
+	const float gx1 = gx0 + whash.nx * cs, gz1 = gz0 + whash.ny * cs;
+	// отрезок в пределах сетки
+	float t0 = 0.0f, t1 = 1.0f;
+	{
+		float o2[2] = { a.x, a.z }, d2[2] = { d.x, d.z }, l2[2] = { gx0, gz0 }, h2[2] = { gx1, gz1 };
+		for (int k = 0; k < 2; k++) {
+			if (std::fabs(d2[k]) < 1e-12f) {
+				if (o2[k] < l2[k] || o2[k] > h2[k]) return best;
+				continue;
+			}
+			float u1 = (l2[k] - o2[k]) / d2[k], u2 = (h2[k] - o2[k]) / d2[k];
+			if (u1 > u2) std::swap(u1, u2);
+			t0 = std::max(t0, u1);
+			t1 = std::min(t1, u2);
+			if (t0 > t1) return best;
+		}
+	}
+	float inv[3] = { std::fabs(d.x) > 1e-12f ? 1.0f / d.x : 1e30f, std::fabs(d.y) > 1e-12f ? 1.0f / d.y : 1e30f, std::fabs(d.z) > 1e-12f ? 1.0f / d.z : 1e30f };
+	float px = a.x + d.x * t0, pz = a.z + d.z * t0;
+	int ix = std::min(whash.nx - 1, std::max(0, (int)std::floor((px - gx0) / cs)));
+	int iz = std::min(whash.ny - 1, std::max(0, (int)std::floor((pz - gz0) / cs)));
+	int sx = d.x > 0.0f ? 1 : (d.x < 0.0f ? -1 : 0), sz = d.z > 0.0f ? 1 : (d.z < 0.0f ? -1 : 0);
+	float tdx = sx ? std::fabs(cs / d.x) : FLT_MAX, tdz = sz ? std::fabs(cs / d.z) : FLT_MAX;
+	float tmx = sx ? (gx0 + (ix + (sx > 0 ? 1 : 0)) * cs - a.x) / d.x : FLT_MAX;
+	float tmz = sz ? (gz0 + (iz + (sz > 0 ? 1 : 0)) * cs - a.z) / d.z : FLT_MAX;
+	for (int guard = 0; guard < whash.nx + whash.ny + 4; guard++) {
+		float t_exit = std::min(t1, std::min(tmx, tmz));
+		const std::vector<int> *cl = whash.at(ix, iz);
+		if (cl) {
+			for (int oi : *cl) {
+				if (stamp[oi] == gen) continue;
+				stamp[oi] = gen;
+				const WObj &o = wobj[oi];
+				// коробка куска
+				float lim = std::min(best, 1.0f);
+				float tn = 0.0f, tf = lim;
+				const float ao[3] = { a.x, a.y, a.z };
+				bool miss = false;
+				for (int c = 0; c < 3 && !miss; c++) {
+					float u1 = (o.lo[c] - ao[c]) * inv[c], u2 = (o.hi[c] - ao[c]) * inv[c];
+					if (u1 > u2) std::swap(u1, u2);
+					tn = std::max(tn, u1);
+					tf = std::min(tf, u2);
+					miss = tn > tf;
+				}
+				if (miss) continue;
+				// треугольники (Мёллер — Трумбор), только лицевые: det > 0 — луч идёт навстречу наружной стороне
+				for (int t = o.t0; t < o.t1; t++) {
+					const float *T = &wtri[(size_t)t * 9];
+					float e1x = T[3], e1y = T[4], e1z = T[5], e2x = T[6], e2y = T[7], e2z = T[8];
+					float pxv = d.y * e2z - d.z * e2y, pyv = d.z * e2x - d.x * e2z, pzv = d.x * e2y - d.y * e2x;
+					float det = e1x * pxv + e1y * pyv + e1z * pzv;
+					if (det <= 1e-9f) continue;
+					float sxv = a.x - T[0], syv = a.y - T[1], szv = a.z - T[2];
+					float u = sxv * pxv + syv * pyv + szv * pzv;
+					float eps = det * 1e-5f;
+					if (u < -eps || u > det + eps) continue;
+					float qx = syv * e1z - szv * e1y, qy = szv * e1x - sxv * e1z, qz = sxv * e1y - syv * e1x;
+					float v = d.x * qx + d.y * qy + d.z * qz;
+					if (v < -eps || u + v > det + eps) continue;
+					float tt = (e2x * qx + e2y * qy + e2z * qz) / det;
+					if (tt < 0.0f || tt > std::min(best, 1.0f)) continue;
+					best = tt;
+					if (any) return best;
+				}
+			}
+		}
+		// дальше по отрезку ближе уже ничего не найдётся
+		if (best <= t_exit || t_exit >= t1) {
+			break;
+		}
+		if (tmx < tmz) {
+			ix += sx;
+			tmx += tdx;
+		} else {
+			iz += sz;
+			tmz += tdz;
+		}
+		if (ix < 0 || iz < 0 || ix >= whash.nx || iz >= whash.ny) {
+			break;
+		}
+	}
+	return best;
+}
+
 // Отрезок против мира (рельеф и постройки — то, что луч физики видит на слоях 1–2): доля пути до
 // первого попадания; ground — попали в землю.
 bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground) const {
@@ -2738,7 +2926,7 @@ bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground) const {
 			tp = tt;
 		}
 	}
-	float tb = boxes_t(a, d);
+	float tb = wobj.empty() ? boxes_t(a, d) : mesh_t(a, d, false);
 	if (tb < t_hit) {
 		t_hit = tb;
 		ground = false;
@@ -3464,7 +3652,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "terrain_set", terrain_set }, { "height", height }, { "terrain_generate", terrain_generate },
 		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_collision", terrain_collision },
 		{ "obst_set", obst_set }, { "blocked_at", blocked_at }, { "straight", straight }, { "boxes_set", boxes_set },
-		{ "los", los }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive }, { "proc_stats", proc_stats },
+		{ "los", los }, { "world_ray", world_ray }, { "mesh_info", mesh_info }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive }, { "proc_stats", proc_stats },
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },

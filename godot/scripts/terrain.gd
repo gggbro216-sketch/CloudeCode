@@ -34,7 +34,10 @@ func height(x: float, z: float) -> float:
 	var tx := fx - ix
 	var tz := fz - iz
 	var i := iz * (N + 1) + ix
-	return lerpf(lerpf(h[i], h[i + 1], tx), lerpf(h[i + N + 1], h[i + N + 2], tx), tz)
+	# те же два треугольника клетки, что у видимой сетки (диагональ от (ix+1, iz) к (ix, iz+1))
+	if tx + tz <= 1.0:
+		return h[i] + (h[i + 1] - h[i]) * tx + (h[i + N + 1] - h[i]) * tz
+	return h[i + N + 2] + (h[i + N + 1] - h[i + N + 2]) * (1.0 - tx) + (h[i + 1] - h[i + N + 2]) * (1.0 - tz)
 
 
 ## Пятна шейдера земли в точке (та же текстура шума): «damp» — сырые низины, «dry» — выгоревшие

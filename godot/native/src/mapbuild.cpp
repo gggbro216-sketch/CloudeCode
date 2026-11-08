@@ -63,6 +63,14 @@ enum { D_HAY, D_CRATES, D_BARRELS, D_POLE, D_LAMP };
 enum { B_BUSH, B_FIR, B_SHRUB };
 enum { P_TREE_K, P_FENCE_K, P_PALM_K, P_BARE_K, P_APPLE_K, P_SPRUCE_K, PROP_N };
 
+// Поворот остова, планёра или скалы вдоль прямоугольника препятствия (танки упираются в него): 0 или 180°
+// и немного вбок — так видимое совпадает с тем, обо что танк упирается. Одно случайное число, как раньше.
+inline double rect_yaw(double u, double w, double d, double jitter) {
+	double flip = u >= 0.5 ? PI_D : 0.0;
+	double f = u * 2.0 - std::floor(u * 2.0);
+	return (w >= d ? 0.0 : PI_D / 2) + flip + (f - 0.5) * 2.0 * jitter;
+}
+
 struct ObstIn {
 	int kind;
 	float x, y, w, h, ht, base;
@@ -118,17 +126,74 @@ struct Build {
 	float height(float x, float z) const { return core->height(x, z); }
 	// в Нормандии и Арденнах кирпич и штукатурка — один материал (одна сетка)
 	int mat(int m) const { return (stone && m == M_BRICK) ? M_PLASTER : m; }
-	void add(const Prim &p, const Xf &x, int m, bool flat = false) { g.add(p, x, mat(m), flat); }
+	void add(const Prim &p, const Xf &x, int m, bool flat = false) {
+		g.add(p, x, mat(m), flat);
+		if (coll) coll_add(p, x);
+	}
+	// точная коллизия (Core::mesh_build): те же треугольники, что идут на экран, наружной стороной наружу;
+	// coll = false — мелочь, сквозь которую снаряды летят (столбы, фонари, ящики, сено, бочки, ежи, флагштоки)
+	bool coll = true;
+	std::vector<float> ctri;
+	std::vector<int> cobj;  // [начало, конец) треугольников каждого объекта
+	void coll_add(const Prim &p, const Xf &x);
+	int tri_count() const { return (int)(ctri.size() / 9); }
 	void add_phys(V3 c, V3 s, double yaw = 0.0) {
 		float f[7] = { c.x, c.y, c.z, s.x, s.y, s.z, (float)yaw };
 		phys.insert(phys.end(), f, f + 7);
 	}
 
 	void obst(const ObstIn &o);
+	void obst_body(const ObstIn &o);
 	void decor(int kind, float px, float py, float rot);
+	void decor_body(int kind, float px, float py, float rot);
 };
 
+void Build::coll_add(const Prim &pm, const Xf &x) {
+	const M3 &B = x.b;
+	auto xf = [&](V3 p) { return V3{ B.m[0][0] * p.x + B.m[0][1] * p.y + B.m[0][2] * p.z + x.o.x, B.m[1][0] * p.x + B.m[1][1] * p.y + B.m[1][2] * p.z + x.o.y,
+							  B.m[2][0] * p.x + B.m[2][1] * p.y + B.m[2][2] * p.z + x.o.z }; };
+	// нормали — обратной транспонированной (как Group::add): по ним видно, какая сторона треугольника наружная
+	float m00 = B.m[0][0], m01 = B.m[0][1], m02 = B.m[0][2], m10 = B.m[1][0], m11 = B.m[1][1], m12 = B.m[1][2], m20 = B.m[2][0], m21 = B.m[2][1], m22 = B.m[2][2];
+	float c00 = m11 * m22 - m12 * m21, c01 = m12 * m20 - m10 * m22, c02 = m10 * m21 - m11 * m20;
+	float c10 = m02 * m21 - m01 * m22, c11 = m00 * m22 - m02 * m20, c12 = m01 * m20 - m00 * m21;
+	float c20 = m01 * m12 - m02 * m11, c21 = m02 * m10 - m00 * m12, c22 = m00 * m11 - m01 * m10;
+	float det = m00 * c00 + m01 * c01 + m02 * c02;
+	float id = std::fabs(det) > 1e-12f ? 1.0f / det : 0.0f;
+	size_t n = pm.idx.empty() ? pm.v.size() : pm.idx.size();
+	n -= n % 3;
+	for (size_t t = 0; t < n; t += 3) {
+		int ids[3];
+		for (int k = 0; k < 3; k++) ids[k] = pm.idx.empty() ? (int)(t + k) : pm.idx[t + k];
+		V3 A = xf(pm.v[ids[0]]), Bv = xf(pm.v[ids[1]]), C = xf(pm.v[ids[2]]);
+		V3 e1 = Bv - A, e2 = C - A;
+		V3 face = { e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x };
+		if (face.x * face.x + face.y * face.y + face.z * face.z < 1e-8f) continue;  // вырожденный (вершина конуса, полюс шара)
+		V3 nn;
+		if (!pm.n.empty()) {
+			V3 sn = { pm.n[ids[0]].x + pm.n[ids[1]].x + pm.n[ids[2]].x, pm.n[ids[0]].y + pm.n[ids[1]].y + pm.n[ids[2]].y,
+				pm.n[ids[0]].z + pm.n[ids[1]].z + pm.n[ids[2]].z };
+			nn = { (c00 * sn.x + c01 * sn.y + c02 * sn.z) * id, (c10 * sn.x + c11 * sn.y + c12 * sn.z) * id, (c20 * sn.x + c21 * sn.y + c22 * sn.z) * id };
+		} else {
+			nn = (A + Bv + C) / 3.0 - x.o;
+		}
+		if (face.x * nn.x + face.y * nn.y + face.z * nn.z < 0.0f) std::swap(e1, e2);
+		float f[9] = { A.x, A.y, A.z, e1.x, e1.y, e1.z, e2.x, e2.y, e2.z };
+		ctri.insert(ctri.end(), f, f + 9);
+	}
+}
+
 void Build::obst(const ObstIn &o) {
+	int t_start = tri_count();
+	coll = o.kind != K_HEDGEHOGS;  // ежи — тонкие рельсы, снаряд пролетает
+	obst_body(o);
+	coll = true;
+	if (tri_count() > t_start) {
+		cobj.push_back(t_start);
+		cobj.push_back(tri_count());
+	}
+}
+
+void Build::obst_body(const ObstIn &o) {
 	// Rect2.get_center(): position + size * 0.5
 	float c2x = o.x + o.w * 0.5f, c2y = o.y + o.h * 0.5f;
 	double b = o.base, ht = o.ht;
@@ -223,7 +288,7 @@ void Build::obst(const ObstIn &o) {
 			break;
 		}
 		case K_WRECK_TANK: {
-			double yaw = randf() * TAU_D;
+			double yaw = rect_yaw(randf(), w, d, 0.12);
 			double r0 = range(-0.05, 0.05);
 			M3 bs = axis(UP, yaw) * axis(BACK, r0);
 			add(box(30, 8, 18), T(bs, c + v(0, 4, 0)), M_CHARRED);
@@ -241,7 +306,7 @@ void Build::obst(const ObstIn &o) {
 			break;
 		}
 		case K_WRECK_TRUCK: {
-			double yaw = randf() * TAU_D;
+			double yaw = rect_yaw(randf(), w, d, 0.12);
 			double r0 = range(-0.12, 0.12);
 			M3 bs = axis(UP, yaw) * axis(RIGHT, r0);
 			add(box(9, 8, 12), T(bs, c + bs * v(11, 5, 0)), M_RUST);
@@ -261,7 +326,7 @@ void Build::obst(const ObstIn &o) {
 		}
 		case K_ROCK: {
 			static const Prim rock_base = sphere(7, 4);
-			double a = randf() * TAU_D;
+			double a = rect_yaw(randf(), 1.0, 0.0, 0.35);  // эллипсоид уже растянут по w и d
 			Xf xfm = T(axis(UP, a) * scl(v(w * 1.12, ht * 1.7, d * 1.12)), c + v(0, ht * 0.3, 0));
 			add(rock_base, xfm, M_ROCK, true);
 			for (int k = 0; k < 2; k++) {
@@ -351,7 +416,7 @@ void Build::obst(const ObstIn &o) {
 			break;
 		}
 		case K_GLIDER: {
-			double yaw = randf() * TAU_D;
+			double yaw = rect_yaw(randf(), w, d, 0.1);
 			M3 bs = axis(UP, yaw);
 			add(cyl(4.0, 4.0, 34, 10), T(bs * axis(BACK, PI_D / 2 - 0.06), c + bs * v(-10, 4, 0)), M_OLIVE);
 			add(cyl(2.2, 4.0, 22, 10), T((bs * axis(UP, 0.5)) * axis(BACK, PI_D / 2 + 0.12), c + bs * v(18, 3, 4)), M_OLIVE);
@@ -667,6 +732,12 @@ void Build::obst(const ObstIn &o) {
 
 // мелочь без коллизии: столбы, фонари, ящики, сено, бочки
 void Build::decor(int kind, float px, float py, float rot) {
+	coll = false;
+	decor_body(kind, px, py, rot);
+	coll = true;
+}
+
+void Build::decor_body(int kind, float px, float py, float rot) {
 	double y = height(px, py);
 	if (kind == D_POLE) {
 		add(cyl(0.6, 0.8, 26, 6), X(v(px, y + 13, py)), M_POLE);
@@ -939,7 +1010,8 @@ METHOD(map_build) {
 		}
 	}
 
-	// флагштоки зон
+	// флагштоки зон (снаряды пролетают)
+	B.coll = false;
 	{
 		const Prim pole = cyl(0.8, 0.8, 56, 10);
 		for (size_t k = 0; k + 2 < zf.size(); k += 3) {
@@ -947,6 +1019,9 @@ METHOD(map_build) {
 			B.add(pole, X(v(zf[k], zy + 28, zf[k + 1])), M_STEEL);
 		}
 	}
+
+	B.coll = true;
+	self->mesh_build(B.ctri, B.cobj);
 
 	ArrayOut out(10);
 	ret_group(out.at(0), B.g);

@@ -321,6 +321,10 @@ func _draw_slow() -> void:
 	_draw_feed()
 	_draw_radio()
 	_draw_hp()
+	if int(battle.G.get("fps_counter", 0)) != 0:
+		var fps := Engine.get_frames_per_second()
+		var fc := Color("9ad07a") if fps >= 50 else (Color("ffd37a") if fps >= 30 else Color("ff6a4a"))
+		_text(Vector2(pause_c.x - 120.0, pause_c.y + 7.0), "%d FPS" % fps, 16, fc, false, 3)
 	cv = self
 
 

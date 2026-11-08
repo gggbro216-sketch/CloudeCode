@@ -6,6 +6,7 @@ extends Node3D
 
 const TexLib = preload("res://scripts/textures.gd")
 
+var amount_k := 1.0  # доля частиц по настройке графики «Частицы»
 var soft: GradientTexture2D
 var mats := {}
 var quads := {}
@@ -94,6 +95,7 @@ func _quad(size: float, add: bool) -> QuadMesh:
 
 func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax: float, dir: Vector3, spread: float,
 		grav: float, size: float, add: bool, grow: bool, damp := 0.0, one_shot := true, parent: Node3D = null) -> GPUParticles3D:
+	amount = maxi(1, roundi(amount * amount_k))
 	if one_shot and parent == null:
 		var cam := get_viewport().get_camera_3d()
 		if cam and cam.global_position.distance_to(at) > far:

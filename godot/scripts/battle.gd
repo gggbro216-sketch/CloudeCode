@@ -23,8 +23,9 @@ const FxScript = preload("res://scripts/fx.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const WeatherScript = preload("res://scripts/weather.gd")
 
-const TRK := 4000  # отрезков следов гусениц одновременно
+const TRK := 4000  # отрезков следов гусениц одновременно (при настройке «Следы: много»)
 const SCORCH := 160  # пятен от разрывов
+const Graphics = preload("res://scripts/graphics.gd")
 const SENS_X := 0.0045  # поворот камеры, рад на точку свайпа
 const SENS_Y := 0.003
 const MASK_WORLD := 3  # рельеф + постройки
@@ -150,6 +151,10 @@ var hud: HudScript
 var fx: FxScript
 var sfx: SfxScript
 var trk_mm: MultiMesh
+var trk_mmi: MultiMeshInstance3D
+var trk_n := TRK  # сколько отрезков следов держит MultiMesh (по настройке «Следы»)
+var scorch_n := SCORCH
+var G := {}  # настройки графики (Graphics, save.gfx)
 var trk_i := 0
 var scorch_mm: MultiMesh
 var scorch_i := 0
@@ -207,7 +212,13 @@ func _prof(k: String, t0: int) -> void:
 func setup(cfg: Dictionary) -> void:
 	mode = cfg.mode
 	map_key = cfg.map
-	hq = cfg.hq
+	G = cfg.get("gfx", {})
+	if G.is_empty():
+		G = Graphics.normalize({"hq": cfg.get("hq", true)})
+	# тени построек, деревьев и рельефа — только когда включены и сами тени
+	hq = int(G.obj_shadows) != 0 and int(G.shadows) > 0
+	trk_n = [1, 1600, TRK][clampi(int(G.decals), 0, 2)]
+	scorch_n = [1, 80, SCORCH][clampi(int(G.decals), 0, 2)]
 	player_type = cfg.tank
 	player_mods = cfg.get("mods", {})
 	player_cons = cfg.get("cons", player_cons)
@@ -280,7 +291,9 @@ func _ready() -> void:
 	terra.build(self, map_key, hq)
 	_prof("load: сетка рельефа", t0)
 	await _stage("Постройки и лес")
-	MapGen.TexLib.bump = hq
+	MapGen.TexLib.bump = int(G.get("detail", 1)) != 0
+	MapGen.grass_k = [0.0, 0.33, 0.66, 1.0][clampi(int(G.get("grass", 3)), 0, 3)]
+	MapGen.view_k = float(G.get("view", 1.0))
 	t0 = Time.get_ticks_usec()
 	var built := MapGen.build(self, data, map_key, zones, terra, hq, map_seed)
 	_prof("load: 3D карты", t0)
@@ -291,6 +304,7 @@ func _ready() -> void:
 	bush_mat = built.bush_mat
 	_make_env()
 	fx = FxScript.new()
+	fx.amount_k = [0.4, 0.7, 1.0][clampi(int(G.get("particles", 2)), 0, 2)]
 	fx.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # вспышки и дым ставятся на месте
 	add_child(fx)
 	fx.set_dust(Color(D.MAPS[map_key].dust))
@@ -304,7 +318,9 @@ func _ready() -> void:
 	sfx = SfxScript.new()
 	add_child(sfx)
 	trk_mm = _track_mm()
-	scorch_mm = _decal_mm(SCORCH, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
+	if int(G.get("decals", 2)) == 0:
+		trk_mmi.visible = false
+	scorch_mm = _decal_mm(scorch_n, Vector2(1, 1), Color(0.05, 0.045, 0.04, 0.75), true)
 	_make_shell_mm()
 	await _stage("Танки")
 	t0 = Time.get_ticks_usec()
@@ -322,7 +338,7 @@ func _ready() -> void:
 	weather = WeatherScript.new()
 	weather.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # идёт за камерой
 	add_child(weather)
-	weather.setup(str(D.MAPS[map_key].get("weather", "")), self, hq)
+	weather.setup(str(D.MAPS[map_key].get("weather", "")), self, int(G.get("weather", 2)))
 	var layer := CanvasLayer.new()
 	layer.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(layer)
@@ -419,8 +435,8 @@ func _make_env() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color(M.fog)
-	env.fog_depth_begin = M.fog_near
-	env.fog_depth_end = M.fog_far
+	env.fog_depth_begin = M.fog_near * float(G.get("view", 1.0))
+	env.fog_depth_end = M.fog_far * float(G.get("view", 1.0))
 	env.fog_sky_affect = 0.35
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -429,10 +445,9 @@ func _make_env() -> void:
 	sun.rotation_degrees = Vector3(M.sun_rot[0], M.sun_rot[1], 0)
 	sun.light_color = Color(M.sun)
 	sun.light_energy = M.sun_e
-	sun.shadow_enabled = hq
-	# один каскад теней на 300 единиц (≈40 м): дальше тени не видны, а их отрисовка дорогая
+	# один каскад теней (по настройке 20–70 м): дальше тени не видны, а их отрисовка дорогая
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-	sun.directional_shadow_max_distance = 300.0
+	Graphics.setup_sun(sun, G, D.UPM)
 	sun.directional_shadow_fade_start = 0.85
 	sun.shadow_blur = 1.2
 	add_child(sun)
@@ -469,8 +484,8 @@ func _track_mm() -> MultiMesh:
 	var q := PlaneMesh.new()
 	q.size = Vector2(1, 1)
 	mm.mesh = q
-	mm.instance_count = TRK
-	for i in TRK:
+	mm.instance_count = trk_n
+	for i in trk_n:
 		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(0, -500, 0)))
 		mm.set_instance_custom_data(i, Color(-1000, 0, 0, 1))
 	# рисунок траков: грунтозацепы поперёк, канавка под гребни посередине
@@ -502,6 +517,7 @@ func _track_mm() -> MultiMesh:
 	mmi.material_override = trk_mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mmi)
+	trk_mmi = mmi
 	return mm
 
 
@@ -559,7 +575,7 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var top: Dictionary = player_mods if is_player else D.random_mods(key, rng)
-	tk.setup(key, team, p, nm, is_player, hq, year, D.paint(key, map_key, history), top)
+	tk.setup(key, team, p, nm, is_player, int(G.get("shadows", 2)) > 0, year, D.paint(key, map_key, history), top)
 	tk.sync_node()
 	tk.reset_physics_interpolation()  # появился на месте, а не приехал из начала координат
 	for c in (player_cons if is_player else D.CONSUMABLES.keys()):
@@ -1100,7 +1116,7 @@ func _world_init() -> void:
 			1.0 if tk.is_player else 0.0, 1.0 if tk.cons.has("repair") else 0.0, 1.0 if tk.cons.has("medkit") else 0.0,
 			1.0 if tk.cons.has("ext") else 0.0, float(D.crew_n(tk.type_key)), D.shell_he(T)])
 	var k := PackedFloat32Array([D.CAP_RATE, D.SUP_GOAL, D.CONSUMABLES.repair.cd, D.CONSUMABLES.medkit.cd, D.CONSUMABLES.ext.cd])
-	if not core.world_init(P, st, k, trk_mm, TRK):
+	if not core.world_init(P, st, k, trk_mm, trk_n):
 		_start_nav_thread()  # движок не той версии: методы узлов не нашлись — остаётся прежний путь
 		return
 	for tk: TankScript in tanks:
@@ -1300,7 +1316,7 @@ func _phys_native(dt: float) -> void:
 		trk_mm.set_instance_transform(trk_i, Transform3D(Vector3(mk[q], mk[q + 1], mk[q + 2]), Vector3(mk[q + 3], mk[q + 4], mk[q + 5]),
 			Vector3(mk[q + 6], mk[q + 7], mk[q + 8]), Vector3(mk[q + 9], mk[q + 10], mk[q + 11])))
 		trk_mm.set_instance_custom_data(trk_i, Color(mk[q + 12], mk[q + 13], mk[q + 14], mk[q + 15]))
-		trk_i = (trk_i + 1) % TRK
+		trk_i = (trk_i + 1) % trk_n
 	for i in n:
 		var tk: TankScript = tanks[i]
 		if tk.cmd:
@@ -1348,7 +1364,7 @@ func _track_marks(tk: TankScript) -> void:
 		trk_mm.set_instance_custom_data(trk_i, Color(clock, clampf(0.45 + tk.soft * 0.9, 0.35, 1.0), tk.mark_v[s], len))
 		tk.mark_v[s] = fmod(float(tk.mark_v[s]) + d, 1600.0)
 		tk.last_mark[s] = p
-		trk_i = (trk_i + 1) % TRK
+		trk_i = (trk_i + 1) % trk_n
 
 
 ## Шлейф за кормой на ходу: пыль, снег или комья грязи на мягком сыром грунте.
@@ -1846,6 +1862,8 @@ func _hit_kick(tk: TankScript, dir: Vector3, cal: float, k: float) -> void:
 
 ## След попадания точно на поверхности модели: луч вдоль полёта снаряда по коллизиям танка.
 func _mark_hit(tk: TankScript, hp: Vector3, dir: Vector3, kind: int, cal: float) -> void:
+	if int(G.get("decals", 2)) == 0:
+		return
 	var q := PhysicsRayQueryParameters3D.create(hp - dir * 3.0 * D.UPM, hp + dir * 4.0 * D.UPM, 8)
 	q.collide_with_areas = true
 	q.collide_with_bodies = false
@@ -2016,7 +2034,7 @@ func _damage(tk: TankScript, amount: float, by: TankScript, tag: String) -> void
 func _scorch(p: Vector3, size: float) -> void:
 	var b := _ground_basis(p.x, p.z) * Basis(Vector3.UP, randf() * TAU) * Basis.from_scale(Vector3(size, 1, size))
 	scorch_mm.set_instance_transform(scorch_i, Transform3D(b, Vector3(p.x, terra.height(p.x, p.z) + 0.25, p.z)))
-	scorch_i = (scorch_i + 1) % SCORCH
+	scorch_i = (scorch_i + 1) % scorch_n
 
 
 func kill(tk: TankScript, by: TankScript) -> void:

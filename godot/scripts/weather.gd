@@ -108,16 +108,20 @@ var haze: MeshInstance3D
 var battle
 
 
-func setup(weather: String, b, hq: bool) -> void:
+## level — настройка «Погода»: 0 выкл, 1 слабая, 2 полная.
+func setup(weather: String, b, level: int) -> void:
 	kind = weather
 	battle = b
+	if level <= 0:
+		kind = ""
+		return
 	match kind:
 		"snow":
-			_snow(1500 if hq else 700)
+			_snow(1500 if level >= 2 else 700)
 		"mist":
-			_mist(90 if hq else 40)
+			_mist(90 if level >= 2 else 40)
 		"haze":
-			if hq:
+			if level >= 2:
 				_haze()
 
 

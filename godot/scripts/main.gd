@@ -7,6 +7,7 @@ const UI = preload("res://scripts/ui.gd")
 const HangarScript = preload("res://scripts/hangar.gd")
 const BattleScript = preload("res://scripts/battle.gd")
 const Native = preload("res://scripts/native.gd")
+const Graphics = preload("res://scripts/graphics.gd")
 const SAVE_PATH := "user://save.json"
 
 var save := {
@@ -257,27 +258,21 @@ func _process(delta: float) -> void:
 
 ## 3D рисуется в уменьшенном разрешении и растягивается — главная экономия видеокарты на экране 1440p.
 func apply_res() -> void:
-	var vp := get_viewport()
-	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-	vp.scaling_3d_scale = float(save.res)
+	Graphics.apply_now(get_viewport(), save.gfx)
+
+
+## Настройки графики изменены в ангаре: применить то, что можно сразу, и сохранить.
+func gfx_changed() -> void:
+	Graphics.apply_now(get_viewport(), save.gfx)
+	_sync_legacy()
+	persist()
 
 
 ## Режим экономии батареи: не больше 30 кадров в секунду — заметно меньше работы процессору и видеокарте.
 func apply_eco() -> void:
-	Engine.max_fps = 30 if save.eco else 0  # 0 — по частоте экрана, как раньше
+	Engine.max_fps = int(save.gfx.fps)  # 0 — по частоте экрана
 
 
-func toggle_eco() -> void:
-	save.eco = not save.eco
-	apply_eco()
-	persist()
-
-
-func cycle_res() -> void:
-	var i := RES_STEPS.find(float(save.res))
-	save.res = RES_STEPS[(i + 1) % RES_STEPS.size()]
-	apply_res()
-	persist()
 
 
 func _load() -> void:
@@ -319,6 +314,16 @@ func _load() -> void:
 		save.res = 0.75
 	save.eco = save.eco == true
 	save.xray = save.xray != false
+	save.gfx = Graphics.normalize(save)
+	_sync_legacy()
+
+
+## Старые поля сохранения (их читают прежние версии и облако Яндекса) — по точным настройкам.
+func _sync_legacy() -> void:
+	var g: Dictionary = save.gfx
+	save.hq = int(g.obj_shadows) != 0 or int(g.shadows) >= 2
+	save.eco = int(g.fps) == 30
+	save.res = Graphics._nearest(RES_STEPS, float(g.res))
 
 
 func persist() -> void:
@@ -578,7 +583,7 @@ func start_battle() -> void:
 	session_mark("battle_loading", {"map": map_key, "mode": save.mode, "tank": save.tank, "clock": 0})
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
-	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "tank": save.tank, "history": save.history, "xray": save.xray,
+	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": save.tank, "history": save.history, "xray": save.xray,
 		"mods": top_config(save.tank), "cons": save.cons.duplicate()})
 	b.ended.connect(_on_ended)
 	b.leave.connect(_on_leave)

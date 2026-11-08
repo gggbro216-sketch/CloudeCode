@@ -1206,7 +1206,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 						var bs := Basis(Vector3.UP, spin + k * TAU / 3.0) * Basis(Vector3.BACK, 0.62)
 						g.add(Geo.box(Vector3(15, 1.3, 1.3)), Transform3D(bs, p), M.rust)
 			"wreck_tank":
-				var yaw := rng.randf() * TAU
+				var yaw := _rect_yaw(rng.randf(), w, d, 0.12)
 				var bs := Basis(Vector3.UP, yaw) * Basis(Vector3.BACK, rng.randf_range(-0.05, 0.05))
 				g.add(Geo.box(Vector3(30, 8, 18)), Transform3D(bs, c + Vector3(0, 4, 0)), M.charred)
 				g.add(Geo.box(Vector3(34, 5, 6)), Transform3D(bs, c + bs * Vector3(0, 2.5, 8)), M.rust)
@@ -1219,7 +1219,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				if rng.randf() < 0.5:
 					smokes.append(c + Vector3(0, 10, 0))
 			"wreck_truck":
-				var yaw := rng.randf() * TAU
+				var yaw := _rect_yaw(rng.randf(), w, d, 0.12)
 				var bs := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, rng.randf_range(-0.12, 0.12))
 				g.add(Geo.box(Vector3(9, 8, 12)), Transform3D(bs, c + bs * Vector3(11, 5, 0)), M.rust)
 				g.add(Geo.box(Vector3(20, 5, 13)), Transform3D(bs, c + bs * Vector3(-4, 4, 0)), M.charred)
@@ -1233,7 +1233,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				g.add(tent, Geo.xf(c + Vector3(0, ht / 2, 0), Vector3(0, PI / 2, 0)), M.canvas, true)
 				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht, d))
 			"rock":
-				var xfm := Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(w * 1.12, ht * 1.7, d * 1.12)), c + Vector3(0, ht * 0.3, 0))
+				var xfm := Transform3D(Basis(Vector3.UP, _rect_yaw(rng.randf(), 1.0, 0.0, 0.35)) * Basis.from_scale(Vector3(w * 1.12, ht * 1.7, d * 1.12)), c + Vector3(0, ht * 0.3, 0))
 				g.add(rock_base, xfm, M.rock, true)
 				for k in 2:
 					var sz := rng.randf_range(8, 16)
@@ -1305,7 +1305,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				_phys(body, c + Vector3(0, ht / 2, 0), Vector3(w, ht + 12, d))
 			"glider":
 				# разбитый десантный планёр «Хорса»: фюзеляж переломлен, крыло лежит рядом
-				var yaw := rng.randf() * TAU
+				var yaw := _rect_yaw(rng.randf(), w, d, 0.1)
 				var bs := Basis(Vector3.UP, yaw)
 				g.add(Geo.cyl(4.0, 4.0, 34, 10), Transform3D(bs * Basis(Vector3.BACK, PI / 2 - 0.06), c + bs * Vector3(-10, 4, 0)), M.olive)
 				g.add(Geo.cyl(2.2, 4.0, 22, 10), Transform3D(bs * Basis(Vector3.UP, 0.5) * Basis(Vector3.BACK, PI / 2 + 0.12), c + bs * Vector3(18, 3, 4)), M.olive)
@@ -1845,7 +1845,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 			mmi.multimesh = mm
 			mmi.material_override = M.rock
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.visibility_range_end = cs * 0.75 + 380.0
+			mmi.visibility_range_end = (cs * 0.75 + 380.0) * view_k
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 			parent.add_child(mmi)
 	# трава — тем же генератором с того места, где остановилась сборка
@@ -1932,8 +1932,9 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 	var dry := map_key != "prokhorovka" and map_key != "normandy"
 	# на площади в 1,7 раза больше — травы столько же на квадратный метр
 	var total: int = {"prokhorovka": 15000, "normandy": 17000, "stalingrad": 1500, "berlin": 1900, "ardennes": 1500}.get(map_key, 4200)
-	if not hq:
-		total /= 3
+	total = int(total * grass_k)
+	if total < 100:
+		return
 	var sh := Shader.new()
 	sh.code = GRASS_SHADER
 	var m := ShaderMaterial.new()
@@ -1986,7 +1987,7 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 			mmi.multimesh = mm
 			mmi.material_override = m
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mmi.visibility_range_end = 380.0
+			mmi.visibility_range_end = 380.0 * view_k
 			mmi.visibility_range_end_margin = 40.0
 			mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 			parent.add_child(mmi)
@@ -2005,6 +2006,16 @@ static func _foliage(c: Color, crown_from: float) -> ShaderMaterial:
 
 ## Коробки построек последней собранной карты: [центр xyz, размер xyz, поворот]* — для C++-видимости.
 static var phys_boxes := PackedFloat32Array()
+static var grass_k := 1.0  # доля травы (настройка графики «Трава»)
+static var view_k := 1.0  # дальность прорисовки (настройка «Дальность прорисовки»)
+
+
+## Поворот остова, планёра или скалы вдоль прямоугольника препятствия (в него упираются танки): 0 или 180°
+## и немного вбок — видимое совпадает с тем, обо что упираешься (как rect_yaw в native/src/mapbuild.cpp).
+static func _rect_yaw(u: float, w: float, d: float, jitter: float) -> float:
+	var flip := PI if u >= 0.5 else 0.0
+	var f := u * 2.0 - floorf(u * 2.0)
+	return (0.0 if w >= d else PI / 2) + flip + (f - 0.5) * 2.0 * jitter
 
 
 static func _phys(body: StaticBody3D, center: Vector3, size: Vector3, yaw := 0.0) -> void:

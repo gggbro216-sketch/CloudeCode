@@ -73,6 +73,21 @@ struct Core {
 	std::vector<Box> boxes;
 	Hash bhash;
 
+	// Точная коллизия построек для снарядов, прицела и видимости — треугольники той же геометрии, что
+	// видна на экране (MapGen: дома, крыши, руины, скалы, остовы, мешки...). Объекты разбиты на куски
+	// со своей коробкой, куски разложены по сетке. Пусто — старые коробки boxes.
+	struct WObj {
+		float lo[3], hi[3];
+		int t0, t1;  // треугольники [t0, t1) в wtri
+	};
+	std::vector<float> wtri;  // 9 чисел на треугольник: вершина A, рёбра E1 = B − A, E2 = C − A; E1 × E2 — наружу
+	std::vector<WObj> wobj;
+	Hash whash;
+	// tri — треугольники подряд по объектам, objs — [начало, конец) каждого объекта
+	void mesh_build(const std::vector<float> &tri, const std::vector<int> &objs);
+	// Отрезок [a, a + d] против точной коллизии: доля пути до ближайшего попадания (2 — мимо); any — первое попавшееся
+	float mesh_t(V3 a, V3 d, bool any) const;
+
 	// маска грунта (RGBA8, сторона mask_w): R — дорога, G — гарь воронок
 	std::vector<uint8_t> mask;
 	int mask_w = 0;

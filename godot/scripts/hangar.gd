@@ -9,6 +9,7 @@ const TankScript = preload("res://scripts/tank.gd")
 const Geo = preload("res://scripts/geo.gd")
 const TexLib = preload("res://scripts/textures.gd")
 const Native = preload("res://scripts/native.gd")
+const Graphics = preload("res://scripts/graphics.gd")
 
 # Места танков в дереве исследования: [столбец (уровень − 3), строка] — раскладываются сами (tree_pos):
 # нации полосами, внутри — по уровням, танк встаёт на высоте своих «родителей».
@@ -83,9 +84,7 @@ var cons_desc: Label
 var mode_desc: Label
 var map_desc: Label
 var qual_btn: Button
-var res_btn: Button
-var eco_btn: Button
-var xray_btn: Button
+var hangar_sun: DirectionalLight3D
 var hist_btn: Button
 var go_btn: Button
 var map_btns := {}
@@ -399,11 +398,12 @@ func _build_scene() -> void:
 	sun.rotation_degrees = Vector3(-48, -32, 0)
 	sun.light_color = Color("fff1dc")
 	sun.light_energy = 1.25
-	sun.shadow_enabled = true
+	sun.shadow_enabled = int(main.save.gfx.shadows) > 0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 260.0
 	sun.shadow_blur = 1.5
 	add_child(sun)
+	hangar_sun = sun
 	for lp: Vector3 in [Vector3(-48, EAVE - 40, 0), Vector3(48, EAVE - 40, 0)]:
 		var spot := SpotLight3D.new()
 		spot.position = lp
@@ -652,24 +652,8 @@ func _build_ui() -> void:
 	UI.accent(rb, 18)
 	rb.pressed.connect(func(): _show_tree(D.TYPES[main.save.tank].side))
 	head.add_child(rb)
-	qual_btn = _small_btn(head, "", func():
-		main.save.hq = not main.save.hq
-		main.persist()
-		_update_qual())
+	qual_btn = _small_btn(head, "", _show_gfx)
 	_update_qual()
-	res_btn = _small_btn(head, "", func():
-		main.cycle_res()
-		_update_res_btn())
-	_update_res_btn()
-	eco_btn = _small_btn(head, "", func():
-		main.toggle_eco()
-		_update_eco())
-	_update_eco()
-	xray_btn = _small_btn(head, "", func():
-		main.save.xray = not main.save.xray
-		main.persist()
-		_update_xray())
-	_update_xray()
 	_small_btn(head, "АВТОРЫ", _show_credits)
 
 	var body := HBoxContainer.new()
@@ -883,19 +867,111 @@ func _card(key: String) -> TankCard:
 
 
 func _update_qual() -> void:
-	qual_btn.text = "ГРАФИКА:\nВЫСОКАЯ" if main.save.hq else "ГРАФИКА:\nБЫСТРАЯ"
+	qual_btn.text = "ГРАФИКА:\n" + String(Graphics.PRESET_NAMES.get(main.save.gfx.preset, "СВОЯ"))
 
 
-func _update_eco() -> void:
-	eco_btn.text = "ЭКОНОМИЯ:\n30 FPS" if main.save.eco else "ЭКОНОМИЯ:\nВЫКЛ"
+# ---------- Настройки графики ----------
+
+## Окно настроек: пресеты сверху, ниже — каждый параметр со стрелками и пояснением.
+func _show_gfx() -> void:
+	var v := _modal("НАСТРОЙКИ ГРАФИКИ")
+	var head: Control = v.get_node("Head")
+	_close_btn(head)
+	var g: Dictionary = main.save.gfx
+	var presets := HBoxContainer.new()
+	presets.add_theme_constant_override("separation", 8)
+	v.add_child(presets)
+	presets.add_child(UI.label("ПРЕСЕТ:", 15, UI.DIM))
+	var pbtn := {}
+	for pk in Graphics.PRESET_ORDER:
+		var b := Button.new()
+		b.text = Graphics.PRESET_NAMES[pk]
+		b.custom_minimum_size = Vector2(118, 44)
+		b.add_theme_font_size_override("font_size", 15)
+		presets.add_child(b)
+		pbtn[pk] = b
+	var note := UI.label("", 13, UI.DIM)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(note)
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	sc.add_child(list)
+	var values := {}
+	var rows: Array = Graphics.ITEMS.duplicate()
+	rows.append(["xray", "Рентген-окно попадания", "Окно с разбором попадания (куда, броня, пробитие) как в War Thunder.", [1, 0], ["ВКЛ", "ВЫКЛ"]])
+	var refresh := func() -> void:
+		for pk in pbtn:
+			var on: bool = g.preset == pk
+			pbtn[pk].modulate = Color(1.0, 0.86, 0.5) if on else Color(1, 1, 1)
+		note.text = "Пресет: %s. Чёткость, кадры, синхронизация, сглаживание и тени ангара — сразу; остальное — со следующего боя." % Graphics.PRESET_NAMES.get(g.preset, "СВОЯ")
+		for k in values:
+			if k == "xray":
+				values[k].text = "ВКЛ" if main.save.xray else "ВЫКЛ"
+			else:
+				values[k].text = Graphics.label(k, g[k])
+		_update_qual()
+	for it in rows:
+		var key: String = it[0]
+		var row := PanelContainer.new()
+		row.add_theme_stylebox_override("panel", UI.box(UI.PANEL2, UI.LINE, 1, 8, 0.9, 10.0))
+		list.add_child(row)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		row.add_child(h)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.add_theme_constant_override("separation", 1)
+		h.add_child(info)
+		info.add_child(UI.label(String(it[1]).to_upper(), 16))
+		var hl := UI.label(it[2], 12, UI.DIM)
+		hl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.add_child(hl)
+		var minus := Button.new()
+		minus.text = "◀"
+		minus.custom_minimum_size = Vector2(52, 44)
+		h.add_child(minus)
+		var val := UI.label("", 16, D.AMBER)
+		val.custom_minimum_size = Vector2(118, 0)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		val.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		h.add_child(val)
+		values[key] = val
+		var plus := Button.new()
+		plus.text = "▶"
+		plus.custom_minimum_size = Vector2(52, 44)
+		h.add_child(plus)
+		for pair in [[minus, -1], [plus, 1]]:
+			var dir: int = pair[1]
+			pair[0].pressed.connect(func() -> void:
+				if key == "xray":
+					main.save.xray = not main.save.xray
+					main.persist()
+				else:
+					# у списков «вкл/выкл» и подписей по убыванию — шаг по порядку значений
+					Graphics.step(g, key, dir)
+					main.gfx_changed()
+					_apply_hangar_gfx()
+				refresh.call())
+	for pk in pbtn:
+		var preset: String = pk
+		pbtn[pk].pressed.connect(func() -> void:
+			Graphics.apply_preset(g, preset)
+			main.gfx_changed()
+			_apply_hangar_gfx()
+			refresh.call())
+	refresh.call()
 
 
-func _update_xray() -> void:
-	xray_btn.text = "РЕНТГЕН:\nВКЛ" if main.save.xray else "РЕНТГЕН:\nВЫКЛ"
-
-
-func _update_res_btn() -> void:
-	res_btn.text = "ЧЁТКОСТЬ:\n%d %%" % roundi(float(main.save.res) * 100.0)
+## Тени и их дальность в ангаре — сразу.
+func _apply_hangar_gfx() -> void:
+	if hangar_sun:
+		hangar_sun.shadow_enabled = int(main.save.gfx.shadows) > 0
 
 
 func _update_res() -> void:
