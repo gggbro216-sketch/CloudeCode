@@ -142,10 +142,15 @@ struct Core {
 		bool def = false, player = false, has_spot = false, has_peek = false, hold = false, adv = true, los = false;
 		V2 off = { 0, 0 }, spot = { 0, 0 }, peek = { 0, 0 }, goal = { 0, 0 };
 		float side = 1.0f, back_t = 0.0f, spot_t = 0.0f, pts = 5.0f, max_hp = 1.0f, dmg = 100.0f, reload = 3.0f, height = 20.0f, barrel = 30.0f;
+		float release_t = 0.0f;  // резерв волны: до этого времени стоит на месте
 	};
 	std::vector<BotAi> ai;
 	bool ai_on = false;
 	int mode = 0;  // 0 стандартный, 1 встречный, 2 превосходство
+	// миссия кампании: каким командам можно брать базы (бит команды), кто побеждает по времени
+	// (1 победа, 2 поражение, 3 ничья; −1 — как в обычном бою), какая команда обороняется
+	int cap_mask = 3, timeout_result = -1;
+	bool hold_team[2] = { false, false };
 	float time_limit = 420.0f, clock = 0.0f;
 	float lane_x[3] = { 0, 0, 0 };
 	struct Squad {

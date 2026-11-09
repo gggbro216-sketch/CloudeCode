@@ -590,7 +590,8 @@ func start_battle() -> void:
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
 	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": save.tank, "history": save.history, "xray": save.xray,
-		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(save.tank).sk.duplicate()})
+		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(save.tank).sk.duplicate(),
+		"mission": mission_req})
 	bench_req = false
 	b.ended.connect(_on_ended)
 	b.bench_done.connect(_on_bench)
@@ -681,6 +682,7 @@ func reset_skills(key: String) -> bool:
 
 # ---------- Замер FPS ----------
 var bench_req := false  # следующий бой — замер (без наград)
+var mission_req := {}  # следующий бой — миссия кампании (Campaign.mission_cfg)
 var bench_last := {}  # результат последнего замера (ангар показывает его в настройках графики)
 var bench_show := false  # ангар после замера сразу открывает настройки графики
 

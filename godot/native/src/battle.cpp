@@ -628,7 +628,7 @@ struct Step {
 			}
 			for (int side = 0; side < 2; side++) {
 				int other = 1 - side;
-				if (z.side != side && z.n[side] > 0 && z.n[other] == 0) {
+				if (z.side != side && z.n[side] > 0 && z.n[other] == 0 && ((c->cap_mask >> side) & 1)) {
 					z.prog[side] = std::min(100.0f, z.prog[side] + dt * w.cap_rate * std::min(3, z.n[side]));
 					if (side == 0 && w.player >= 0 && c->td[w.player].alive && in_zone(w.player, z)) w.cap_pts += dt * w.cap_rate;
 				} else if (z.n[side] == 0) {
@@ -1255,7 +1255,10 @@ METHOD(world_step) {
 		} else if (al == 0) {
 			S.finish(2, 1);
 		} else if (self->clock >= self->time_limit) {
-			if (self->mode == 2) {
+			if (self->timeout_result > 0) {
+				// миссия: по времени — оборона выстояла (9) или атака не успела (10)
+				S.finish(self->timeout_result, self->timeout_result == 1 ? 9 : (self->timeout_result == 2 ? 10 : 2));
+			} else if (self->mode == 2) {
 				S.finish(w.score[0] > w.score[1] ? 1 : (w.score[0] < w.score[1] ? 2 : 3), 2);
 			} else {
 				S.finish(3, 2);

@@ -442,8 +442,12 @@ func _draw_top() -> void:
 	_text(Vector2(cx - 108, top + 34), str(battle.alive_count(0)), 30, col_ally, true, 0)
 	_text(Vector2(cx - 40, top + 30), "ПРОТИВ", 14, col_dim, true, 0)
 	_text(Vector2(cx + 28, top + 34), str(battle.alive_count(1)), 30, col_foe, true, 0)
-	_text(Vector2(cx + 106, top + 31), _fmt_t(D.TIME_LIMIT - battle.clock), 20, col_text, true, 0)
+	_text(Vector2(cx + 106, top + 31), _fmt_t(maxf(0.0, battle.time_limit - battle.clock)), 20, col_text, true, 0)
 	var y := top + 56
+	var obj: String = battle.objective()
+	if obj != "":
+		_text(Vector2(cx, y + 10), obj, 14, col_amber, true, 4)
+		y += 22
 	if battle.mode == "supremacy":
 		Gfx.box(cv, sb_panel, Rect2(cx - 130, y, 260, 44))
 		_text(Vector2(cx - 98, y + 30), str(int(battle.score[0])), 20, col_ally, true, 0)
@@ -1021,12 +1025,16 @@ func _build_result() -> void:
 	vb.add_child(res_reward)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	row.add_child(_button("ЕЩЁ БОЙ", true, func(): battle.leave.emit(true)))
-	row.add_child(_button("В АНГАР", false, func(): battle.leave.emit(false)))
+	res_again = _button("ЕЩЁ БОЙ", true, func(): battle.leave.emit(true))
+	row.add_child(res_again)
+	res_home = _button("В АНГАР", false, func(): battle.leave.emit(false))
+	row.add_child(res_home)
 	vb.add_child(row)
 
 
 var res_reward: Button
+var res_again: Button
+var res_home: Button
 var _reward_amount := 0
 
 
@@ -1054,6 +1062,10 @@ func show_result(st: Dictionary) -> void:
 	res_reward.visible = yg != null and yg.rewarded_available() and _reward_amount > 0
 	res_reward.disabled = false
 	res_reward.text = "▶ РЕКЛАМА: ЕЩЁ +%s СЕРЕБРА" % _num(_reward_amount)
+	# миссия кампании: свой заголовок, возврат — в кампанию
+	var ms: bool = not battle.mission.is_empty()
+	res_again.visible = not ms
+	res_home.text = "В КАМПАНИЮ" if ms else "В АНГАР"
 	match st.result:
 		"win":
 			res_title.text = "ПОБЕДА"
@@ -1064,7 +1076,11 @@ func show_result(st: Dictionary) -> void:
 		_:
 			res_title.text = "НИЧЬЯ"
 			res_title.add_theme_color_override("font_color", col_amber)
+	if ms and st.result != "draw":
+		res_title.text = "МИССИЯ ВЫПОЛНЕНА" if st.result == "win" else "МИССИЯ ПРОВАЛЕНА"
 	res_reason.text = "%s. %s, карта «%s»." % [st.reason, st.mode, st.map]
+	if ms:
+		res_reason.text = "%s. «%s», карта «%s»." % [st.reason, battle.mission.title, st.map]
 	for c in res_stats.get_children():
 		c.queue_free()
 	for item in [["Уничтожено", str(st.kills)], ["Урон", str(st.dmg)], ["Точность", "%d%%" % st.acc], ["Время", _fmt_t(st.time)]]:

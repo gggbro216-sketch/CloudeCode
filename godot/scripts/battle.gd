@@ -77,6 +77,11 @@ var hq := true
 var player_type := "t34_76"
 var player_mods := {}  # модули танка игрока: {слот: true — исследованный}
 var player_skills := {}  # навыки экипажа игрока: {навык: уровень}
+## Миссия кампании: {kind: battle/attack/defense/encounter/supremacy, title, brief, task, time, weight: [наши, враг],
+## waves: [секунды выхода волн]}. Пусто — обычный бой.
+var mission := {}
+var time_limit := D.TIME_LIMIT  # длительность боя (у миссии — своя)
+var release := {}  # танк → когда выходит его волна (резерв обороны), с
 var player_cons: Array = ["repair", "medkit", "ext"]  # снаряжение, взятое в бой
 var history := true  # только машины, воевавшие на этой карте
 var side := "allies"  # сторона игрока; команда 0 — его сторона, команда 1 — противник
@@ -233,6 +238,9 @@ func setup(cfg: Dictionary) -> void:
 	history = cfg.get("history", true)
 	xray_on = bool(cfg.get("xray", true))
 	bench = bool(cfg.get("bench", false))
+	mission = cfg.get("mission", {})
+	if not mission.is_empty():
+		time_limit = float(mission.get("time", D.TIME_LIMIT))
 	side = D.TYPES[player_type].side
 
 
@@ -592,7 +600,10 @@ func _spawn() -> void:
 	var mine := D.pool(map_key, side, history, tier)
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
-	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)), float(hc.get(D.foe_side(side), 1.0)))
+	var wk: Array = mission.get("weight", [1.0, 1.0])
+	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)) * float(wk[0]),
+		float(hc.get(D.foe_side(side), 1.0)) * float(wk[1]))
+	var waves: Array = mission.get("waves", [])
 	var keep: Array = [player_type]
 	for t in teams:
 		for k in t:
@@ -609,14 +620,22 @@ func _spawn() -> void:
 	for team in 2:
 		var list: Array = teams[team]
 		var y := ws - 300.0 if team == 0 else 300.0
+		# волны обороны: враг делится на части, вторая и дальше ждут у своего края карты
+		var per := ceili(float(list.size()) / maxi(1, waves.size())) if team == 1 and waves.size() > 1 else list.size()
 		for i in list.size():
 			# игрок в центре строя, остальные расходятся в стороны
-			var slot := (i + 1) / 2 * (1 if i % 2 == 1 else -1)
-			var p := Vector2(ws / 2 + slot * 165.0, y + (-30.0 if team == 0 else 30.0) * (i % 2))
+			var wave := i / per if per > 0 else 0
+			var row := i % per
+			var slot := (row + 1) / 2 * (1 if row % 2 == 1 else -1)
+			var p := Vector2(ws / 2 + slot * 165.0, y + (-30.0 if team == 0 else 30.0) * (row % 2))
+			if wave > 0:
+				p.y = 110.0 + 40.0 * (row % 2)
 			var me := team == 0 and i == 0
 			var nat := D.operator(list[i], map_key, history)
 			var tk := _add_tank(list[i], team, p, "Вы" if me else names[nat].pop_back(), me)
 			tk.nation = nat
+			if wave > 0 and wave < waves.size():
+				release[tk] = float(waves[wave])
 			if me:
 				player = tk
 				watch = tk
@@ -1130,7 +1149,7 @@ func _phys_init() -> void:
 		af.append_array([cls.get(tk.b_cls, 1), 1.0 if tk.role == "def" else 0.0, 1.0 if tk.is_player else 0.0,
 			D.pts(tk.type_key, year), tk.max_hp, tk.T.dmg, tk.T.reload, tk.height, tk.barrel, lane.get(tk.b_lane, 1),
 			tk.b_off.x, tk.b_off.y, tk.b_side])
-	core.ai_init({"standard": 0, "encounter": 1, "supremacy": 2}.get(mode, 0), D.TIME_LIMIT,
+	core.ai_init({"standard": 0, "encounter": 1, "supremacy": 2}.get(mode, 0), time_limit,
 		PackedFloat32Array([_lane_x("hill"), _lane_x("mid"), _lane_x("town")]), af)
 	var sq := PackedInt32Array()
 	for team in 2:
@@ -1138,6 +1157,14 @@ func _phys_init() -> void:
 			sq.append(int(squads[team].get(ln, {"n0": 0}).n0))
 	core.ai_squads(sq)
 	core_ai = true
+	if not mission.is_empty() and core.has_method("mission_set"):
+		# атака: базу берём только мы, враг держит рубежи, по времени — поражение; оборона — наоборот
+		var kind := String(mission.get("kind", "battle"))
+		var rt := PackedFloat32Array()
+		for tk: TankScript in tanks:
+			rt.append(float(release.get(tk, 0.0)))
+		core.mission_set(1 if kind == "attack" else (2 if kind == "defense" else 3), 2 if kind == "attack" else (1 if kind == "defense" else -1),
+			kind == "defense", kind == "attack", rt)
 	# снаряды и урон: броня, коробки попаданий, места модулей и экипажа
 	var df := PackedFloat32Array()
 	for tk: TankScript in tanks:
@@ -2759,7 +2786,7 @@ func _squads_update() -> void:
 	if core:
 		core.squads_step(clock, autopilot)
 		return
-	var late := clock > D.TIME_LIMIT * 0.6
+	var late := clock > time_limit * 0.6
 	for team in 2:
 		for ln in squads[team]:
 			var sq: Dictionary = squads[team][ln]
@@ -2892,7 +2919,7 @@ func _plan(b: TankScript) -> Vector2:
 		if b.role == "def" and clock < 150.0:
 			return stage_point(my, "mid", 0) + b.b_off
 		# к концу боя вся команда идёт на базу врага, чтобы не кончить ничьей
-		if stage >= _max_stage() or alive_count(en) <= 1 or clock > D.TIME_LIMIT * 0.72:
+		if stage >= _max_stage() or alive_count(en) <= 1 or clock > time_limit * 0.72:
 			b.b_zone = foe
 			return foe.pos + b.b_off * 0.4
 	elif mode == "encounter":
@@ -3033,7 +3060,7 @@ func _think(b: TankScript) -> void:
 			b.b_peek = b.pos
 	# разведчик после засвета откатывается, отстреливаясь, — решения о бое не принимает;
 	# в конце стандартного боя все, кроме сцепившихся вплотную, едут на базу и стреляют на ходу
-	var rush := mode == "standard" and clock > D.TIME_LIMIT * 0.72 and tg != null and tg.pos.distance_to(b.pos) > 250.0
+	var rush := mode == "standard" and clock > time_limit * 0.72 and tg != null and tg.pos.distance_to(b.pos) > 250.0
 	if tg and not (b.b_cls == "ЛТ" and clock < b.b_back_t) and not rush:
 		var d := b.pos.distance_to(tg.pos)
 		var eye := tg.top() + Vector3(0, 2, 0)
@@ -3439,7 +3466,7 @@ func _update(dt: float) -> void:
 			finish("win", "Все противники уничтожены")
 		elif a == 0:
 			finish("lose", "Ваша команда уничтожена")
-		elif clock >= D.TIME_LIMIT:
+		elif clock >= time_limit:
 			if mode == "supremacy":
 				var res := "draw"
 				if score[0] > score[1]:
@@ -3544,7 +3571,7 @@ func _update_world(dt: float) -> void:
 
 const FINISH_WHY := ["Все противники уничтожены", "Ваша команда уничтожена", "Время вышло", "Вы захватили базу",
 	"Противник захватил базу", "База противника захвачена", "Ваша база захвачена", "Набрано 600 очков",
-	"Противник набрал 600 очков"]
+	"Противник набрал 600 очков", "Рубеж удержан", "Время на атаку вышло"]
 
 
 ## События шага из C++ по порядку: выстрелы, попадания, урон, уничтожение, деревья, тараны, ремонт,
@@ -4019,8 +4046,34 @@ func _brief_info() -> Dictionary:
 		"encounter": "Задача: захватить нейтральную базу в центре карты или уничтожить противника.",
 		"supremacy": "Задача: держать точки A, B, C — каждая приносит очки. Победа — 600 очков или уничтожение противника.",
 	}
+	if not mission.is_empty():
+		return {"title": "%s · %s" % [String(mission.title), M.name], "sub": "%s против %s · %s" % [M[side], M[D.foe_side(side) + "_g"], M.date],
+			"text": String(mission.brief), "teams": teams_info, "task": "Задача: " + String(mission.task)}
 	return {"title": "%s · %s" % [M.name, M.date], "sub": "%s против %s" % [M[side], M[D.foe_side(side) + "_g"]],
 		"text": M.brief, "teams": teams_info, "task": tasks[mode]}
+
+
+## Строка задачи миссии над полем боя: что делать и сколько осталось (волны обороны).
+func objective() -> String:
+	if mission.is_empty():
+		return ""
+	var kind := String(mission.get("kind", "battle"))
+	var waves: Array = mission.get("waves", [])
+	match kind:
+		"attack":
+			return "АТАКА: взять базу противника до конца времени"
+		"defense":
+			var w := 1
+			for k in range(1, waves.size()):
+				if clock >= float(waves[k]):
+					w = k + 1
+			var s := "ОБОРОНА: не отдать базу до конца времени"
+			if waves.size() > 1:
+				s += " · волна %d из %d" % [w, waves.size()]
+				if w < waves.size():
+					s += " (следующая через %d с)" % ceili(float(waves[w]) - clock)
+			return s
+	return String(mission.get("task", "")).to_upper()
 
 
 ## Переговоры своей стороны: фраза случайного живого союзника на языке его армии.

@@ -2388,6 +2388,7 @@ V2 Core::plan(int i) {
 	V2 off = A.off;
 	V2 bp = pos_of(B);
 	A.zone = -1;
+	if (clock < A.release_t) return bp;  // резерв волны ждёт своего часа
 	auto zp = [&](int z, float k) { return V2{ zones[z].x + off.x * k, zones[z].y + off.y * k }; };
 	if (mode == 0 && zones.size() >= 2) {
 		int own = zones[0].side == my ? 0 : 1, foe = own == 0 ? 1 : 0;
@@ -2401,8 +2402,8 @@ V2 Core::plan(int i) {
 			V2 sp = stage_point(my, 1, 0);
 			return { sp.x + off.x, sp.y + off.y };
 		}
-		// к концу боя вся команда идёт на базу врага
-		if (stage >= max_stage() || alive_count(en) <= 1 || clock > time_limit * 0.72f) {
+		// к концу боя вся команда идёт на базу врага (кроме обороняющейся и если базу брать нельзя)
+		if (!hold_team[my] && ((cap_mask >> my) & 1) && (stage >= max_stage() || alive_count(en) <= 1 || clock > time_limit * 0.72f)) {
 			A.zone = foe;
 			return zp(foe, 0.4f);
 		}
@@ -2507,7 +2508,7 @@ bool Core::think(int i, V2 &route_to, bool &route_safe) {
 		}
 	}
 	// разведчик после засвета откатывается; в конце стандартного боя все, кроме сцепившихся вплотную, — на базу
-	bool rush = mode == 0 && clock > time_limit * 0.72f && G && dist2(pos_of(G), bp) > 250.0f;
+	bool rush = mode == 0 && !hold_team[team] && ((cap_mask >> team) & 1) && clock > time_limit * 0.72f && G && dist2(pos_of(G), bp) > 250.0f;
 	if (G && !(A.cls == CLS_LT && clock < A.back_t) && !rush) {
 		float d = dist2(bp, pos_of(G));
 		V3 eye = { G[P_X], G[P_GROUND] + ai[nt].height, G[P_Y] };  // верх цели + 2
@@ -2615,7 +2616,7 @@ void Core::squads_update(bool autopilot) {
 			for (int i : mem) {
 				if (dist2(pos_of(snap_at(this, i)), { sp.x + ai[i].off.x, sp.y + ai[i].off.y }) < 190.0f) near_n++;
 			}
-			int top = max_stage();
+			int top = hold_team[team] ? std::min(1, max_stage()) : max_stage();  // оборона держит ближние рубежи
 			int m = (int)mem.size();
 			bool losing = (pw.y > pw.x * 1.7f && (m < sq.n0 || clock > 60.0f)) || (pw.y > pw.x && m * 2 < sq.n0);
 			auto move_squad = [&](int stage) {
@@ -2687,6 +2688,19 @@ METHOD(ai_squads) {
 			if ((size_t)(team * 3 + ln) < c.size()) self->squads[team][ln].n0 = c[team * 3 + ln];
 		}
 	}
+}
+
+// Правила миссии кампании (после ai_init): кому можно брать базы (бит команды), итог по времени
+// (−1 — как обычно), обороняется ли команда 0 / 1, время выхода каждого танка (резерв волн), с.
+METHOD(mission_set) {
+	SELF;
+	if (!need(a, 5, e)) return;
+	self->cap_mask = (int)a.integer(0) & 3;
+	self->timeout_result = (int)a.integer(1);
+	self->hold_team[0] = a.boolean(2);
+	self->hold_team[1] = a.boolean(3);
+	std::vector<float> rt = f32(a, 4);
+	for (size_t i = 0; i < self->ai.size(); i++) self->ai[i].release_t = i < rt.size() ? std::max(0.0f, rt[i]) : 0.0f;
 }
 
 // Базы: [x, y, r, сторона, захват 0, захват 1, танков 0, танков 1]*
@@ -3833,7 +3847,8 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "ground_set", ground_set }, { "ground_at", ground_at }, { "props_set", props_set }, { "tanks_static", tanks_static },
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },
 		{ "cover_near", cover_near }, { "bush_near", bush_near }, { "bot_path", bot_path },
-		{ "ai_init", ai_init }, { "ai_squads", ai_squads }, { "zones_set", zones_set }, { "think", think }, { "squads_step", squads_step }, { "ai_state", ai_state },
+		{ "ai_init", ai_init }, { "ai_squads", ai_squads }, { "zones_set", zones_set },
+		{ "mission_set", mission_set }, { "think", think }, { "squads_step", squads_step }, { "ai_state", ai_state },
 		{ "dmg_static", dmg_static }, { "layout_set", layout_set }, { "turret_gone", turret_gone }, { "shell_add", shell_add },
 		{ "shells_step", shells_step }, { "shell_hit", shell_hit }, { "aim_info", aim_info },
 	};
