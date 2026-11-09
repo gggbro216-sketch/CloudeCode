@@ -5,6 +5,8 @@ extends Node
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
 const HangarScript = preload("res://scripts/hangar.gd")
+const CampaignUI = preload("res://scripts/campaign_ui.gd")
+const Campaign = preload("res://scripts/campaign.gd")
 const BattleScript = preload("res://scripts/battle.gd")
 const Native = preload("res://scripts/native.gd")
 const Graphics = preload("res://scripts/graphics.gd")
@@ -17,6 +19,7 @@ var save := {
 	"tstats": {}, "last": {}, "ts": 0.0,
 }
 var hangar: Node
+var camp_ui: Node  # экран кампании
 var battle: Node
 
 
@@ -498,6 +501,9 @@ var _load_stage: Label
 ## Старая сцена уходит целиком до того, как строится новая: в памяти никогда нет двух боёв
 ## (или ангара и боя) сразу, а их ресурсы движок и видеокарта успевают освободить за пару кадров.
 func _clear_scene() -> void:
+	if camp_ui:
+		camp_ui.queue_free()
+		camp_ui = null
 	if hangar == null and battle == null:
 		return
 	if hangar:
@@ -576,23 +582,31 @@ func start_battle() -> void:
 	if _switching:
 		return
 	_switching = true
-	var map_key: String = save.map
+	# миссия кампании: свой танк из парка, своя карта и режим; иначе — как выбрано в ангаре
+	var ms := not mission_req.is_empty()
+	in_mission = ms
+	var tank: String = mission_req.tank if ms else save.tank
+	var bmode: String = mission_req.mode if ms else save.mode
+	var map_key: String = mission_req.map if ms else save.map
 	if map_key == "random":
 		# случайная из карт, где воевал выбранный танк
 		var keys: Array = D.maps_for(save.tank, save.history)
 		if keys.is_empty():
 			keys = D.MAPS.keys()
 		map_key = keys[randi() % keys.size()]
-	_show_loading("ЗАГРУЗКА БОЯ", "%s · %s" % [D.MODES[save.mode].name, D.MAPS[map_key].name])
+	_show_loading("ЗАГРУЗКА БОЯ", "%s · %s" % [String(mission_req.title) if ms else D.MODES[bmode].name, D.MAPS[map_key].name])
 	await _clear_scene()
 	session.battles = int(session.battles) + 1
-	session_mark("battle_loading", {"map": map_key, "mode": save.mode, "tank": save.tank, "clock": 0})
+	session_mark("battle_loading", {"map": map_key, "mode": bmode, "tank": tank, "clock": 0})
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
-	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": save.tank, "history": save.history, "xray": save.xray,
-		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(save.tank).sk.duplicate(),
+	# танк из парка кампании, которого нет в ангаре, — с лучшими модулями своего времени
+	var mods: Dictionary = top_config(tank) if save.owned.has(tank) or not ms else {}
+	b.setup({"mode": bmode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": tank, "history": true if ms else save.history,
+		"xray": save.xray, "mods": mods, "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(tank).sk.duplicate(),
 		"mission": mission_req})
 	bench_req = false
+	mission_req = {}
 	b.ended.connect(_on_ended)
 	b.bench_done.connect(_on_bench)
 	b.leave.connect(_on_leave)
@@ -608,6 +622,19 @@ func start_battle() -> void:
 
 
 func _on_ended(st: Dictionary) -> void:
+	if in_mission:
+		# кампания: награды больше; опыт танка, которого нет в ангаре, — в свободный
+		var k: float = Campaign.C.REWARD_K
+		st.campaign_k = k
+		st.xp = roundi(float(st.xp) * k)
+		st.silver = roundi(float(st.silver) * k) if int(st.silver) > 0 else int(st.silver)
+		st.free_xp = roundi(float(st.free_xp) * k)
+		if not save.owned.has(String(st.tank)):
+			st.free_xp = int(st.free_xp) + int(st.xp)
+			st.xp_to_free = true
+		if Campaign.active(save):
+			st.campaign_msg = Campaign.apply_result(save.campaign, String(st.result), String(st.tank), bool(st.get("alive", true)),
+				bool(st.get("boom", false)))
 	save.battles += 1
 	if st.result == "win":
 		save.wins += 1
@@ -615,7 +642,8 @@ func _on_ended(st: Dictionary) -> void:
 	save.best_dmg = maxi(int(save.best_dmg), int(st.dmg))
 	save.silver = int(save.silver) + int(st.silver)
 	var key: String = st.tank
-	save.txp[key] = txp(key) + int(st.xp)
+	if not st.get("xp_to_free", false):
+		save.txp[key] = txp(key) + int(st.xp)
 	save.free_xp = int(save.free_xp) + int(st.free_xp)
 	var ts: Dictionary = save.tstats.get(key, {"battles": 0, "wins": 0, "dmg": 0})
 	ts.battles = int(ts.battles) + 1
@@ -634,6 +662,30 @@ func _on_ended(st: Dictionary) -> void:
 
 
 var _leaving := false  # уход из боя уже начат (ждём рекламу)
+
+# ---------- Кампания ----------
+
+var in_mission := false  # идёт (или только что закончилась) миссия кампании
+
+
+func show_campaign() -> void:
+	if _switching:
+		return
+	_switching = true
+	await _clear_scene()
+	camp_ui = CampaignUI.new()
+	camp_ui.main = self
+	add_child(camp_ui)
+	_hide_loading()
+	_switching = false
+
+
+func start_mission(tank: String) -> void:
+	if not Campaign.active(save) or tank == "":
+		return
+	mission_req = Campaign.mission_cfg(save.campaign, tank)
+	start_battle()
+
 
 # ---------- Экипаж ----------
 
@@ -712,7 +764,10 @@ func _on_leave(again: bool) -> void:
 		_leaving = false
 		if restart_if_heavy(again):
 			return
-		if again:
+		if in_mission:
+			in_mission = false
+			show_campaign.call_deferred()
+		elif again:
 			start_battle.call_deferred()
 		else:
 			show_hangar.call_deferred()

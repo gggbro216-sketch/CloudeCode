@@ -81,6 +81,7 @@ var player_skills := {}  # навыки экипажа игрока: {навык
 ## waves: [секунды выхода волн]}. Пусто — обычный бой.
 var mission := {}
 var time_limit := D.TIME_LIMIT  # длительность боя (у миссии — своя)
+var player_death := -1  # почему погиб танк игрока (KILL_WHY), −1 — жив
 var release := {}  # танк → когда выходит его волна (резерв обороны), с
 var player_cons: Array = ["repair", "medkit", "ext"]  # снаряжение, взятое в бой
 var history := true  # только машины, воевавшие на этой карте
@@ -406,7 +407,7 @@ func _ready() -> void:
 	hud.battle = self
 	layer.add_child(hud)
 	var M: Dictionary = D.MAPS[map_key]
-	hud.add_feed([["%s · %s" % [D.MODES[mode].name, M.name], Color(D.AMBER)]])
+	hud.add_feed([["%s · %s" % [String(mission.title) if not mission.is_empty() else D.MODES[mode].name, M.name], Color(D.AMBER)]])
 	hud.add_feed([["%s: %s против %s" % [M.date, M[side], M[D.foe_side(side) + "_g"]], Color("cfd3c0")]])
 	hud.show_brief(_brief_info())
 	for tk: TankScript in tanks:
@@ -3676,6 +3677,8 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 			22:  # уничтожен (ev[4] — причина)
 				var why := int(ev[q + 4])
 				var by_k: TankScript = tanks[int(ev[q + 2])] if ev[q + 2] >= 0.0 else null
+				if tanks[int(ev[q + 1])] == player:
+					player_death = why
 				if why == 1 or why == 3:
 					_popup(tanks[int(ev[q + 1])], KILL_WHY[why], Color("ff6a4a"), by_k)
 				_world_kill(tanks[int(ev[q + 1])], by_k, ev[q + 3] != 0.0)
@@ -4151,6 +4154,8 @@ func _show_result() -> void:
 		"acc": roundi(100.0 * hits / shots) if shots > 0 else 0, "time": clock,
 		"mode": D.MODES[mode].name, "map": D.MAPS[map_key].name, "tank": player_type,
 	}
+	stats.alive = player.alive
+	stats.boom = player_death == 2  # взрыв боеукладки (кампания: машина потеряна)
 	stats.merge(rewards())
 	_ammo_poll()
 	stats.ammo_cost = ammo_cost()

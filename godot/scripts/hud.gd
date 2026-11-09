@@ -1119,6 +1119,15 @@ func show_result(st: Dictionary) -> void:
 		row.call("Особые снаряды", "", "−" + _num(st.ammo_cost), "e2563c")
 	row.call("ИТОГО (+%s свободного опыта)" % _num(st.free_xp), "+" + _num(st.xp),
 		("+" if int(st.silver) >= 0 else "−") + _num(absi(int(st.silver))), D.AMBER, 18)
+	if float(st.get("campaign_k", 1.0)) > 1.0:
+		row.call("Кампания (уже в итоге)" + (", опыт — в свободный" if st.get("xp_to_free", false) else ""),
+			"×" + String.num(st.campaign_k, 2).replace(".", ","), "×" + String.num(st.campaign_k, 2).replace(".", ","), "7bc65a", 14)
+	if String(st.get("campaign_msg", "")) != "":
+		var cm := UI.label(String(st.campaign_msg), 14, D.AMBER)
+		cm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		res_table.add_child(cm)
+		res_table.add_child(Control.new())
+		res_table.add_child(Control.new())
 	if int(st.get("crew_xp", 0)) > 0:
 		row.call("Опыт экипажа" + (" — новый уровень, есть очко навыка!" if st.get("crew_up", false) else ""),
 			"+" + _num(st.crew_xp), "", "7bc65a", 14)

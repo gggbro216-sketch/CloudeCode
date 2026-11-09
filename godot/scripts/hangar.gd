@@ -665,6 +665,12 @@ func _build_ui() -> void:
 	head.add_child(_spacer())
 	silver_lbl = _chip(head, "СЕРЕБРО")
 	free_lbl = _chip(head, "СВОБОДНЫЙ ОПЫТ")
+	var cb := Button.new()
+	cb.text = "КАМПАНИЯ"
+	cb.custom_minimum_size = Vector2(0, 48)
+	UI.accent(cb, 18)
+	cb.pressed.connect(func(): main.show_campaign())
+	head.add_child(cb)
 	var rb := Button.new()
 	rb.text = "ИССЛЕДОВАНИЯ"
 	rb.custom_minimum_size = Vector2(0, 48)
