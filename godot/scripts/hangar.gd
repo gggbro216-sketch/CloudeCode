@@ -184,6 +184,9 @@ func _ready() -> void:
 	_fill_carousel()
 	_select_tank(main.save.tank)
 	_show_last()
+	if main.bench_show:
+		main.bench_show = false
+		_show_gfx.call_deferred()  # после замера FPS — сразу настройки с результатом
 
 
 # ---------- Цех ----------
@@ -897,6 +900,21 @@ func _show_gfx() -> void:
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(note)
+	# замер FPS: 30 с боя на автопилоте с текущими настройками, результат — здесь же
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 10)
+	v.add_child(brow)
+	var bb := Button.new()
+	bb.text = "ЗАМЕР FPS (30 с)"
+	bb.custom_minimum_size = Vector2(190, 44)
+	bb.add_theme_font_size_override("font_size", 15)
+	bb.pressed.connect(func() -> void:
+		main.start_bench())
+	brow.add_child(bb)
+	var bl := UI.label(_bench_text(), 13, D.AMBER if not main.bench_last.is_empty() else UI.DIM)
+	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	brow.add_child(bl)
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -969,6 +987,26 @@ func _show_gfx() -> void:
 			_apply_hangar_gfx()
 			refresh.call())
 	refresh.call()
+
+
+## Текст о замерах FPS: последний подробно, прошлые — коротко.
+func _bench_text() -> String:
+	var r: Dictionary = main.bench_last
+	var s := ""
+	if not r.is_empty():
+		s = "%s, %s: средний %d FPS, 1%% худших кадров — %d FPS; вызовов отрисовки %d, треугольников %d тыс." % [
+			D.MAPS.get(r.map, {}).get("name", r.map), Graphics.PRESET_NAMES.get(r.preset, "СВОЯ"), roundi(r.avg), roundi(r.low1),
+			roundi(r.calls), roundi(r.prims / 1000.0)]
+	var hist: Array = main.save.get("bench_hist", [])
+	var prev: Array = []
+	for i in range(hist.size() - (2 if not r.is_empty() else 1), maxi(-1, hist.size() - 5), -1):
+		var h: Array = hist[i]
+		prev.append("%s/%s %d" % [D.MAPS.get(h[0], {}).get("name", h[0]), Graphics.PRESET_NAMES.get(h[1], "?"), roundi(float(h[2]))])
+	if not prev.is_empty():
+		s += ("\n" if s != "" else "") + "Раньше: " + ", ".join(prev)
+	if s == "":
+		s = "Бой на автопилоте с текущими настройками на выбранной карте: средний FPS и просадки. Без наград."
+	return s
 
 
 ## Тени и их дальность в ангаре — сразу.

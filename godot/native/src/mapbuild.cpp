@@ -353,7 +353,7 @@ void Build::obst_body(const ObstIn &o) {
 			break;
 		}
 		case K_HEDGEROW: {
-			static const Prim hedge_blob = sphere(8, 4);
+			static const Prim hedge_blob = sphere(7, 3);  // 56 треугольников (было 80): изгородей в Нормандии тысячи
 			bool horiz = w >= d;
 			double ln = horiz ? w : d;
 			double th = horiz ? d : w;
@@ -815,7 +815,7 @@ std::vector<std::vector<Group>> prop_meshes(bool winter) {
 		}
 		static const double blobs[7][4] = { { 0.0, 0.0, 27.0, 14.0 }, { 5.5, 1.0, 23.0, 11.0 }, { -5.0, 2.5, 23.5, 11.0 }, { 1.5, -5.5, 22.5, 10.5 },
 			{ -2.0, 5.5, 24.0, 10.5 }, { 4.0, -2.5, 29.5, 9.0 }, { -3.5, -2.0, 30.0, 8.5 } };
-		Prim s85 = sphere(8, 5);
+		Prim s85 = sphere(7, 4);  // 70 треугольников на шар кроны (было 96)
 		for (const auto &bl : blobs) {
 			crown.add(s85, T(scl(v(bl[3], bl[3] * 0.82, bl[3])), v(bl[0], bl[2], bl[1])), 0, true);
 		}
@@ -830,7 +830,7 @@ std::vector<std::vector<Group>> prop_meshes(bool winter) {
 			at.add(cyl(0.25, 0.5, 6, 5), T(axis(UP, a) * axis(BACK, -0.9), v(std::cos(a) * 1.8, 9.5, std::sin(a) * 1.8)), 0);
 		}
 		static const double blobs[5][4] = { { 0.0, 0.0, 14.0, 9.0 }, { 4.5, 1.5, 12.5, 7.0 }, { -4.0, 2.0, 13.0, 7.0 }, { 1.0, -4.5, 12.0, 6.5 }, { -1.5, -3.0, 16.5, 6.0 } };
-		Prim s85 = sphere(8, 5);
+		Prim s85 = sphere(7, 4);  // 70 треугольников на шар кроны (было 96)
 		for (const auto &bl : blobs) {
 			acrown.add(s85, T(scl(v(bl[3], bl[3] * 0.7, bl[3])), v(bl[0], bl[2], bl[1])), 0, true);
 		}

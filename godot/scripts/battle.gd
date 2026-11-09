@@ -11,6 +11,7 @@ signal ended(stats: Dictionary)
 signal leave(again: bool)
 signal progress(stage: String)  # этап загрузки (для экрана загрузки)
 signal load_done
+signal bench_done(res: Dictionary)  # замер FPS закончен
 
 const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
@@ -226,7 +227,50 @@ func setup(cfg: Dictionary) -> void:
 	player_cons = cfg.get("cons", player_cons)
 	history = cfg.get("history", true)
 	xray_on = bool(cfg.get("xray", true))
+	bench = bool(cfg.get("bench", false))
 	side = D.TYPES[player_type].side
+
+
+# ---------- Замер FPS (кнопка в настройках графики) ----------
+const BENCH_WARM := 3.0  # секунд разогрева (шейдеры, первые кадры) — не в счёт
+const BENCH_LEN := 30.0  # секунд замера
+var bench := false
+var bench_t := 0.0
+var bench_dt := PackedFloat32Array()  # длительности кадров, с
+var bench_acc := [0.0, 0.0, 0]  # вызовов отрисовки, примитивов, кадров с замером
+
+
+## Бой на автопилоте: танк игрока ведёт бот, камера за ним; считаются кадры. В конце — результат и ангар.
+func _bench_tick(delta: float) -> void:
+	bench_t += delta
+	if bench_t < BENCH_WARM:
+		return
+	bench_dt.append(delta)
+	if Engine.get_process_frames() % 10 == 0:
+		bench_acc[0] += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+		bench_acc[1] += Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+		bench_acc[2] += 1
+	if bench_t < BENCH_WARM + BENCH_LEN and not over:
+		return
+	bench = false
+	var s := bench_dt.duplicate()
+	s.sort()
+	var total := 0.0
+	for d in s:
+		total += d
+	var n := s.size()
+	var res := {
+		"map": map_key, "preset": String(G.get("preset", "custom")), "res": float(G.get("res", 1.0)),
+		"avg": float(n) / maxf(total, 0.001),
+		"low1": 1.0 / maxf(s[clampi(int(n * 0.99), 0, n - 1)], 0.001) if n > 0 else 0.0,
+		"min": 1.0 / maxf(s[n - 1], 0.001) if n > 0 else 0.0,
+		"calls": float(bench_acc[0]) / maxi(1, int(bench_acc[2])),
+		"prims": float(bench_acc[1]) / maxi(1, int(bench_acc[2])),
+		"frames": n,
+	}
+	print("[замер] %s, %s: средний %.1f FPS, 1%% худших %.1f, минимум %.1f, вызовов %.0f, примитивов %.0f тыс." % [
+		map_key, res.preset, res.avg, res.low1, res.min, res.calls, res.prims / 1000.0])
+	bench_done.emit(res)
 
 
 var xray_on := true  # окно «рентген попадания» (настройка в ангаре)
@@ -363,6 +407,11 @@ func _ready() -> void:
 	loaded = true
 	set_process(true)
 	set_physics_process(true)
+	if bench:
+		# замер: сразу в бой, танком игрока управляет бот, интерфейс боя на месте (он тоже рисуется в игре)
+		hud.brief_box.visible = false
+		autopilot = true
+		begin()
 	load_done.emit()
 
 
@@ -3841,6 +3890,8 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	_cam_input(minf(delta, 0.05))
 	_sync(minf(delta, 0.05))
+	if bench and not paused:
+		_bench_tick(delta)
 
 
 ## Поворот камеры — каждый кадр, а не в шаге логики (30 раз в секунду): иначе при повороте

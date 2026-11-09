@@ -590,8 +590,10 @@ func start_battle() -> void:
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
 	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": save.tank, "history": save.history, "xray": save.xray,
-		"mods": top_config(save.tank), "cons": save.cons.duplicate()})
+		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req})
+	bench_req = false
 	b.ended.connect(_on_ended)
+	b.bench_done.connect(_on_bench)
 	b.leave.connect(_on_leave)
 	b.progress.connect(_loading_stage)
 	battle = b
@@ -624,6 +626,28 @@ func _on_ended(st: Dictionary) -> void:
 
 
 var _leaving := false  # уход из боя уже начат (ждём рекламу)
+
+# ---------- Замер FPS ----------
+var bench_req := false  # следующий бой — замер (без наград)
+var bench_last := {}  # результат последнего замера (ангар показывает его в настройках графики)
+var bench_show := false  # ангар после замера сразу открывает настройки графики
+
+
+func start_bench() -> void:
+	bench_req = true
+	start_battle()
+
+
+func _on_bench(res: Dictionary) -> void:
+	bench_last = res
+	var hist: Array = save.get("bench_hist", [])
+	hist.append([res.map, res.preset, snappedf(res.avg, 0.1), snappedf(res.low1, 0.1), roundi(res.calls), roundi(res.prims / 1000.0)])
+	while hist.size() > 8:
+		hist.pop_front()
+	save.bench_hist = hist
+	persist()
+	bench_show = true
+	show_hangar.call_deferred()
 
 
 func _on_leave(again: bool) -> void:

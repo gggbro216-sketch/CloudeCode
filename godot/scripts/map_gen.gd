@@ -1287,7 +1287,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	var core: Object = terra.core
 	if native_build and core and core.has_method("map_build"):
 		return _build_native(parent, body, data, map_key, zones, terra, hq, M, [win, facade], rng, seed)
-	var hedge_blob := Geo.sphere(8, 4)
+	var hedge_blob := Geo.sphere(7, 3)
 	var smokes: Array = []
 	var rock_base := Geo.sphere(7, 4)
 	var bag := Geo.box(Vector3(4.6, 2.2, 3.2))
@@ -2211,7 +2211,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	var blobs := [[0.0, 0.0, 27.0, 14.0], [5.5, 1.0, 23.0, 11.0], [-5.0, 2.5, 23.5, 11.0], [1.5, -5.5, 22.5, 10.5],
 		[-2.0, 5.5, 24.0, 10.5], [4.0, -2.5, 29.5, 9.0], [-3.5, -2.0, 30.0, 8.5]]
 	for bl in blobs:
-		crown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.82, bl[3])), Vector3(bl[0], bl[2], bl[1])), leaves, true)
+		crown.add(Geo.sphere(7, 4), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.82, bl[3])), Vector3(bl[0], bl[2], bl[1])), leaves, true)
 	out["tree"] = [[_one(t), trunk], [_one(crown), leaves]]
 	# яблоня нормандского сада: низкая, с широкой раскидистой кроной
 	var at := Geo.Group.new()
@@ -2222,7 +2222,7 @@ static func _prop_meshes(map_key: String, M: Dictionary) -> Dictionary:
 	var acrown := Geo.Group.new()
 	var aleaves: Material = pm.apple[1]
 	for bl in [[0.0, 0.0, 14.0, 9.0], [4.5, 1.5, 12.5, 7.0], [-4.0, 2.0, 13.0, 7.0], [1.0, -4.5, 12.0, 6.5], [-1.5, -3.0, 16.5, 6.0]]:
-		acrown.add(Geo.sphere(8, 5), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.7, bl[3])), Vector3(bl[0], bl[2], bl[1])), aleaves, true)
+		acrown.add(Geo.sphere(7, 4), Transform3D(Basis.from_scale(Vector3(bl[3], bl[3] * 0.7, bl[3])), Vector3(bl[0], bl[2], bl[1])), aleaves, true)
 	out["apple"] = [[_one(at), trunk], [_one(acrown), aleaves]]
 	var palm_t := Geo.Group.new()
 	for k in 4:
