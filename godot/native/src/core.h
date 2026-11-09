@@ -33,6 +33,7 @@ struct M3 {
 struct Rect {
 	float x, y, w, h;
 	bool solid;
+	bool dead = false;  // постройка разрушена: танки проезжают
 	bool has(float px, float py) const { return px >= x && py >= y && px < x + w && py < y + h; }
 };
 
@@ -79,14 +80,22 @@ struct Core {
 	struct WObj {
 		float lo[3], hi[3];
 		int t0, t1;  // треугольники [t0, t1) в wtri
+		int obj = -1;  // номер постройки (obst); разрушенная — луч сквозь
 	};
 	std::vector<float> wtri;  // 9 чисел на треугольник: вершина A, рёбра E1 = B − A, E2 = C − A; E1 × E2 — наружу
 	std::vector<WObj> wobj;
 	Hash whash;
-	// tri — треугольники подряд по объектам, objs — [начало, конец) каждого объекта
+	// tri — треугольники подряд по объектам, objs — [начало, конец, номер постройки] каждого объекта
 	void mesh_build(const std::vector<float> &tri, const std::vector<int> &objs);
-	// Отрезок [a, a + d] против точной коллизии: доля пути до ближайшего попадания (2 — мимо); any — первое попавшееся
-	float mesh_t(V3 a, V3 d, bool any) const;
+	// Отрезок [a, a + d] против точной коллизии: доля пути до ближайшего попадания (2 — мимо); any — первое попавшееся;
+	// obj — номер постройки, в которую попал луч
+	float mesh_t(V3 a, V3 d, bool any, int *obj = nullptr) const;
+	// разрушаемость: прочность постройки (< 0 — неразрушима), рушится ли тараном, разрушена ли
+	std::vector<float> obj_hp;
+	std::vector<uint8_t> obj_soft, obj_dead;
+	bool obj_damage(int obj, float dmg);  // true — от этого удара постройка рухнула
+	void obj_destroy(int obj);
+	V3 obj_center(int obj) const;
 
 	// маска грунта (RGBA8, сторона mask_w): R — дорога, G — гарь воронок
 	std::vector<uint8_t> mask;
@@ -215,7 +224,7 @@ struct Core {
 		V3 n_local = { 0, 0, 0 };
 	};
 	void part_xf(int i, int part, M3 &basis, V3 &origin) const;
-	bool segment_hit(V3 a, V3 b, float &t, bool &ground) const;
+	bool segment_hit(V3 a, V3 b, float &t, bool &ground, int *obj = nullptr) const;
 	float boxes_t(V3 a, V3 d) const;
 	bool tanks_hit(V3 a, V3 b, int exclude, TankHit &out) const;
 	// ---- бой целиком (этап 7): всё состояние танков и боя живёт здесь, GDScript только показывает ----
@@ -316,7 +325,7 @@ struct Core {
 	void build_cmax();
 	float patch(float px, float py, bool damp) const;
 	V2 ground_at(float px, float py) const;  // (сцепление, мягкость)
-	V2 resolve(float &px, float &py, float r) const;  // выталкивание из построек
+	V2 resolve(float &px, float &py, float r, int *hit = nullptr) const;  // выталкивание из построек; hit — в какую упёрся
 	bool in_bush(float px, float py) const;
 	// решения ботов (по снимку snap)
 	int choose(int i) const;

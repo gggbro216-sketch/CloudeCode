@@ -489,6 +489,8 @@ void Group::add(const Prim &pm, const Xf &x, int mat, bool flat, const float *co
 			const float *c = col ? col : white;
 			pt.col.insert(pt.col.end(), c, c + 4);
 			pt.uv2.push_back(uv2);
+		} else if (uv2_only) {
+			pt.uv2.push_back(cur_uv2);
 		}
 	};
 	if (!flat) {
@@ -523,7 +525,7 @@ void Group::add(const Prim &pm, const Xf &x, int mat, bool flat, const float *co
 }
 
 void ret_group(GDExtensionVariantPtr r, const Group &g) {
-	int per = g.extra ? 6 : 4;
+	int per = g.extra ? 6 : (g.uv2_only ? 5 : 4);
 	ArrayOut out(1 + (int64_t)g.parts.size() * per);
 	std::vector<int32_t> mats;
 	for (const Group::Part &p : g.parts) mats.push_back(p.mat);
@@ -536,6 +538,8 @@ void ret_group(GDExtensionVariantPtr r, const Group &g) {
 		ret_i32(out.at(k++), p.idx.data(), (int64_t)p.idx.size());
 		if (g.extra) {
 			ret_colors(out.at(k++), p.col.data(), (int64_t)(p.col.size() / 4));
+			ret_v2s(out.at(k++), p.uv2.data(), (int64_t)p.uv2.size());
+		} else if (g.uv2_only) {
 			ret_v2s(out.at(k++), p.uv2.data(), (int64_t)p.uv2.size());
 		}
 	}

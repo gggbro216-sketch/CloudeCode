@@ -163,6 +163,7 @@ bool Core::blocked_at(float px, float py, float r) const {
 			}
 			for (int k : *c) {
 				const Rect &o = obst[k];
+				if (o.dead) continue;
 				if (px >= o.x - r && py >= o.y - r && px < o.x + o.w + r && py < o.y + o.h + r) {
 					return true;
 				}
@@ -769,6 +770,13 @@ METHOD(los) {
 	ret_bool(r, self->los(a.v3(0), a.v3(1)));
 }
 
+// Для проверок: урон постройке (номер, урон) → рухнула ли от этого удара
+METHOD(obj_hit) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	ret_bool(r, self->obj_damage((int)a.integer(0), (float)a.num(1)));
+}
+
 // Для проверок: отрезок a→b против мира — [доля пути (2 — мимо), в землю, по точной коллизии, по коробкам]
 METHOD(world_ray) {
 	SELF;
@@ -1306,7 +1314,7 @@ V2 Core::ground_at(float px, float py) const {
 	return { mu, clampf(soft, 0.0f, 1.0f) };
 }
 
-V2 Core::resolve(float &px, float &py, float r) const {
+V2 Core::resolve(float &px, float &py, float r, int *hit) const {
 	float bx = px, by = py;
 	int ia = ohash.key(px - r, false), ib = ohash.key(px + r, false);
 	int ja = ohash.key(py - r, true), jb = ohash.key(py + r, true);
@@ -1316,10 +1324,12 @@ V2 Core::resolve(float &px, float &py, float r) const {
 			if (!c) continue;
 			for (int k : *c) {
 				const Rect &o = obst[k];
+				if (o.dead) continue;
 				float cx = clampf(px, o.x, o.x + o.w), cy = clampf(py, o.y, o.y + o.h);
 				float dx = px - cx, dy = py - cy;
 				float d2 = dx * dx + dy * dy;
 				if (d2 >= r * r) continue;
+				if (hit) *hit = k;
 				if (d2 > 0.0001f) {
 					float dl = std::sqrt(d2);
 					px += dx * ((r - dl) / dl);
@@ -1788,11 +1798,18 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		t[P_X] += t[P_VX] * dt;
 		t[P_Y] += t[P_VY] * dt;
 		float rad = T.W * 0.62f;
-		V2 pushv = self->resolve(t[P_X], t[P_Y], rad);
+		int wall = -1;
+		V2 pushv = self->resolve(t[P_X], t[P_Y], rad, &wall);
 		if (pushv.x * pushv.x + pushv.y * pushv.y > 0.0001f) {
 			float l = std::sqrt(pushv.x * pushv.x + pushv.y * pushv.y);
 			float nx = pushv.x / l, ny = pushv.y / l;
 			float vn = t[P_VX] * nx + t[P_VY] * ny;
+			// таран: тяжёлый танк на скорости сносит мешки, палатки, изгороди, сараи
+			if (vn < -20.0f && wall >= 0 && (size_t)wall < self->obj_soft.size() && self->obj_soft[wall] && T.mass > 18.0f &&
+					self->obj_damage(wall, T.mass * -vn * 0.12f)) {
+				event(6, i, wall, 0.0f, 0.0f);
+				vn *= 0.4f;  // проломил — почти не остановился
+			}
 			if (vn < 0.0f) {
 				t[P_VX] -= nx * vn * 1.2f;
 				t[P_VY] -= ny * vn * 1.2f;
@@ -2875,8 +2892,8 @@ void Core::mesh_build(const std::vector<float> &tri, const std::vector<int> &obj
 	// своя коробка у каждого куска, и луч проверяет только треугольники рядом с собой
 	const float BIN = 40.0f;
 	std::vector<std::pair<int64_t, int>> keyed;
-	for (size_t q = 0; q + 1 < objs.size(); q += 2) {
-		int t0 = objs[q], t1 = objs[q + 1];
+	for (size_t q = 0; q + 2 < objs.size(); q += 3) {
+		int t0 = objs[q], t1 = objs[q + 1], oid = objs[q + 2];
 		keyed.clear();
 		for (int t = t0; t < t1; t++) {
 			const float *T = &tri[(size_t)t * 9];
@@ -2888,6 +2905,7 @@ void Core::mesh_build(const std::vector<float> &tri, const std::vector<int> &obj
 		size_t k = 0;
 		while (k < keyed.size()) {
 			WObj o;
+			o.obj = oid;
 			o.t0 = (int)(wtri.size() / 9);
 			for (int c = 0; c < 3; c++) {
 				o.lo[c] = FLT_MAX;
@@ -2922,7 +2940,49 @@ void Core::mesh_build(const std::vector<float> &tri, const std::vector<int> &obj
 	}
 }
 
-float Core::mesh_t(V3 a, V3 d, bool any) const {
+// ---------- Разрушаемость ----------
+
+bool Core::obj_damage(int obj, float dmg) {
+	if (obj < 0 || (size_t)obj >= obj_hp.size() || obj_dead[obj] || obj_hp[obj] < 0.0f || !(dmg > 0.0f)) return false;
+	obj_hp[obj] -= dmg;
+	if (obj_hp[obj] > 0.0f) return false;
+	obj_destroy(obj);
+	return true;
+}
+
+V3 Core::obj_center(int obj) const {
+	if (obj < 0 || (size_t)obj >= obst.size()) return { 0, 0, 0 };
+	const Rect &o = obst[obj];
+	float cx = o.x + o.w * 0.5f, cz = o.y + o.h * 0.5f;
+	return { cx, height(cx, cz) + 8.0f, cz };
+}
+
+// Постройка рухнула: снаряды и взгляд проходят (mesh_t), танки проезжают (resolve), клетки путей ботов свободны.
+void Core::obj_destroy(int obj) {
+	if (obj < 0 || (size_t)obj >= obj_dead.size() || obj_dead[obj]) return;
+	obj_dead[obj] = 1;
+	if ((size_t)obj >= obst.size()) return;
+	obst[obj].dead = true;
+	if (solid.empty() || nn <= 0) return;
+	const Rect &o = obst[obj];
+	float NAV = nav_cell;
+	int x0 = std::max(0, (int)std::floor((o.x - 14.0f) / NAV)), x1 = std::min(nn - 1, (int)std::floor((o.x + o.w + 14.0f) / NAV));
+	int y0 = std::max(0, (int)std::floor((o.y - 14.0f) / NAV)), y1 = std::min(nn - 1, (int)std::floor((o.y + o.h + 14.0f) / NAV));
+	for (int y = y0; y <= y1; y++) {
+		for (int x = x0; x <= x1; x++) {
+			size_t c = (size_t)y * nn + x;
+			float px = (x + 0.5f) * NAV, py = (y + 0.5f) * NAV;
+			if (!solid[c] || blocked_at(px, py, 13.0f)) continue;
+			float slope = 1.0f - normal(px, py, 14.0f).y;
+			float w = 1.0f + clampf((slope - 0.06f) * 14.0f, 0.0f, 3.0f) + 0.6f;  // завал: проходимо, но не дорога
+			solid[c] = 0;
+			w_norm[c] = w;
+			w_safe[c] = w * (cover[c] ? 1.0f : 3.0f);
+		}
+	}
+}
+
+float Core::mesh_t(V3 a, V3 d, bool any, int *obj) const {
 	float best = 2.0f;
 	if (wobj.empty() || !finite3(a) || !finite3(d)) {
 		return best;
@@ -2972,6 +3032,7 @@ float Core::mesh_t(V3 a, V3 d, bool any) const {
 				if (stamp[oi] == gen) continue;
 				stamp[oi] = gen;
 				const WObj &o = wobj[oi];
+				if (o.obj >= 0 && (size_t)o.obj < obj_dead.size() && obj_dead[o.obj]) continue;  // рухнула
 				// коробка куска
 				float lim = std::min(best, 1.0f);
 				float tn = 0.0f, tf = lim;
@@ -3002,6 +3063,7 @@ float Core::mesh_t(V3 a, V3 d, bool any) const {
 					float tt = (e2x * qx + e2y * qy + e2z * qz) / det;
 					if (tt < 0.0f || tt > std::min(best, 1.0f)) continue;
 					best = tt;
+					if (obj) *obj = o.obj;
 					if (any) return best;
 				}
 			}
@@ -3026,9 +3088,10 @@ float Core::mesh_t(V3 a, V3 d, bool any) const {
 
 // Отрезок против мира (рельеф и постройки — то, что луч физики видит на слоях 1–2): доля пути до
 // первого попадания; ground — попали в землю.
-bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground) const {
+bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground, int *obj) const {
 	t_hit = 2.0f;
 	ground = false;
+	if (obj) *obj = -1;
 	if (!finite3(a) || !finite3(b)) {
 		return false;
 	}
@@ -3062,10 +3125,12 @@ bool Core::segment_hit(V3 a, V3 b, float &t_hit, bool &ground) const {
 			tp = tt;
 		}
 	}
-	float tb = wobj.empty() ? boxes_t(a, d) : mesh_t(a, d, false);
+	int ho = -1;
+	float tb = wobj.empty() ? boxes_t(a, d) : mesh_t(a, d, false, &ho);
 	if (tb < t_hit) {
 		t_hit = tb;
 		ground = false;
+		if (obj) *obj = ho;
 	}
 	return t_hit <= 1.0f;
 }
@@ -3582,7 +3647,8 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 		}
 		float tw;
 		bool ground;
-		bool wh = self->segment_hit(p0, p1, tw, ground);
+		int hobj = -1;
+		bool wh = self->segment_hit(p0, p1, tw, ground, &hobj);
 		Core::TankHit th;
 		bool tk = self->tanks_hit(p0, p1, s.rico == 0 ? s.owner : -1, th);
 		if (tk && th.t <= (wh ? tw : 2.0f)) {
@@ -3597,6 +3663,11 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 			s.dead = true;
 			V3 hp = v3add(p0, v3mul(seg, tw));
 			ev.add({ (float)EV_WORLD, (float)s.slot, hp.x, hp.y, hp.z, ground ? 1.0f : 0.0f });
+			// постройка: фугас ломает, болванка почти нет; рухнула — событие
+			if (!ground && hobj >= 0 && s.kind != AM_SMOKE && self->obj_damage(hobj, 0.5f * s.he + 0.6f * s.cal)) {
+				V3 oc = self->obj_center(hobj);
+				ev.add({ (float)EV_DESTROY, (float)hobj, oc.x, oc.y, oc.z });
+			}
 			if (s.kind == AM_SMOKE && self->smokes.size() < 24) {
 				V3 sp = v3add(hp, { 0.0f, SMOKE_R * 0.4f, 0.0f });
 				self->smokes.push_back({ sp, SMOKE_R, self->shell_clock + SMOKE_T });
@@ -3848,6 +3919,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		{ "phys_step", phys_step }, { "hidden_at", hidden_at }, { "choose_target", choose_target }, { "set_target", set_target },
 		{ "cover_near", cover_near }, { "bush_near", bush_near }, { "bot_path", bot_path },
 		{ "ai_init", ai_init }, { "ai_squads", ai_squads }, { "zones_set", zones_set },
+		{ "obj_hit", obj_hit },
 		{ "mission_set", mission_set }, { "think", think }, { "squads_step", squads_step }, { "ai_state", ai_state },
 		{ "dmg_static", dmg_static }, { "layout_set", layout_set }, { "turret_gone", turret_gone }, { "shell_add", shell_add },
 		{ "shells_step", shells_step }, { "shell_hit", shell_hit }, { "aim_info", aim_info },

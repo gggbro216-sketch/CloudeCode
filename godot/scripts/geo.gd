@@ -143,8 +143,8 @@ class Group:
 
 ## Сетка из группы, собранной в C++: [номера материалов, (вершины, нормали, uv, индексы[, цвета, uv2])×частей].
 ## Гладкие части делят вершины между треугольниками (индексы), плоские — по три вершины на грань.
-static func part_mesh(grp: Array, i: int, extra := false) -> ArrayMesh:
-	var per := 6 if extra else 4
+static func part_mesh(grp: Array, i: int, extra := false, uv2_only := false) -> ArrayMesh:
+	var per := 6 if extra else (5 if uv2_only else 4)
 	var v: PackedVector3Array = grp[1 + i * per]
 	var mesh := ArrayMesh.new()
 	if v.is_empty():
@@ -158,17 +158,19 @@ static func part_mesh(grp: Array, i: int, extra := false) -> ArrayMesh:
 	if extra:
 		arrays[Mesh.ARRAY_COLOR] = grp[5 + i * per]
 		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
+	elif uv2_only:
+		arrays[Mesh.ARRAY_TEX_UV2] = grp[5 + i * per]
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
 
 ## Узлы сеток группы из C++ (как Geo.Group.commit): по одной на материал.
-static func commit_arrays(parent: Node3D, grp: Array, mats: Array, shadows: bool, extra := false) -> Array:
+static func commit_arrays(parent: Node3D, grp: Array, mats: Array, shadows: bool, extra := false, uv2_only := false) -> Array:
 	var out: Array = []
 	var ids: PackedInt32Array = grp[0]
 	for i in ids.size():
 		var mi := MeshInstance3D.new()
-		mi.mesh = part_mesh(grp, i, extra)
+		mi.mesh = part_mesh(grp, i, extra, uv2_only)
 		mi.material_override = mats[ids[i]]
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(mi)

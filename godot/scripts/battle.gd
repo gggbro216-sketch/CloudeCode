@@ -21,6 +21,7 @@ const Models = preload("res://scripts/tank_models.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const FxScript = preload("res://scripts/fx.gd")
+const TexLib = preload("res://scripts/textures.gd")
 const Emitter = preload("res://scripts/emitter.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const WeatherScript = preload("res://scripts/weather.gd")
@@ -3651,6 +3652,8 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 			17:  # дымовая завеса: место, радиус, секунд
 				fx.smoke_screen(Vector3(ev[q + 1], ev[q + 2], ev[q + 3]), ev[q + 4], ev[q + 5])
+			18:  # постройка рухнула
+				_obj_destroyed(int(ev[q + 1]), Vector3(ev[q + 2], ev[q + 3], ev[q + 4]))
 			16:  # итог попадания для рентген-окна: броня, угол, пробитие, разрыв
 				hud.xray.finish(ev[q + 4], ev[q + 5], ev[q + 6], ev[q + 7], ev[q + 8], ev[q + 9], int(ev[q + 10]), ev[q + 12] != 0.0)
 			20:  # выстрел
@@ -4054,6 +4057,79 @@ func _brief_info() -> Dictionary:
 			"text": String(mission.brief), "teams": teams_info, "task": "Задача: " + String(mission.task)}
 	return {"title": "%s · %s" % [M.name, M.date], "sub": "%s против %s" % [M[side], M[D.foe_side(side) + "_g"]],
 		"text": M.brief, "teams": teams_info, "task": tasks[mode]}
+
+
+# ---------- Разрушаемость (3.3) ----------
+
+const RUBBLE_OF := {"house": "stone", "ruin": "stone", "adobe": "stone", "water_tank": "stone",
+	"sandbags": "earth", "hedgerow": "earth", "barn": "wood", "tent": "wood", "glider": "wood", "wreck_truck": "wood",
+	"barricade": "wood", "tram": "wood"}
+const RUBBLE_H := {"house": 14.0, "ruin": 10.0, "adobe": 9.0, "water_tank": 8.0, "sandbags": 3.0, "hedgerow": 6.0,
+	"barn": 7.0, "tent": 2.0, "glider": 3.0, "wreck_truck": 4.0, "barricade": 4.0, "tram": 5.0}
+const NAME_RU := {"house": "Дом", "ruin": "Руина", "adobe": "Глинобитный дом", "water_tank": "Водонапорный бак",
+	"sandbags": "Укрытие из мешков", "hedgerow": "Живая изгородь", "barn": "Сарай", "tent": "Палатка", "glider": "Планёр",
+	"wreck_truck": "Остов грузовика", "barricade": "Баррикада", "tram": "Трамвай"}
+var rubble := {}  # вид завала → [MultiMesh, сколько]
+var destroyed := 0  # сколько построек рухнуло за бой
+
+
+## Завал: комья и плиты в единичном квадрате (масштабируется по размеру постройки).
+func _rubble_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	var r := RandomNumberGenerator.new()
+	r.seed = 1943
+	for k in 11:
+		var b := BoxMesh.new()
+		b.size = Vector3(r.randf_range(0.25, 0.5), r.randf_range(0.25, 1.0), r.randf_range(0.25, 0.5))
+		var xf := Transform3D(Basis(Vector3.UP, r.randf() * TAU) * Basis(Vector3.RIGHT, r.randf_range(-0.4, 0.4)),
+			Vector3(r.randf_range(-0.35, 0.35), b.size.y * 0.3, r.randf_range(-0.35, 0.35)))
+		st.append_from(b, 0, xf)
+	st.generate_normals()
+	return st.commit()
+
+
+## Постройка рухнула (C++ уже выключил её коллизию и освободил проход): спрятать по маске, положить завал,
+## пыль, обломки и звук; рядом с игроком — строка в ленте.
+func _obj_destroyed(idx: int, c: Vector3) -> void:
+	destroyed += 1
+	TexLib.dmask_set(idx)
+	if idx < 0 or idx >= obst.size():
+		return
+	var o = obst[idx]
+	o.solid = false
+	var r: Rect2 = o.r
+	var kind := String(o.kind)
+	var grp: String = RUBBLE_OF.get(kind, "stone")
+	if not rubble.has(grp):
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _rubble_mesh()
+		mm.instance_count = 160
+		mm.visible_instance_count = 0
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		var tex: String = {"stone": "rubble", "earth": "earth", "wood": "wood"}[grp]
+		mi.material_override = TexLib.world_mat(tex, Vector3(1, 1, 1) / 12.0, 1.0 if surf == "snow" else 0.0, 0.5)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if hq else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		rubble[grp] = [mm, 0]
+	var e: Array = rubble[grp]
+	var mm2: MultiMesh = e[0]
+	if int(e[1]) < mm2.instance_count:
+		var ctr := r.get_center()
+		var gy := terra.height(ctr.x, ctr.y)
+		var hgt: float = minf(float(RUBBLE_H.get(kind, 6.0)), float(o.ht) * 0.6 + 2.0)
+		mm2.set_instance_transform(int(e[1]), Transform3D(Basis.from_scale(Vector3(r.size.x, hgt, r.size.y)), Vector3(ctr.x, gy, ctr.y)))
+		e[1] = int(e[1]) + 1
+		mm2.visible_instance_count = int(e[1])
+	# пыль и обломки по размеру постройки
+	var big := clampf(maxf(r.size.x, r.size.y) / 60.0, 0.5, 2.0)
+	fx.emit(c, roundi(24 * big), 3.5, "dust", 6, 40 * big, Vector3.UP, 85, 2, 45 * big, false, true, 2.0)
+	fx.debris(c, Color(0.45, 0.43, 0.4) if grp == "stone" else (Color(0.3, 0.24, 0.16) if grp == "earth" else Color(0.35, 0.27, 0.18)))
+	sfx.play3d("impact_stone", c, 4.0)
+	sfx.play3d("tree", c, 2.0)
+	if player and c.distance_to(player.center()) < 700.0:
+		hud.add_feed([["Разрушено: " + String(NAME_RU.get(kind, "постройка")).to_lower(), Color("d9c9a0")]])
 
 
 ## Строка задачи миссии над полем боя: что делать и сколько осталось (волны обороны).

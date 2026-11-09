@@ -20,10 +20,18 @@ uniform float snow = 0.0;
 uniform float grime = 0.35;
 uniform float roughness = 0.92;
 uniform float bump = 1.0;
+// маска разрушения (3.3): uv2.x вершины — номер постройки + 1; рухнувшая (texel > 0) схлопывается
+uniform sampler2D dmask : filter_nearest, repeat_disable;
 varying vec3 wpos;
 varying vec3 wn;
 
 void vertex() {
+	if (UV2.x > 0.5) {
+		int id = int(UV2.x + 0.5) - 1;
+		if (texelFetch(dmask, ivec2(id % 64, id / 64), 0).r > 0.5) {
+			VERTEX = vec3(0.0);
+		}
+	}
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
@@ -109,7 +117,36 @@ static func world_mat(kind: String, scale: Vector3, snow := 0.0, grime := 0.35, 
 	m.set_shader_parameter("snow", snow)
 	m.set_shader_parameter("grime", grime)
 	m.set_shader_parameter("tint", tint)
+	m.set_shader_parameter("dmask", dmask_tex())
 	return m
+
+
+# ---------- Маска разрушенных построек (64×64, до 4096 построек) ----------
+static var _dmask_img: Image
+static var _dmask: ImageTexture
+
+
+static func dmask_tex() -> ImageTexture:
+	if _dmask == null:
+		_dmask_img = Image.create(64, 64, false, Image.FORMAT_R8)
+		_dmask = ImageTexture.create_from_image(_dmask_img)
+	return _dmask
+
+
+## Новая карта: все постройки целы.
+static func dmask_reset() -> void:
+	dmask_tex()
+	_dmask_img.fill(Color(0, 0, 0))
+	_dmask.update(_dmask_img)
+
+
+## Постройка рухнула: её вершины схлопываются во всех материалах (одна перезаливка 4 КБ).
+static func dmask_set(id: int) -> void:
+	if id < 0 or id >= 4096:
+		return
+	dmask_tex()
+	_dmask_img.set_pixel(id % 64, id / 64, Color(1, 0, 0))
+	_dmask.update(_dmask_img)
 
 
 ## Мягкий клуб дыма: радиальный спад, изрезанный шумом (для частиц).

@@ -1237,6 +1237,7 @@ static var native_build := true
 
 ## seed < 0 — случайная сборка; с одним зерном C++ и GDScript дают одни и те же сетки.
 static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Array, terra, hq: bool, seed := -1) -> Dictionary:
+	TexLib.dmask_reset()  # новая карта: все постройки целы
 	var winter: bool = D.MAPS[map_key].get("winter", false)
 	var desert := map_key == "alamein"
 	var g := Geo.Group.new()
@@ -1255,8 +1256,9 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 		"rust": Tx.call("rust", 1.0 / 12.0), "charred": Tx.call("charred", 1.0 / 20.0),
 		"sand": Tx.call("sandbag", 1.0 / 8.0, Color(1.05, 1.0, 0.92) if desert else Color(0.9, 0.88, 0.8)),
 		"rubble": Tx.call("rubble", 1.0 / 12.0), "rock": Tx.call("sandstone" if desert else "granite", 1.0 / 40.0),
-		"snow": mat(Color("eef3f6")), "canvas": Tx.call("sandbag", 1.0 / 18.0, Color(0.95, 0.92, 0.75)),
-		"olive": mat(Color("4d5233")), "pole": Tx.call("wood", 1.0 / 10.0, Color(0.7, 0.65, 0.6)),
+		# снег и олива — тоже шейдер построек: у него есть маска разрушения (снег на крыше рушится вместе с домом)
+		"snow": Tx.call("plaster", 1.0 / 30.0, Color(1.12, 1.15, 1.18)), "canvas": Tx.call("sandbag", 1.0 / 18.0, Color(0.95, 0.92, 0.75)),
+		"olive": Tx.call("rust", 1.0 / 14.0, Color(0.42, 0.46, 0.3)), "pole": Tx.call("wood", 1.0 / 10.0, Color(0.7, 0.65, 0.6)),
 	}
 	M["earth"] = Tx.call("earth", 1.0 / 14.0)
 	M["leaves"] = Tx.call("leaves", 1.0 / 12.0)
@@ -2022,7 +2024,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 	var mats: Array = [M.plaster, M.brick, M.roof, M.concrete, M.concrete_d, M.wood, M.steel, M.rust, M.charred, M.sand,
 		M.rubble, M.rock, M.snow, M.canvas, M.olive, M.pole, M.earth, M.leaves, M.hay, M.adobe, M.crate, wall_mats[0], wall_mats[1]]
 	for tg in res[0]:
-		Geo.commit_arrays(parent, tg, mats, hq)
+		Geo.commit_arrays(parent, tg, mats, hq, false, true)  # uv2 — номер постройки (маска разрушения)
 	var smokes: Array = []
 	for sp: Vector3 in (res[3] as PackedVector3Array):
 		smokes.append(sp)

@@ -44,6 +44,8 @@ struct Group {
 	};
 	std::vector<Part> parts;
 	bool extra = false;
+	bool uv2_only = false;  // без цветов, только uv2 (номер постройки на вершине — для маски разрушения)
+	V2 cur_uv2 = { 0, 0 };  // uv2 вершин, пока uv2_only
 	Part &part(int mat);
 	void add(const Prim &p, const Xf &x, int mat, bool flat = false, const float *col = nullptr, V2 uv2 = { 0, 0 }, const V2 *uv_over = nullptr);
 };

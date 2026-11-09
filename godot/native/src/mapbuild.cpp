@@ -131,6 +131,7 @@ struct Build {
 	// а не всю карту целиком
 	std::vector<Group> gt = std::vector<Group>(TILES * TILES);
 	int tile = 0;
+	int obj_i = 0;  // номер постройки (как в obst): в uv2 вершин и в коллизии
 	std::vector<float> phys;
 	std::vector<V3> smokes;
 
@@ -147,7 +148,7 @@ struct Build {
 	// coll = false — мелочь, сквозь которую снаряды летят (столбы, фонари, ящики, сено, бочки, ежи, флагштоки)
 	bool coll = true;
 	std::vector<float> ctri;
-	std::vector<int> cobj;  // [начало, конец) треугольников каждого объекта
+	std::vector<int> cobj;  // [начало, конец) треугольников каждого объекта и номер постройки (−1 — не постройка)
 	void coll_add(const Prim &p, const Xf &x);
 	int tri_count() const { return (int)(ctri.size() / 9); }
 	void add_phys(V3 c, V3 s, double yaw = 0.0) {
@@ -199,11 +200,36 @@ void Build::obst(const ObstIn &o) {
 	tile = tile_of(o.x + o.w * 0.5, o.y + o.h * 0.5);
 	int t_start = tri_count();
 	coll = o.kind != K_HEDGEHOGS;  // ежи — тонкие рельсы, снаряд пролетает
+	// номер постройки + 1 в uv2 каждой её вершины: шейдер схлопывает разрушенные по маске
+	for (Group &g : gt) g.cur_uv2 = { (float)(obj_i + 1), 0.0f };
 	obst_body(o);
+	for (Group &g : gt) g.cur_uv2 = { 0.0f, 0.0f };
 	coll = true;
 	if (tri_count() > t_start) {
 		cobj.push_back(t_start);
 		cobj.push_back(tri_count());
+		cobj.push_back(obj_i);
+	}
+	obj_i++;
+}
+
+// Прочность построек по виду (−1 — неразрушима) и сносит ли их таран тяжёлого танка.
+static void obj_strength(int kind, float &hp, bool &soft) {
+	soft = false;
+	switch (kind) {
+		case K_HOUSE: hp = 700.0f; break;
+		case K_RUIN: hp = 450.0f; break;
+		case K_ADOBE: hp = 350.0f; break;
+		case K_WATER_TANK: hp = 300.0f; break;
+		case K_TRAM: hp = 200.0f; break;
+		case K_SANDBAGS: hp = 120.0f; soft = true; break;
+		case K_TENT: hp = 40.0f; soft = true; break;
+		case K_HEDGEROW: hp = 260.0f; soft = true; break;
+		case K_BARN: hp = 300.0f; soft = true; break;
+		case K_GLIDER: hp = 80.0f; soft = true; break;
+		case K_WRECK_TRUCK: hp = 150.0f; soft = true; break;
+		case K_BARRICADE: hp = 250.0f; soft = true; break;
+		default: hp = -1.0f; break;  // доты, церкви, цеха, башни, скалы, остовы танков, кварталы, Рейхстаг
 	}
 }
 
@@ -921,6 +947,16 @@ METHOD(map_build) {
 	std::vector<ObstIn> obst;
 	for (size_t k = 0; k + 6 < of.size(); k += 7) {
 		obst.push_back({ (int)of[k], of[k + 1], of[k + 2], of[k + 3], of[k + 4], of[k + 5], of[k + 6] });
+	}
+	for (Group &g : B.gt) g.uv2_only = true;
+	// разрушаемость: прочность каждой постройки (номера — как obst, и в GDScript, и в Core::obst)
+	self->obj_hp.assign(obst.size(), -1.0f);
+	self->obj_soft.assign(obst.size(), 0);
+	self->obj_dead.assign(obst.size(), 0);
+	for (size_t k = 0; k < obst.size(); k++) {
+		bool soft;
+		obj_strength(obst[k].kind, self->obj_hp[k], soft);
+		self->obj_soft[k] = soft ? 1 : 0;
 	}
 	for (const ObstIn &o : obst) B.obst(o);
 	for (size_t k = 0; k + 3 < df.size(); k += 4) B.decor((int)df[k], df[k + 1], df[k + 2], df[k + 3]);

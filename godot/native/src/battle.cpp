@@ -1206,7 +1206,10 @@ METHOD(world_step) {
 	}
 	for (size_t q = 0; q + 4 < pev.size(); q += 5) {
 		int kind = (int)pev[q], i = (int)pev[q + 1], j = (int)pev[q + 2];
-		if (kind == 1) {
+		if (kind == 6) {
+			V3 oc = self->obj_center(j);
+			S.ev.add({ (float)EV_DESTROY, (float)j, oc.x, oc.y, oc.z });
+		} else if (kind == 1) {
 			S.ev.add({ (float)W_WALL, (float)i, pev[q + 3] });
 		} else if (kind == 2) {
 			S.ev.add({ (float)W_TREE, (float)i, (float)j, pev[q + 3], pev[q + 4] });
