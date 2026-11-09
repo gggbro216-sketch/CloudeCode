@@ -418,6 +418,66 @@ const TYPES := {
 		"kmh": 38.0, "rev": 10.0, "turn": 34.0, "tspd": 12.0, "power": 300.0, "mass": 23.0,
 		"disp": 0.36, "aim": 2.1, "armor": [80, 30, 20, 80, 30, 30], "slope": 20.0, "side_slope": 0.0,
 		"tslope": 10.0, "traverse": 10.0, "elev": [-6.0, 20.0], "spot": 58.0, "engine": "petrol", "len": 6.0, "wid": 2.88, "pref": 330.0},
+	"h38": {"short": "ЛТ", "name": "Hotchkiss H38", "tag": "H38", "nation": "Франция", "cls": "Лёгкий танк",
+		"tier": 3, "side": "allies", "year": 1938, "pts": 4, "freq": 1.5,
+		"hp": 560.0, "dmg": 55.0, "pen": 45.0, "caliber": 37.0, "reload": 1.9, "shell": 705.0,
+		"kmh": 36.0, "rev": 10.0, "turn": 38.0, "tspd": 18.0, "power": 120.0, "mass": 12.1,
+		"disp": 0.44, "aim": 1.9, "armor": [40, 40, 40, 45, 40, 40], "slope": 30.0, "side_slope": 0.0,
+		"tslope": 20.0, "elev": [-10.0, 20.0], "spot": 52.0, "engine": "petrol", "len": 4.22, "wid": 1.95, "pref": 260.0},
+	"s35": {"short": "СТ", "name": "SOMUA S35", "tag": "S35", "nation": "Франция", "cls": "Кавалерийский танк",
+		"tier": 4, "side": "allies", "year": 1936, "pts": 6, "freq": 1.2,
+		"hp": 740.0, "dmg": 75.0, "pen": 52.0, "caliber": 47.0, "reload": 2.3, "shell": 660.0,
+		"kmh": 40.0, "rev": 12.0, "turn": 34.0, "tspd": 18.0, "power": 190.0, "mass": 19.5,
+		"disp": 0.44, "aim": 2.1, "armor": [47, 40, 25, 56, 46, 46], "slope": 30.0, "side_slope": 0.0,
+		"tslope": 20.0, "elev": [-18.0, 20.0], "spot": 56.0, "engine": "petrol", "len": 5.38, "wid": 2.12, "pref": 300.0},
+	"b1bis": {"short": "ТТ", "name": "Char B1 bis", "tag": "B1 bis", "nation": "Франция", "cls": "Тяжёлый танк",
+		"tier": 5, "side": "allies", "year": 1937, "pts": 7, "freq": 1.0,
+		"hp": 1100.0, "dmg": 75.0, "pen": 52.0, "caliber": 47.0, "reload": 2.4, "shell": 660.0,
+		"kmh": 28.0, "rev": 10.0, "turn": 24.0, "tspd": 16.0, "power": 307.0, "mass": 31.5,
+		"disp": 0.42, "aim": 2.0, "armor": [60, 55, 55, 56, 46, 46], "slope": 20.0, "side_slope": 0.0,
+		"tslope": 20.0, "elev": [-18.0, 20.0], "spot": 56.0, "engine": "petrol", "len": 6.37, "wid": 2.46, "pref": 300.0},
+	"t26": {"short": "ЛТ", "name": "Т-26 обр. 1939", "tag": "Т-26", "nation": "СССР", "cls": "Лёгкий танк",
+		"tier": 3, "side": "allies", "year": 1933, "pts": 4, "freq": 2.5,
+		"hp": 520.0, "dmg": 75.0, "pen": 50.0, "caliber": 45.0, "reload": 2.0, "shell": 760.0,
+		"kmh": 30.0, "rev": 10.0, "turn": 40.0, "tspd": 24.0, "power": 97.0, "mass": 10.3,
+		"disp": 0.44, "aim": 1.9, "armor": [15, 15, 15, 20, 15, 15], "slope": 23.0, "side_slope": 0.0,
+		"tslope": 18.0, "elev": [-6.0, 22.0], "spot": 56.0, "engine": "petrol", "len": 4.65, "wid": 2.44, "pref": 280.0},
+	"t60": {"short": "ЛТ", "name": "Т-60", "tag": "Т-60", "nation": "СССР", "cls": "Лёгкий танк",
+		"tier": 3, "side": "allies", "year": 1941, "pts": 3, "freq": 2.0,
+		"hp": 460.0, "dmg": 30.0, "pen": 38.0, "caliber": 20.0, "reload": 0.6, "shell": 815.0,
+		"kmh": 44.0, "rev": 12.0, "turn": 46.0, "tspd": 30.0, "power": 70.0, "mass": 5.8,
+		"disp": 0.42, "aim": 1.4, "armor": [35, 15, 25, 25, 25, 25], "slope": 60.0, "side_slope": 0.0,
+		"tslope": 25.0, "elev": [-7.0, 25.0], "spot": 58.0, "engine": "petrol", "len": 4.1, "wid": 2.3, "pref": 240.0},
+	"m4a2": {"short": "СТ", "name": "M4A2(76)W «Эмча»", "tag": "M4A2", "nation": "СССР", "cls": "Средний танк",
+		"tier": 6, "side": "allies", "year": 1944, "pts": 8, "freq": 1.2,
+		"hp": 980.0, "dmg": 135.0, "pen": 116.0, "caliber": 76.2, "reload": 3.0, "shell": 792.0,
+		"kmh": 48.0, "rev": 16.0, "turn": 38.0, "tspd": 30.0, "power": 410.0, "mass": 33.2,
+		"disp": 0.38, "aim": 2.0, "stab": 0.3, "armor": [64, 38, 38, 89, 64, 64], "slope": 47.0, "side_slope": 0.0,
+		"tslope": 30.0, "elev": [-10.0, 25.0], "spot": 64.0, "engine": "diesel", "len": 5.92, "wid": 2.62, "pref": 400.0},
+	"pz3b": {"short": "СТ", "name": "Pz.Kpfw. III Ausf. B", "tag": "Pz III B", "nation": "Германия", "cls": "Средний танк",
+		"tier": 3, "side": "axis", "year": 1938, "pts": 4, "freq": 0.8,
+		"hp": 600.0, "dmg": 55.0, "pen": 48.0, "caliber": 37.0, "reload": 1.8, "shell": 745.0,
+		"kmh": 35.0, "rev": 12.0, "turn": 40.0, "tspd": 24.0, "power": 250.0, "mass": 15.9,
+		"disp": 0.38, "aim": 1.8, "armor": [15, 15, 15, 15, 15, 15], "slope": 20.0, "side_slope": 0.0,
+		"tslope": 15.0, "elev": [-10.0, 20.0], "spot": 64.0, "engine": "petrol", "len": 5.67, "wid": 2.81, "pref": 320.0},
+	"pzj1": {"short": "ПТ", "name": "Panzerjäger I", "tag": "Pz.Jäger I", "nation": "Германия", "cls": "Истребитель танков",
+		"tier": 3, "side": "axis", "year": 1940, "pts": 4, "freq": 1.0,
+		"hp": 420.0, "dmg": 85.0, "pen": 70.0, "caliber": 47.0, "reload": 2.3, "shell": 775.0,
+		"kmh": 40.0, "rev": 12.0, "turn": 42.0, "tspd": 14.0, "power": 100.0, "mass": 6.4,
+		"disp": 0.36, "aim": 1.8, "armor": [13, 13, 13, 15, 10, 0], "slope": 25.0, "side_slope": 0.0,
+		"tslope": 30.0, "traverse": 17.5, "elev": [-8.0, 12.0], "spot": 60.0, "engine": "petrol", "len": 4.42, "wid": 2.06, "pref": 420.0},
+	"hago": {"short": "ЛТ", "name": "Тип 95 «Ха-Го»", "tag": "Ха-Го", "nation": "Япония", "cls": "Лёгкий танк",
+		"tier": 3, "side": "axis", "year": 1936, "pts": 4, "freq": 2.0,
+		"hp": 500.0, "dmg": 50.0, "pen": 42.0, "caliber": 37.0, "reload": 1.8, "shell": 675.0,
+		"kmh": 45.0, "rev": 14.0, "turn": 44.0, "tspd": 26.0, "power": 120.0, "mass": 7.4,
+		"disp": 0.44, "aim": 1.8, "armor": [12, 12, 10, 12, 12, 12], "slope": 20.0, "side_slope": 0.0,
+		"tslope": 15.0, "elev": [-15.0, 20.0], "spot": 58.0, "engine": "diesel", "len": 4.38, "wid": 2.06, "pref": 260.0},
+	"chiha": {"short": "СТ", "name": "Тип 97 «Чи-Ха»", "tag": "Чи-Ха", "nation": "Япония", "cls": "Средний танк",
+		"tier": 3, "side": "axis", "year": 1938, "pts": 5, "freq": 1.2,
+		"hp": 640.0, "dmg": 95.0, "pen": 32.0, "caliber": 57.0, "reload": 2.4, "shell": 355.0, "he": 250.0,
+		"kmh": 38.0, "rev": 12.0, "turn": 36.0, "tspd": 22.0, "power": 170.0, "mass": 15.0,
+		"disp": 0.48, "aim": 2.0, "armor": [25, 22, 20, 25, 25, 25], "slope": 20.0, "side_slope": 0.0,
+		"tslope": 15.0, "elev": [-15.0, 20.0], "spot": 58.0, "engine": "diesel", "len": 5.52, "wid": 2.33, "pref": 260.0},
 }
 
 # ---------- Прогресс: исследование, покупка, модули ----------
@@ -427,23 +487,25 @@ const ROMAN := ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
 ## Ключи машин, заменённых в 2.4, → замена (перенос сохранений).
 const RENAMED := {"crusader": "a10", "matilda": "grant", "su76": "t34_57", "marder3": "grille", "m36": "t28",
 	"valentine": "tetrarch", "sem7518": "sem10525", "sem9053": "l3cc", "toldi": "pz2", "zrinyi": "stug4"}
-const STARTERS := ["t34_76", "a10", "pz3", "m13_40", "stuart", "l6_40", "pz38t", "t70", "bt7", "pz3j", "tetrarch", "pz2"]
+const STARTERS := ["t34_76", "a10", "pz3", "m13_40", "stuart", "l6_40", "pz38t", "t70", "bt7", "pz3j", "tetrarch", "pz2",
+	"h38", "hago"]
 # Дерево исследования: какие машины открывает опыт, набранный на танке.
 const TREE := {
-	"t70": ["t34_76", "kv1", "t34_57"], "bt7": ["t34_76", "t34_57"], "t34_57": ["su122"], "su122": ["su85", "su152"],
-	"t34_76": ["t34", "su85", "kv1"], "t34": ["su100"], "su85": ["su100"], "kv1": ["kv2", "is2", "kv85"], "kv85": ["is2"],
+	"t70": ["t34_76", "kv1", "t34_57"], "bt7": ["t34_76", "t34_57", "t26"], "t34_57": ["su122"], "su122": ["su85", "su152"],
+	"t34_76": ["t34", "su85", "kv1", "m4a2"], "t34": ["su100"], "su85": ["su100"], "kv1": ["kv2", "is2", "kv85"], "kv85": ["is2"],
 	"su100": ["isu152"], "kv2": ["isu152"], "su152": ["isu152"],
 	"stuart": ["lee", "grant", "m5a1"], "m5a1": ["chaffee", "m18"], "lee": ["sherman", "m10"], "grant": ["churchill"],
 	"tetrarch": ["grant", "a10"], "m10": ["easy8", "m18", "achilles"], "m18": ["t28"],
-	"sherman": ["firefly", "easy8", "jumbo"], "easy8": ["pershing"], "achilles": ["challenger"],
+	"sherman": ["firefly", "easy8", "jumbo", "m4a2"], "easy8": ["pershing"], "achilles": ["challenger"],
 	"a10": ["cromwell", "sherman", "chaffee"], "cromwell": ["firefly", "churchill", "comet", "challenger"], "challenger": ["comet"],
 	"l6_40": ["m15_42", "l3cc"], "m13_40": ["m15_42", "pz3", "sem10525"], "m15_42": ["p26"],
 	"pz3j": ["pz3", "pz3n", "grille"], "pz3n": ["pz4", "brummbar"], "pz3": ["pz4", "stug", "pz4f2"],
 	"grille": ["nashorn", "stug"], "pz4": ["tiger", "panther", "brummbar"], "pz4f2": ["tiger"],
 	"stug": ["jagdpanther", "jpz4"], "jpz4": ["jagdpanther"], "tiger": ["tiger2", "tiger_p"], "tiger_p": ["ferdinand"],
 	"jagdpanther": ["jagdtiger"],
-	"pz38t": ["hetzer", "luchs", "turan"], "pz2": ["turan"], "turan": ["pz4f2", "stug4"], "luchs": ["pz4f2"],
+	"pz38t": ["hetzer", "luchs", "turan", "pzj1"], "pz2": ["turan", "pz3b"], "turan": ["pz4f2", "stug4"], "luchs": ["pz4f2"],
 	"hetzer": ["stug", "nashorn"], "nashorn": ["jagdpanther"],
+	"h38": ["s35"], "s35": ["b1bis"], "t26": ["t34_76", "t60"], "t60": ["t70"], "pz3b": ["pz3j"], "pzj1": ["hetzer"], "hago": ["chiha"],
 }
 const RESEARCH_XP := {3: 400, 4: 800, 5: 2500, 6: 5000, 7: 9000, 8: 15000}  # опыт на исследование танка
 const PRICE := {3: 8000, 4: 15000, 5: 45000, 6: 90000, 7: 180000, 8: 320000}  # серебро
@@ -530,6 +592,20 @@ const MODULES := {
 		"engine": ["В-2-ИС", "В-2-ИС форсированный", {"power": 480.0}], "susp": ["ИСУ-152 ранняя", "ИСУ-152"]},
 	"tiger2": {"turret": ["Башня «Порше»", "Башня «Хеншель»", {"armor": [150, 80, 80, 100, 80, 80], "tslope": 25.0, "hp": 1720.0, "tspd": 16.0}],
 		"engine": ["Maybach HL 230 P30 ранний", "Maybach HL 230 P30", {"power": 650.0}], "susp": ["Tiger II ранний", "Tiger II"]},
+	"h38": {"gun": ["37 мм SA18", "37 мм SA38", {"pen": 32.0, "shell": 600.0, "dmg": 45.0}],
+		"engine": ["Hotchkiss 6 цил.", "Hotchkiss 6 цил. форсированный", {"power": 75.0, "kmh": 28.0}], "susp": ["H35", "H38"]},
+	"s35": {"engine": ["SOMUA V8 ранний", "SOMUA V8", {"power": 170.0}], "susp": ["S35 ранняя", "S35"]},
+	"b1bis": {"engine": ["Renault 6 цил. 272 л. с.", "Renault 6 цил. 307 л. с.", {"power": 272.0}], "susp": ["B1", "B1 bis"]},
+	"t26": {"gun": ["45 мм 20-К обр. 1932", "45 мм 20-К обр. 1938", {"pen": 43.0, "shell": 760.0}],
+		"engine": ["ГАЗ Т-26 ранний", "ГАЗ Т-26", {"power": 90.0}], "susp": ["Т-26 обр. 1933", "Т-26 обр. 1939"]},
+	"t60": {"engine": ["ГАЗ-202", "ГАЗ-203", {"power": 70.0}], "susp": ["Т-60 ранний", "Т-60"]},
+	"m4a2": {"gun": ["75 мм M3", "76 мм M1A1", {"dmg": 120.0, "pen": 92.0, "caliber": 75.0, "shell": 619.0, "reload": 2.6}],
+		"engine": ["GM 6046 ранний", "GM 6046", {"power": 375.0}], "susp": ["VVSS", "HVSS"]},
+	"pz3b": {"engine": ["Maybach HL 108 TR", "Maybach HL 108 TR форсированный", {"power": 230.0}], "susp": ["Ausf. A", "Ausf. B"]},
+	"pzj1": {"engine": ["Maybach NL 38 TR ранний", "Maybach NL 38 TR", {"power": 90.0}], "susp": ["Pz.Kpfw. I Ausf. B ранняя", "Pz.Kpfw. I Ausf. B"]},
+	"hago": {"engine": ["Mitsubishi A6120VDe ранний", "Mitsubishi A6120VDe", {"power": 110.0}], "susp": ["Тип 95 ранний", "Тип 95"]},
+	"chiha": {"gun": ["57 мм тип 97", "47 мм тип 1", {"dmg": 70.0, "pen": 55.0, "caliber": 47.0, "shell": 810.0, "reload": 2.0, "he": 0.0}],
+		"engine": ["Mitsubishi SA12200VD ранний", "Mitsubishi SA12200VD", {"power": 150.0}], "susp": ["Тип 97", "Тип 97 «Синхото»"]},
 }
 
 # Снаряжение: многоразовое в бою, с перезарядкой; серебро списывается, если использовали
@@ -585,7 +661,7 @@ const MAPS := {
 	"stalingrad": {"name": "Сталинград", "desc": "Руины зимнего города", "surf": "snow",
 		"date": "зима 1942–1943", "year": 1942, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
 		"nations": {"allies": ["СССР"], "axis": ["Германия"]}, "season": "winter", "winter": true,
-		"roster": {"allies": ["t34_76", "kv1", "kv2", "t70", "bt7"], "axis": ["pz3", "pz4", "stug", "pz38t", "pz3j", "pz3n", "grille"]},
+		"roster": {"allies": ["t34_76", "kv1", "kv2", "t70", "bt7", "t60"], "axis": ["pz3", "pz4", "stug", "pz38t", "pz3j", "pz3n", "grille"]},
 		"brief": "Сталинград, зима 1942–1943 года. Бои идут за каждый дом разрушенного города. 19 ноября Красная армия начала операцию «Уран» и окружила 6-ю армию Паулюса; 2 февраля 1943 года её остатки капитулировали. Улицы завалены обломками, из-за угла можно получить снаряд в борт.",
 		"sky_top": "8a97a4", "sky_hor": "c6cbd0", "fog": "bcc2c7", "sun": "e8eef5", "sun_e": 0.75, "amb": 0.55,
 		"cover": 0.88, "fog_near": 300.0, "fog_far": 1300.0, "sun_rot": [-48.0, 20.0],
@@ -607,7 +683,7 @@ const MAPS := {
 	"berlin": {"name": "Берлин", "desc": "Штурм столицы Рейха: проспекты, руины, Рейхстаг", "surf": "urban",
 		"date": "апрель 1945", "year": 1945, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
 		"nations": {"allies": ["СССР"], "axis": ["Германия"]}, "season": "late",
-		"roster": {"allies": ["t34", "is2", "su100", "su85", "isu152", "t34_57", "su122"], "axis": ["pz4", "stug", "panther", "tiger2", "jagdpanther", "hetzer", "jagdtiger", "ferdinand", "jpz4", "grille", "brummbar"]},
+		"roster": {"allies": ["t34", "is2", "su100", "su85", "isu152", "t34_57", "su122", "m4a2"], "axis": ["pz4", "stug", "panther", "tiger2", "jagdpanther", "hetzer", "jagdtiger", "ferdinand", "jpz4", "grille", "brummbar"]},
 		"brief": "Берлин, апрель 1945 года. 1-й Белорусский и 1-й Украинский фронты штурмуют столицу Рейха. Советские танки идут по улицам с белыми полосами на башнях и крестами на крышах — опознавательным знаком операции. Город обороняют последние «Пантеры», штурмовые орудия и «Королевские тигры» 503-го батальона. 2 мая гарнизон Берлина капитулировал.",
 		"sky_top": "75787b", "sky_hor": "b3a896", "fog": "a49b8c", "sun": "f4dfc4", "sun_e": 0.85, "amb": 0.5,
 		"cover": 0.72, "fog_near": 320.0, "fog_far": 1400.0, "sun_rot": [-30.0, 28.0],
@@ -622,6 +698,34 @@ const MAPS := {
 		"cover": 0.82, "fog_near": 280.0, "fog_far": 1350.0, "sun_rot": [-24.0, 150.0],
 		"g1": "cdd5dc", "g2": "eef2f5", "rock": "6c7076", "road": "8b8681", "dirt": "5a4e44", "scorch": "2a2826",
 		"dust": "e6ebef", "mini": "a4adb5", "relief": 18.0, "grip": 0.8, "edge": 0.75, "weather": "snow"},
+	"france": {"name": "Франция", "desc": "Гряда над Мёзом, городок и сады", "surf": "grass",
+		"date": "май 1940", "year": 1940, "allies": "Франция и Великобритания", "axis": "Германия",
+		"allies_g": "Франции и Великобритании", "axis_g": "Германии",
+		"nations": {"allies": ["Франция", "Великобритания"], "axis": ["Германия"]}, "season": "summer",
+		"roster": {"allies": ["h38", "s35", "b1bis", "a10"], "axis": ["pz2", "pz38t", "pz3b", "pzj1"]},
+		"brief": "Франция, май 1940 года. Германские танковые дивизии прошли через Арденны, которые французское командование считало непроходимыми для танков, и 13 мая форсировали Мёз у Седана. У деревни Стонн несколько дней шли встречные бои: тяжёлый Char B1 bis «Эр» капитана Бийота за один бой подбил тринадцать немецких танков, а 37-мм снаряды его броню не брали. Но французские танки были раздроблены по пехотным частям и многие воевали без радио, а немцы — собранными в кулак дивизиями.",
+		"sky_top": "6f8fb0", "sky_hor": "cfd4c8", "fog": "bfc4b6", "sun": "fff3dc", "sun_e": 1.1, "amb": 0.45,
+		"cover": 0.4, "fog_near": 520.0, "fog_far": 1900.0, "sun_rot": [-40.0, -30.0],
+		"g1": "4d6236", "g2": "7f8a52", "rock": "7a7466", "road": "857a62", "dirt": "6a5b40", "scorch": "26221d",
+		"dust": "8f8566", "mini": "48582f", "relief": 22.0, "grip": 0.86, "edge": 0.45},
+	"moscow": {"name": "Подмосковье", "desc": "Заснеженная деревня, ельник и противотанковый рубеж", "surf": "snow",
+		"date": "декабрь 1941", "year": 1941, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
+		"nations": {"allies": ["СССР"], "axis": ["Германия"]}, "season": "winter", "winter": true,
+		"roster": {"allies": ["t34_76", "kv1", "t26", "t60", "bt7", "t34_57"], "axis": ["pz3j", "pz38t", "pz2", "stug", "pzj1", "pz3b"]},
+		"brief": "Битва за Москву, декабрь 1941 года. Немецкое наступление «Тайфун» выдохлось в нескольких десятках километров от столицы: морозы до −30 °C, бездорожье, сожжённые деревни. 5–6 декабря Красная армия перешла в контрнаступление. На Волоколамском шоссе дралась 1-я гвардейская танковая бригада Катукова: из засад за избами и ельниками «тридцатьчетвёрки» и КВ выбивали германские танки, а лёгкие Т-60 и Т-26 шли в бой вместе с пехотой.",
+		"sky_top": "8b96a2", "sky_hor": "c8cdd2", "fog": "c0c6cb", "sun": "e6ecf3", "sun_e": 0.7, "amb": 0.58,
+		"cover": 0.8, "fog_near": 300.0, "fog_far": 1400.0, "sun_rot": [-18.0, 160.0],
+		"g1": "cdd5dc", "g2": "eef2f5", "rock": "6c7076", "road": "8b8681", "dirt": "5a4e44", "scorch": "2a2826",
+		"dust": "e6ebef", "mini": "a4adb5", "relief": 16.0, "grip": 0.78, "edge": 0.6, "weather": "snow"},
+	"khalkhin": {"name": "Халхин-Гол", "desc": "Степь, барханы и высота Баин-Цаган", "surf": "grass",
+		"date": "август 1939", "year": 1939, "allies": "СССР", "axis": "Япония", "allies_g": "СССР", "axis_g": "Японии",
+		"nations": {"allies": ["СССР"], "axis": ["Япония"]}, "season": "summer",
+		"roster": {"allies": ["bt7", "t26"], "axis": ["hago", "chiha"]},
+		"brief": "Монголия, лето 1939 года. Японская Квантунская армия перешла реку Халхин-Гол. В начале июля у горы Баин-Цаган Жуков бросил в бой танковую бригаду с ходу, без пехоты: БТ понесли большие потери, но японцев отбросили за реку. 20 августа советско-монгольские войска ударили по флангам и за десять дней окружили и разгромили японскую группировку. Это поражение во многом удержало Японию от войны с СССР в 1941 году.",
+		"sky_top": "6f97c2", "sky_hor": "d6d3c0", "fog": "cfcab4", "sun": "fff0d0", "sun_e": 1.15, "amb": 0.44,
+		"cover": 0.3, "fog_near": 560.0, "fog_far": 2000.0, "sun_rot": [-38.0, -50.0],
+		"g1": "8a8358", "g2": "a89f6c", "rock": "8a7a5e", "road": "9c8a68", "dirt": "86704e", "scorch": "302a22",
+		"dust": "b8a478", "mini": "8a8052", "relief": 28.0, "grip": 0.82, "edge": 0.35, "weather": "haze"},
 }
 
 # Позывные по странам (не меньше 2 × TEAM_MAX). У британцев и американцев — фонетический алфавит
@@ -638,10 +742,15 @@ const CALLSIGNS := {
 		"King 1", "King 2"],
 	"Италия": ["Leone", "Aquila", "Lupo", "Falco", "Orso", "Volpe", "Grifo", "Toro", "Saetta", "Fulmine", "Tuono",
 		"Ardito", "Folgore", "Ariete", "Centauro", "Vipera", "Sparviero", "Cinghiale", "Nibbio", "Gufo"],
+	"Франция": ["Lion 1", "Lion 2", "Aigle 1", "Aigle 2", "Loup 1", "Loup 2", "Tigre 1", "Tigre 2", "Ours 1", "Ours 2",
+		"Faucon 1", "Faucon 2", "Renard 1", "Renard 2", "Cerf 1", "Cerf 2", "Sanglier 1", "Sanglier 2", "Vautour 1", "Vautour 2"],
+	"Япония": ["Taka", "Washi", "Tora", "Ōkami", "Kuma", "Hayabusa", "Kitsune", "Inazuma", "Arashi", "Kaze", "Kumo",
+		"Yari", "Katana", "Raijin", "Fūjin", "Sakura", "Matsu", "Take", "Ume", "Kiri"],
 	"Венгрия": ["Sas", "Holló", "Farkas", "Medve", "Sólyom", "Turul", "Párduc", "Hiúz", "Bika", "Vihar", "Villám",
 		"Rigó", "Bagoly", "Kánya", "Héja", "Ölyv", "Darázs", "Csuka", "Róka", "Szarvas"],
 }
-const LANG := {"СССР": "ru", "Германия": "de", "США": "en", "Великобритания": "en", "Италия": "it", "Венгрия": "hu"}
+const LANG := {"СССР": "ru", "Германия": "de", "США": "en", "Великобритания": "en", "Италия": "it", "Венгрия": "hu",
+	"Франция": "fr", "Япония": "ja"}
 
 # Переговоры по рации своей стороны: на её языке, для немецкого и английского — с переводом.
 # {h} — направление «по часам» от корпуса игрока, {clock} — оно же по-русски («2 часа»), {cs} — позывной.
@@ -651,48 +760,64 @@ const RADIO := {
 		"de": [["Panzer marsch!", "Танки, вперёд!"], ["Hier {cs}. Vorwärts, Abstand halten!", "Говорит {cs}. Вперёд, держать дистанцию!"]],
 		"en": [["All stations, advance!", "Всем, вперёд!"], ["{cs} here. Move out, keep spread!", "Говорит {cs}. Выдвигаемся, не кучковаться!"]],
 		"it": [["Carri, avanti!", "Танки, вперёд!"], ["Qui {cs}. Avanti, mantenere le distanze!", "Говорит {cs}. Вперёд, держать дистанцию!"]],
+		"fr": [["Chars, en avant !", "Танки, вперёд!"], ["Ici {cs}. En avant, gardez vos distances !", "Говорит {cs}. Вперёд, держать дистанцию!"]],
+		"ja": [["Sensha, zenshin!", "Танки, вперёд!"], ["Kochira {cs}. Zenshin, kankaku o tamote!", "Говорит {cs}. Вперёд, держать дистанцию!"]],
 		"hu": [["Harckocsik, előre!", "Танки, вперёд!"], ["Itt {cs}. Előre, tartsátok a távolságot!", "Говорит {cs}. Вперёд, держать дистанцию!"]]},
 	"spot": {
 		"ru": [["Танк противника на {clock}!", ""], ["Вижу противника на {clock}!", ""]],
 		"de": [["Feindpanzer auf {h} Uhr!", "Вражеский танк на {clock}!"], ["Achtung, Feind auf {h} Uhr!", "Внимание, противник на {clock}!"]],
 		"en": [["Enemy tank, {h} o'clock!", "Вражеский танк на {clock}!"], ["Contact, {h} o'clock!", "Контакт на {clock}!"]],
 		"it": [["Carro nemico a ore {h}!", "Вражеский танк на {clock}!"], ["Attenzione, nemico a ore {h}!", "Внимание, противник на {clock}!"]],
+		"fr": [["Char ennemi à {h} heures !", "Вражеский танк на {clock}!"], ["Attention, ennemi à {h} heures !", "Внимание, противник на {clock}!"]],
+		"ja": [["Teki sensha, {h}-ji no hōkō!", "Вражеский танк на {clock}!"], ["Chūi, teki {h}-ji!", "Внимание, противник на {clock}!"]],
 		"hu": [["Ellenséges harckocsi {h} óránál!", "Вражеский танк на {clock}!"], ["Figyelem, ellenség {h} óránál!", "Внимание, противник на {clock}!"]]},
 	"spot_tiger": {
 		"ru": [["Осторожно, «Тигр» на {clock}!", ""]],
 		"de": [["Feindpanzer auf {h} Uhr!", "Вражеский танк на {clock}!"]],
 		"en": [["Tiger! Tiger at {h} o'clock!", "«Тигр»! «Тигр» на {clock}!"]],
 		"it": [["Carro nemico a ore {h}!", "Вражеский танк на {clock}!"]],
+		"fr": [["Char ennemi à {h} heures !", "Вражеский танк на {clock}!"]],
+		"ja": [["Teki sensha, {h}-ji no hōkō!", "Вражеский танк на {clock}!"]],
 		"hu": [["Ellenséges harckocsi {h} óránál!", "Вражеский танк на {clock}!"]]},
 	"ally_down": {
 		"ru": [["«{cs}» подбит!", ""], ["Потеряли «{cs}»!", ""]],
 		"de": [["{cs} ist ausgefallen!", "{cs} подбит!"], ["{cs} brennt!", "{cs} горит!"]],
 		"en": [["{cs} is hit, they're bailing out!", "{cs} подбит, экипаж покидает машину!"], ["We've lost {cs}!", "Потеряли {cs}!"]],
 		"it": [["{cs} è stato colpito!", "{cs} подбит!"], ["{cs} brucia!", "{cs} горит!"]],
+		"fr": [["{cs} est touché !", "{cs} подбит!"], ["{cs} brûle !", "{cs} горит!"]],
+		"ja": [["{cs}, hidan!", "{cs} подбит!"], ["{cs} ga moete iru!", "{cs} горит!"]],
 		"hu": [["{cs} találatot kapott!", "{cs} подбит!"], ["{cs} ég!", "{cs} горит!"]]},
 	"enemy_down": {
 		"ru": [["Готов! Есть один!", ""], ["Горит, гад!", ""]],
 		"de": [["Abschuss!", "Подбит!"], ["Volltreffer, er brennt!", "Прямое попадание, горит!"]],
 		"en": [["Got him!", "Есть, подбил!"], ["Scratch one!", "Минус один!"]],
 		"it": [["Colpito, brucia!", "Попал, горит!"], ["Centrato!", "Прямое попадание!"]],
+		"fr": [["Touché, il brûle !", "Попал, горит!"], ["En plein dedans !", "Прямое попадание!"]],
+		"ja": [["Meichū, moete iru!", "Попал, горит!"], ["Chokugeki!", "Прямое попадание!"]],
 		"hu": [["Kilőve!", "Подбит!"], ["Telitalálat, ég!", "Прямое попадание, горит!"]]},
 	"our_base": {
 		"ru": [["Противник на нашей базе! Все назад!", ""]],
 		"de": [["Feind in unserer Stellung! Zurück!", "Противник на нашей позиции! Назад!"]],
 		"en": [["They're taking our base! Fall back!", "Захватывают нашу базу! Назад!"]],
 		"it": [["Il nemico è nella nostra posizione! Indietro!", "Противник на нашей позиции! Назад!"]],
+		"fr": [["L'ennemi est sur notre position ! Repli !", "Противник на нашей позиции! Назад!"]],
+		"ja": [["Teki ga jinchi ni iru! Kōtai!", "Противник на нашей позиции! Назад!"]],
 		"hu": [["Az ellenség az állásunkban! Vissza!", "Противник на нашей позиции! Назад!"]]},
 	"their_base": {
 		"ru": [["Захватываем базу, прикройте!", ""]],
 		"de": [["Wir nehmen die Stellung, Feuerschutz!", "Занимаем позицию, прикройте огнём!"]],
 		"en": [["Capturing the base, cover us!", "Захватываем базу, прикройте!"]],
 		"it": [["Occupiamo la posizione, copriteci!", "Занимаем позицию, прикройте!"]],
+		"fr": [["Nous prenons la position, couvrez-nous !", "Занимаем позицию, прикройте!"]],
+		"ja": [["Jinchi o senryō suru, engo seyo!", "Занимаем позицию, прикройте!"]],
 		"hu": [["Elfoglaljuk az állást, fedezzetek!", "Занимаем позицию, прикройте!"]]},
 	"last": {
 		"ru": [["Нас осталось мало — держаться!", ""]],
 		"de": [["Wir sind nur noch wenige — haltet aus!", "Нас осталось мало — держитесь!"]],
 		"en": [["We're nearly done for — hold on!", "Нас почти не осталось — держитесь!"]],
 		"it": [["Siamo rimasti in pochi — resistete!", "Нас осталось мало — держитесь!"]],
+		"fr": [["Nous ne sommes plus que quelques-uns — tenez bon !", "Нас осталось мало — держитесь!"]],
+		"ja": [["Nokori wazuka da — fumitodomare!", "Нас осталось мало — держитесь!"]],
 		"hu": [["Kevesen maradtunk — kitartás!", "Нас осталось мало — держитесь!"]]},
 }
 
@@ -706,7 +831,8 @@ const CREW_N := {"t34_76": 4, "t34": 5, "kv1": 5, "is2": 4, "sherman": 5, "firef
 	"m10": 5, "easy8": 5, "pershing": 5, "grant": 5, "t70": 2, "isu152": 5,
 	"bt7": 3, "t34_57": 4, "su122": 5, "kv85": 4, "su152": 5, "pz3j": 5, "pz3n": 5, "grille": 4, "brummbar": 5, "jpz4": 4,
 	"m5a1": 4, "jumbo": 5, "m18": 5, "t28": 4, "tetrarch": 3, "achilles": 5, "challenger": 5, "sem10525": 3, "l3cc": 2,
-	"pz2": 3, "stug4": 4}
+	"pz2": 3, "stug4": 4, "h38": 2, "s35": 3, "b1bis": 4, "t26": 3, "t60": 2, "m4a2": 5, "pz3b": 5, "pzj1": 3,
+	"hago": 3, "chiha": 4}
 
 
 static func crew_n(key: String) -> int:
@@ -751,6 +877,13 @@ static func shell_he(T: Dictionary) -> float:
 			return 48.0  # 75 мм EP
 		"Венгрия":
 			return 30.0 if cal >= 70.0 else 0.0
+		"Франция":
+			# 47 мм APX и SA35 — каморный снаряд со слабым зарядом, 37 мм — сплошной
+			return 15.0 if cal >= 45.0 else 0.0
+		"Япония":
+			if cal <= 38.0: return 10.0  # 37 мм тип 94
+			if cal <= 48.0: return 20.0  # 47 мм тип 1
+			return 250.0  # 57 мм тип 97 — осколочно-фугасный
 	return 0.0
 
 
@@ -1005,6 +1138,9 @@ static func paint(key: String, map_key: String, history: bool) -> Dictionary:
 				return {"camo": "wash44" if year >= 1944 else "grey_winter", "emblem": "germany"}
 			if season == "desert":
 				return {"camo": "dak", "emblem": "germany"}
+			# до 1943 г. танки красили в тёмно-серый «панцерграу», потом — в тёмно-жёлтый
+			if year < 1943:
+				return {"camo": "panzergrey", "emblem": "germany"}
 			return {"camo": "german44" if year >= 1944 else "german", "emblem": "germany"}
 		"Великобритания":
 			if season == "desert":
@@ -1015,5 +1151,11 @@ static func paint(key: String, map_key: String, history: bool) -> Dictionary:
 		"Венгрия":
 			# трёхцветный венгерский камуфляж, белый крест на чёрном квадрате
 			return {"camo": "hungary", "emblem": "hungary"}
+		"Франция":
+			# трёхцветный камуфляж 1940 г. с тёмной обводкой пятен, кокарда
+			return {"camo": "france", "emblem": "france"}
+		"Япония":
+			# трёхцветный камуфляж императорской армии, жёлтая звезда
+			return {"camo": "japan", "emblem": "japan"}
 	# американцы в Арденнах белили танки известью и простынями — местами
 	return {"camo": "olive_wash" if season == "winter" else "olive", "emblem": "usa"}

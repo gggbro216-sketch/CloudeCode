@@ -1101,7 +1101,7 @@ static inline uint8_t to8(float v) {
 
 // Камуфляж: (вид, шум a, шум b, шум g — L8 одного размера) → RGB8.
 // Виды — в порядке tank_models.gd CAMO_KINDS.
-enum Camo { OLIVE, GERMAN, DESERT, GERMAN44, DAK, BRITISH, GREY_WINTER, WHITEWASH, ITALY, WASH44, OLIVE_WASH, HUNGARY };
+enum Camo { OLIVE, GERMAN, DESERT, GERMAN44, DAK, BRITISH, GREY_WINTER, WHITEWASH, ITALY, WASH44, OLIVE_WASH, HUNGARY, FRANCE, JAPAN, PANZERGREY };
 
 METHOD(camo) {
 	(void)self_;
@@ -1110,8 +1110,8 @@ METHOD(camo) {
 	std::vector<uint8_t> A = bytes(a, 1), Bn = bytes(a, 2), G = bytes(a, 3);
 	size_t n = std::min(A.size(), std::min(Bn.size(), G.size()));
 	static const uint32_t bases[] = { 0x464a2f, 0xa8956a, 0xc4b38a, 0xad9a68, 0x9c8358, 0x4f4b34, 0x4b5155, 0x3f4c2b, 0xb9a170,
-		0xad9a68, 0x464a2f, 0x6b6a42 };
-	Col base = kind >= 0 && kind < 12 ? hex(bases[kind]) : hex(0x3f4c2b);
+		0xad9a68, 0x464a2f, 0x6b6a42, 0x5d6440, 0x7a6a44, 0x4a4f52 };
+	Col base = kind >= 0 && kind < 15 ? hex(bases[kind]) : hex(0x3f4c2b);
 	std::vector<uint8_t> out(n * 3);
 	for (size_t i = 0; i < n; i++) {
 		float va = A[i] / 255.0f, vb = Bn[i] / 255.0f, vg = G[i] / 255.0f;
@@ -1136,6 +1136,19 @@ METHOD(camo) {
 			float s2 = smoothstep(0.6f, 0.64f, vb) * (1.0f - s1);
 			c = c.lerp(hex(0xa08a52), s1 * 0.9f);
 			c = c.lerp(hex(0x5a3f2a), s2 * 0.85f);
+			c = c.darkened((vg - 0.5f) * 0.08f);
+		} else if (kind == FRANCE) {
+			float s1 = smoothstep(0.56f, 0.6f, va);
+			float s2 = smoothstep(0.58f, 0.62f, vb) * (1.0f - s1);
+			c = c.lerp(hex(0x6b4a2c), s1 * 0.95f);
+			c = c.lerp(hex(0xa6905a), s2 * 0.9f);
+			float edge = std::max(smoothstep(0.035f, 0.0f, std::fabs(va - 0.58f)), smoothstep(0.035f, 0.0f, std::fabs(vb - 0.6f)) * (1.0f - s1));
+			c = c.lerp(hex(0x23231c), edge * 0.8f);
+		} else if (kind == JAPAN) {
+			float s1 = smoothstep(0.57f, 0.61f, va);
+			float s2 = smoothstep(0.6f, 0.64f, vb) * (1.0f - s1);
+			c = c.lerp(hex(0x4a5634), s1 * 0.9f);
+			c = c.lerp(hex(0x5b3f27), s2 * 0.85f);
 			c = c.darkened((vg - 0.5f) * 0.08f);
 		} else if (kind == ITALY) {
 			c = c.lightened(clampf((va - 0.55f) * 0.35f, 0.0f, 0.1f));

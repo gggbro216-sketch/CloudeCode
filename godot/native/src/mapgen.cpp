@@ -998,6 +998,173 @@ struct Gen {
 		add_bushes(28, B_FIR, rect(120, 330, WS - 240, WS - 660), true);
 		add_craters(40, mid);
 	}
+
+	// Франция, май 1940: гряда над долиной Мёза, лощина ручья, городок с церковью, сады, доты
+	void france() {
+		lanes();
+		double hx = lane_hill, tx = lane_town;
+		R mid = rect(140, 440, WS - 280, WS - 880);
+		double ra0 = rng.range(-50, 50);
+		V ra = v(hx + ra0, WS * 0.3);
+		double rb0 = rng.range(-50, 50);
+		V rb = v(hx + rb0, WS * 0.7);
+		hill(ra, rb, 300.0, 36.0, 0.35);
+		double vy = WS * 0.5 + rng.range(-140, 140);
+		double vt = rng.range(-120, 120);
+		hill(v(WS * 0.25, vy - vt), v(WS * 0.75, vy + vt), 90.0, -12.0, 0.3);
+		double ty = rng.range(-160, 160);
+		V town = v(tx, WS * 0.5 + ty);
+		double a1 = rng.range(-120, 120);
+		double a2 = rng.range(-120, 120);
+		double a3 = rng.range(-120, 120);
+		double a4 = rng.range(-120, 120);
+		std::vector<V> road1 = bezier(v(tx + a1, WS + 100), town + v(a2, WS * 0.2), town + v(a3, -WS * 0.2), v(tx + a4, -100));
+		double ry = WS * 0.5 + rng.range(-220, 220);
+		double b1 = rng.range(-180, 180);
+		double b2 = rng.range(-140, 140);
+		std::vector<V> road2 = bezier(town, v(WS * 0.5, town.y + b1), v(hx, ry + b2), v(hx < WS * 0.5 ? -100.0 : WS + 100.0, ry));
+		roads.push_back({ road1, 40.0 });
+		roads.push_back({ road2, 28.0 });
+		place_off_road(40, 84, O_CHURCH, 34.0, rect(town - v(170, 170), v(340, 340)), 30.0);
+		village(town, 14, 380.0, { O_HOUSE, O_HOUSE, O_HOUSE, O_RUIN }, v(18, 24), 10, P_APPLE);
+		for (int i = 0; i < 3; i++) {
+			double w = rng.range(60, 76);
+			double h = rng.range(36, 44);
+			place_off_road(w, h, O_BARN, 22.0, rect(town - v(440, 440), v(880, 880)), 26.0);
+		}
+		forest((ra + rb) * 0.5, v(280, WS * 0.26), 200, P_TREE, 24, B_BUSH);
+		double face = hx < WS * 0.5 ? 1.0 : -1.0;
+		for (int i = 0; i < 3; i++) place(44, 36, O_BUNKER, 11.0, rect(v(hx + face * 190 - 80, WS * 0.33), v(160, WS * 0.34)), 80.0);
+		for (int i = 0; i < 6; i++) {
+			double cx = rng.range((float)(WS * 0.28), (float)(WS * 0.72));
+			double cy = rng.range((float)(WS * 0.22), (float)(WS * 0.78));
+			V c = v(cx, cy);
+			if (dist(c, town) < 400.0) continue;
+			double rx = rng.range(70, 130);
+			double rz = rng.range(70, 130);
+			forest(c, v(rx, rz), 22, i % 2 == 0 ? P_APPLE : P_TREE, 3, B_BUSH);
+		}
+		for (size_t i = 1; i + 1 < road1.size(); i += 2) {
+			for (double sd : { -1.0, 1.0 }) {
+				V p = road1[i] + v(sd * 34.0, 0);
+				if (free_point(p, 18.0)) prop(P_TREE, p);
+			}
+		}
+		for (int i = 0; i < 5; i++) sandbag_nest(mid);
+		wrecks(6, 0.6, mid, 50.0);
+		hedgehogs(4, 80.0, mid);
+		add_decor(D_HAY, 14, mid);
+		add_decor(D_CRATES, 4, rect(town - v(380, 380), v(760, 760)));
+		add_decor(D_BARRELS, 4, mid);
+		poles(road1, 30.0);
+		scatter(P_TREE, 22, rect(150, 420, WS - 300, WS - 840), 30.0);
+		add_bushes(34, B_BUSH, rect(120, 330, WS - 240, WS - 660), true);
+		add_craters(30, mid);
+	}
+
+	// Под Москвой, декабрь 1941: высота с ельником, овраг, деревня у шоссе, рубеж из ежей и окопов
+	void moscow() {
+		lanes();
+		double hx = lane_hill, tx = lane_town;
+		R mid = rect(140, 440, WS - 280, WS - 880);
+		double ra0 = rng.range(-60, 60);
+		V ra = v(hx + ra0, WS * 0.28);
+		double rb0 = rng.range(-60, 60);
+		V rb = v(hx + rb0, WS * 0.72);
+		hill(ra, rb, 320.0, 30.0, 0.3);
+		double gx = WS * 0.5 + rng.range(-160, 160);
+		double gt = rng.range(-100, 100);
+		hill(v(gx - gt, WS * 0.32), v(gx + gt, WS * 0.68), 70.0, -14.0, 0.25);
+		double a1 = rng.range(-100, 100);
+		double a2 = rng.range(-200, 200);
+		double a3 = rng.range(-200, 200);
+		double a4 = rng.range(-100, 100);
+		std::vector<V> road1 = bezier(v(tx + a1, WS + 100), v(tx + a2, WS * 0.66), v(tx + a3, WS * 0.34), v(tx + a4, -100));
+		double vy = rng.range(-180, 180);
+		V vc = v(tx, WS * 0.5 + vy);
+		std::vector<V> road2 = bezier(v(-100, WS * 0.45), v(WS * 0.3, WS * 0.55), v(WS * 0.7, WS * 0.42), v(WS + 100, WS * 0.55));
+		roads.push_back({ road1, 40.0 });
+		roads.push_back({ road2, 26.0 });
+		village(vc, 16, 420.0, { O_HOUSE, O_HOUSE, O_RUIN }, v(16, 21), 12, P_BARE);
+		place_off_road(40, 84, O_CHURCH, 34.0, rect(vc - v(200, 200), v(400, 400)), 30.0);
+		for (int i = 0; i < 3; i++) {
+			double w = rng.range(60, 76);
+			double h = rng.range(36, 44);
+			place_off_road(w, h, O_BARN, 22.0, rect(vc - v(440, 440), v(880, 880)), 26.0);
+		}
+		forest((ra + rb) * 0.5, v(300, WS * 0.27), 260, P_SPRUCE, 26, B_FIR);
+		for (int i = 0; i < 6; i++) {
+			double cx = rng.range((float)(WS * 0.3), (float)(WS * 0.7));
+			double cy = rng.range((float)(WS * 0.22), (float)(WS * 0.78));
+			V c = v(cx, cy);
+			if (dist(c, vc) < 420.0) continue;
+			double rx = rng.range(80, 150);
+			double rz = rng.range(80, 150);
+			forest(c, v(rx, rz), 26, i % 2 == 0 ? P_BARE : P_SPRUCE, 3, B_FIR);
+		}
+		hedgehogs(8, 90.0, mid);
+		for (int i = 0; i < 7; i++) sandbag_nest(mid);
+		for (int i = 0; i < 2; i++) place(44, 36, O_BUNKER, 10.0, rect(v(hx - 200, WS * 0.35), v(400, WS * 0.3)), 70.0);
+		wrecks(8, 0.4, mid, 50.0);
+		add_decor(D_HAY, 8, mid);
+		add_decor(D_CRATES, 5, mid);
+		poles(road1, 30.0);
+		scatter(P_SPRUCE, 26, rect(150, 420, WS - 300, WS - 840), 30.0);
+		add_bushes(26, B_FIR, rect(120, 330, WS - 240, WS - 660), true);
+		add_craters(40, mid);
+	}
+
+	// Халхин-Гол, август 1939: высота Баин-Цаган, барханы, сухое русло, японский лагерь, окопы, камни
+	void khalkhin() {
+		lanes();
+		double hx = lane_hill, tx = lane_town;
+		R mid = rect(140, 440, WS - 280, WS - 880);
+		double ra0 = rng.range(-70, 70);
+		V ra = v(hx + ra0, WS * 0.3);
+		double rb0 = rng.range(-70, 70);
+		V rb = v(hx + rb0, WS * 0.7);
+		hill(ra, rb, 360.0, 46.0, 0.25);
+		for (int i = 0; i < 6; i++) {
+			double cx = rng.range((float)(WS * 0.25), (float)(WS * 0.75));
+			double cy = rng.range((float)(WS * 0.25), (float)(WS * 0.75));
+			V c = v(cx, cy);
+			double dx = rng.range(-120, 120);
+			double dy = rng.range(-120, 120);
+			V d = v(dx, dy);
+			double r = rng.range(90, 150);
+			double h = rng.range(8, 16);
+			hill(c - d, c + d, r, h, 0.2);
+		}
+		double ry = WS * 0.5 + rng.range(-200, 200);
+		double rt = rng.range(-200, 200);
+		hill(v(WS * 0.2, ry), v(WS * 0.8, ry + rt), 80.0, -12.0, 0.3);
+		double a1 = rng.range(-150, 150);
+		double a2 = rng.range(-260, 260);
+		double a3 = rng.range(-260, 260);
+		double a4 = rng.range(-150, 150);
+		std::vector<V> road1 = bezier(v(tx + a1, WS + 100), v(tx + a2, WS * 0.66), v(tx + a3, WS * 0.34), v(tx + a4, -100));
+		roads.push_back({ road1, 28.0 });
+		double cy = rng.range(-220, 220);
+		V camp = v(tx, WS * 0.5 + cy);
+		R cr = rect(camp - v(260, 300), v(520, 600));
+		for (int i = 0; i < 8; i++) place(30, 24, O_TENT, 12.0, cr, 50.0);
+		wrecks(5, 0.7, cr, 40.0);
+		add_decor(D_BARRELS, 8, cr);
+		add_decor(D_CRATES, 8, cr);
+		for (int i = 0; i < 8; i++) sandbag_nest(rect(v(hx - 300, WS * 0.3), v(600, WS * 0.4)));
+		for (int i = 0; i < 8; i++) {
+			double sz = rng.range(40, 90);
+			double k1 = rng.range(0.8f, 1.2f);
+			double k2 = rng.range(0.8f, 1.2f);
+			double ht = rng.range(10, 22);
+			place(sz * k1, sz * k2, O_ROCK, ht, mid, 75.0);
+		}
+		wrecks(8, 0.3, mid, 60.0);
+		for (int i = 0; i < 5; i++) sandbag_nest(mid);
+		scatter(P_BARE, 10, rect(150, 420, WS - 300, WS - 840), 40.0);
+		add_bushes(46, B_SHRUB, rect(120, 330, WS - 240, WS - 660), true);
+		add_craters(45, mid);
+	}
 };
 
 } // namespace
@@ -1021,6 +1188,9 @@ METHOD(map_generate) {
 		case 3: g.normandy(); break;
 		case 4: g.berlin(); break;
 		case 5: g.ardennes(); break;
+		case 6: g.france(); break;
+		case 7: g.moscow(); break;
+		case 8: g.khalkhin(); break;
 		default: g.prokhorovka(); break;
 	}
 	std::vector<float> ob, bu, pr, de, ro, hi;

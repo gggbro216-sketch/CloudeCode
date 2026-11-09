@@ -231,7 +231,7 @@ const OBST_KINDS := ["house", "ruin", "bunker", "sandbags", "hedgehogs", "wreck_
 const PROP_KINDS := ["tree", "fence", "palm", "bare", "apple", "spruce"]
 const BUSH_KINDS := ["bush", "fir", "shrub"]
 const DECOR_KINDS := ["hay", "crates", "barrels", "pole", "lamp"]
-const MAP_KEYS := ["prokhorovka", "alamein", "stalingrad", "normandy", "berlin", "ardennes"]
+const MAP_KEYS := ["prokhorovka", "alamein", "stalingrad", "normandy", "berlin", "ardennes", "france", "moscow", "khalkhin"]
 
 
 ## Расстановка в C++ (тот же генератор случайных чисел и те же правила): с тем же зерном карта
@@ -309,6 +309,12 @@ static func generate(map_key: String, zones: Array, rng: RandomNumberGenerator) 
 			return _berlin(rng, zones)
 		"ardennes":
 			return _ardennes(rng, zones)
+		"france":
+			return _france(rng, zones)
+		"moscow":
+			return _moscow(rng, zones)
+		"khalkhin":
+			return _khalkhin(rng, zones)
 	return _prokhorovka(rng, zones)
 
 
@@ -1002,6 +1008,158 @@ static func _ardennes(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
 	return _result(obst, bushes, props, decor, craters, roads, hills, L)
 
 
+## Франция, май 1940: гряда над долиной Мёза, лощина ручья, городок с церковью, сады, доты.
+static func _france(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
+	var ws := D.WS
+	var obst: Array = []
+	var props: Array = []
+	var bushes: Array = []
+	var decor: Array = []
+	var hills: Array = []
+	var L := _lanes(rng)
+	var hx: float = L.hill
+	var tx: float = L.town
+	var mid := Rect2(140, 440, ws - 280, ws - 880)
+	var ra := Vector2(hx + rng.randf_range(-50, 50), ws * 0.3)
+	var rb := Vector2(hx + rng.randf_range(-50, 50), ws * 0.7)
+	_hill(hills, ra, rb, 300.0, 36.0, 0.35)
+	var vy := ws * 0.5 + rng.randf_range(-140, 140)
+	var vt := rng.randf_range(-120, 120)
+	_hill(hills, Vector2(ws * 0.25, vy - vt), Vector2(ws * 0.75, vy + vt), 90.0, -12.0, 0.3)
+	var town := Vector2(tx, ws * 0.5 + rng.randf_range(-160, 160))
+	var road1 := Geo_bezier(Vector2(tx + rng.randf_range(-120, 120), ws + 100), town + Vector2(rng.randf_range(-120, 120), ws * 0.2),
+		town + Vector2(rng.randf_range(-120, 120), -ws * 0.2), Vector2(tx + rng.randf_range(-120, 120), -100))
+	var ry := ws * 0.5 + rng.randf_range(-220, 220)
+	var road2 := Geo_bezier(town, Vector2(ws * 0.5, town.y + rng.randf_range(-180, 180)), Vector2(hx, ry + rng.randf_range(-140, 140)),
+		Vector2(-100.0 if hx < ws * 0.5 else ws + 100.0, ry))
+	var roads := [{"pts": road1, "w": 40.0}, {"pts": road2, "w": 28.0}]
+	_place_off_road(rng, obst, zones, roads, 40, 84, "church", 34.0, Rect2(town - Vector2(170, 170), Vector2(340, 340)), 30.0)
+	_village(rng, obst, props, zones, roads, town, 14, 380.0, ["house", "house", "house", "ruin"], Vector2(18, 24), 10, "apple")
+	for i in 3:
+		_place_off_road(rng, obst, zones, roads, rng.randf_range(60, 76), rng.randf_range(36, 44), "barn", 22.0, Rect2(town - Vector2(440, 440), Vector2(880, 880)), 26.0)
+	_forest(rng, props, bushes, obst, zones, roads, (ra + rb) * 0.5, Vector2(280, ws * 0.26), 200, "tree", 24, "bush")
+	var face := 1.0 if hx < ws * 0.5 else -1.0
+	for i in 3:
+		_place(rng, obst, zones, 44, 36, "bunker", 11.0, Rect2(Vector2(hx + face * 190 - 80, ws * 0.33), Vector2(160, ws * 0.34)), 80.0)
+	for i in 6:
+		var c := Vector2(rng.randf_range(ws * 0.28, ws * 0.72), rng.randf_range(ws * 0.22, ws * 0.78))
+		if c.distance_to(town) < 400.0:
+			continue
+		_forest(rng, props, bushes, obst, zones, roads, c, Vector2(rng.randf_range(70, 130), rng.randf_range(70, 130)), 22, "apple" if i % 2 == 0 else "tree", 3, "bush")
+	for i in range(1, road1.size() - 1, 2):
+		for sd: float in [-1.0, 1.0]:
+			var p: Vector2 = road1[i] + Vector2(sd * 34.0, 0)
+			if _free_point(p, obst, zones, props, 18.0):
+				_prop(props, "tree", p, rng)
+	for i in 5:
+		_sandbag_nest(rng, obst, zones, mid)
+	_wrecks(rng, obst, zones, roads, 6, 0.6, mid, 50.0)
+	_hedgehogs(rng, obst, zones, 4, 80.0, mid)
+	_decor(rng, decor, obst, zones, props, roads, "hay", 14, mid)
+	_decor(rng, decor, obst, zones, props, roads, "crates", 4, Rect2(town - Vector2(380, 380), Vector2(760, 760)))
+	_decor(rng, decor, obst, zones, props, roads, "barrels", 4, mid)
+	_poles(decor, obst, zones, props, road1, 30.0)
+	_scatter(rng, props, obst, zones, roads, "tree", 22, Rect2(150, 420, ws - 300, ws - 840), 30.0)
+	_bushes(rng, bushes, 34, obst, zones, props, "bush", Rect2(120, 330, ws - 240, ws - 660))
+	var craters := _craters(rng, 30, obst, zones, mid)
+	return _result(obst, bushes, props, decor, craters, roads, hills, L)
+
+
+## Под Москвой, декабрь 1941: высота с ельником, овраг, деревня у шоссе, рубеж из ежей и окопов.
+static func _moscow(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
+	var ws := D.WS
+	var obst: Array = []
+	var props: Array = []
+	var bushes: Array = []
+	var decor: Array = []
+	var hills: Array = []
+	var L := _lanes(rng)
+	var hx: float = L.hill
+	var tx: float = L.town
+	var mid := Rect2(140, 440, ws - 280, ws - 880)
+	var ra := Vector2(hx + rng.randf_range(-60, 60), ws * 0.28)
+	var rb := Vector2(hx + rng.randf_range(-60, 60), ws * 0.72)
+	_hill(hills, ra, rb, 320.0, 30.0, 0.3)
+	var gx := ws * 0.5 + rng.randf_range(-160, 160)
+	var gt := rng.randf_range(-100, 100)
+	_hill(hills, Vector2(gx - gt, ws * 0.32), Vector2(gx + gt, ws * 0.68), 70.0, -14.0, 0.25)
+	var road1 := Geo_bezier(Vector2(tx + rng.randf_range(-100, 100), ws + 100), Vector2(tx + rng.randf_range(-200, 200), ws * 0.66),
+		Vector2(tx + rng.randf_range(-200, 200), ws * 0.34), Vector2(tx + rng.randf_range(-100, 100), -100))
+	var vc := Vector2(tx, ws * 0.5 + rng.randf_range(-180, 180))
+	var road2 := Geo_bezier(Vector2(-100, ws * 0.45), Vector2(ws * 0.3, ws * 0.55), Vector2(ws * 0.7, ws * 0.42), Vector2(ws + 100, ws * 0.55))
+	var roads := [{"pts": road1, "w": 40.0}, {"pts": road2, "w": 26.0}]
+	_village(rng, obst, props, zones, roads, vc, 16, 420.0, ["house", "house", "ruin"], Vector2(16, 21), 12, "bare")
+	_place_off_road(rng, obst, zones, roads, 40, 84, "church", 34.0, Rect2(vc - Vector2(200, 200), Vector2(400, 400)), 30.0)
+	for i in 3:
+		_place_off_road(rng, obst, zones, roads, rng.randf_range(60, 76), rng.randf_range(36, 44), "barn", 22.0, Rect2(vc - Vector2(440, 440), Vector2(880, 880)), 26.0)
+	_forest(rng, props, bushes, obst, zones, roads, (ra + rb) * 0.5, Vector2(300, ws * 0.27), 260, "spruce", 26, "fir")
+	for i in 6:
+		var c := Vector2(rng.randf_range(ws * 0.3, ws * 0.7), rng.randf_range(ws * 0.22, ws * 0.78))
+		if c.distance_to(vc) < 420.0:
+			continue
+		_forest(rng, props, bushes, obst, zones, roads, c, Vector2(rng.randf_range(80, 150), rng.randf_range(80, 150)), 26, "bare" if i % 2 == 0 else "spruce", 3, "fir")
+	_hedgehogs(rng, obst, zones, 8, 90.0, mid)
+	for i in 7:
+		_sandbag_nest(rng, obst, zones, mid)
+	for i in 2:
+		_place(rng, obst, zones, 44, 36, "bunker", 10.0, Rect2(Vector2(hx - 200, ws * 0.35), Vector2(400, ws * 0.3)), 70.0)
+	_wrecks(rng, obst, zones, roads, 8, 0.4, mid, 50.0)
+	_decor(rng, decor, obst, zones, props, roads, "hay", 8, mid)
+	_decor(rng, decor, obst, zones, props, roads, "crates", 5, mid)
+	_poles(decor, obst, zones, props, road1, 30.0)
+	_scatter(rng, props, obst, zones, roads, "spruce", 26, Rect2(150, 420, ws - 300, ws - 840), 30.0)
+	_bushes(rng, bushes, 26, obst, zones, props, "fir", Rect2(120, 330, ws - 240, ws - 660))
+	var craters := _craters(rng, 40, obst, zones, mid)
+	return _result(obst, bushes, props, decor, craters, roads, hills, L)
+
+
+## Халхин-Гол, август 1939: высота Баин-Цаган, барханы, сухое русло, японский лагерь, окопы, камни.
+static func _khalkhin(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
+	var ws := D.WS
+	var obst: Array = []
+	var props: Array = []
+	var bushes: Array = []
+	var decor: Array = []
+	var hills: Array = []
+	var L := _lanes(rng)
+	var hx: float = L.hill
+	var tx: float = L.town
+	var mid := Rect2(140, 440, ws - 280, ws - 880)
+	var ra := Vector2(hx + rng.randf_range(-70, 70), ws * 0.3)
+	var rb := Vector2(hx + rng.randf_range(-70, 70), ws * 0.7)
+	_hill(hills, ra, rb, 360.0, 46.0, 0.25)
+	for i in 6:
+		var c := Vector2(rng.randf_range(ws * 0.25, ws * 0.75), rng.randf_range(ws * 0.25, ws * 0.75))
+		var d := Vector2(rng.randf_range(-120, 120), rng.randf_range(-120, 120))
+		_hill(hills, c - d, c + d, rng.randf_range(90, 150), rng.randf_range(8, 16), 0.2)
+	var ry := ws * 0.5 + rng.randf_range(-200, 200)
+	_hill(hills, Vector2(ws * 0.2, ry), Vector2(ws * 0.8, ry + rng.randf_range(-200, 200)), 80.0, -12.0, 0.3)
+	var road1 := Geo_bezier(Vector2(tx + rng.randf_range(-150, 150), ws + 100), Vector2(tx + rng.randf_range(-260, 260), ws * 0.66),
+		Vector2(tx + rng.randf_range(-260, 260), ws * 0.34), Vector2(tx + rng.randf_range(-150, 150), -100))
+	var roads := [{"pts": road1, "w": 28.0}]
+	var camp := Vector2(tx, ws * 0.5 + rng.randf_range(-220, 220))
+	var cr := Rect2(camp - Vector2(260, 300), Vector2(520, 600))
+	for i in 8:
+		_place(rng, obst, zones, 30, 24, "tent", 12.0, cr, 50.0)
+	_wrecks(rng, obst, zones, roads, 5, 0.7, cr, 40.0)
+	_decor(rng, decor, obst, zones, props, roads, "barrels", 8, cr)
+	_decor(rng, decor, obst, zones, props, roads, "crates", 8, cr)
+	for i in 8:
+		_sandbag_nest(rng, obst, zones, Rect2(Vector2(hx - 300, ws * 0.3), Vector2(600, ws * 0.4)))
+	for i in 8:
+		var sz := rng.randf_range(40, 90)
+		var k1 := rng.randf_range(0.8, 1.2)
+		var k2 := rng.randf_range(0.8, 1.2)
+		_place(rng, obst, zones, sz * k1, sz * k2, "rock", rng.randf_range(10, 22), mid, 75.0)
+	_wrecks(rng, obst, zones, roads, 8, 0.3, mid, 60.0)
+	for i in 5:
+		_sandbag_nest(rng, obst, zones, mid)
+	_scatter(rng, props, obst, zones, roads, "bare", 10, Rect2(150, 420, ws - 300, ws - 840), 40.0)
+	_bushes(rng, bushes, 46, obst, zones, props, "shrub", Rect2(120, 330, ws - 240, ws - 660))
+	var craters := _craters(rng, 45, obst, zones, mid)
+	return _result(obst, bushes, props, decor, craters, roads, hills, L)
+
+
 static func Geo_bezier(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, n := 32) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	for i in n + 1:
@@ -1115,7 +1273,7 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 	if winter:
 		crate.albedo_color = Color(0.92, 0.94, 0.97)
 	M["crate"] = crate
-	if map_key == "normandy" or map_key == "ardennes":
+	if map_key == "normandy" or map_key == "ardennes" or map_key == "france":
 		# нормандские и бельгийские дома и церкви — из светлого камня под сланцем
 		M.plaster = Tx.call("stone", 1.0 / 18.0)
 		M.brick = M.plaster
@@ -1929,9 +2087,10 @@ void fragment() {
 
 
 static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGenerator, map_key: String, hq: bool) -> void:
-	var dry := map_key != "prokhorovka" and map_key != "normandy"
+	var dry := map_key != "prokhorovka" and map_key != "normandy" and map_key != "france"
 	# на площади в 1,7 раза больше — травы столько же на квадратный метр
-	var total: int = {"prokhorovka": 15000, "normandy": 17000, "stalingrad": 1500, "berlin": 1900, "ardennes": 1500}.get(map_key, 4200)
+	var total: int = {"prokhorovka": 15000, "normandy": 17000, "stalingrad": 1500, "berlin": 1900, "ardennes": 1500,
+		"france": 14000, "moscow": 1500, "khalkhin": 6000}.get(map_key, 4200)
 	total = int(total * grass_k)
 	if total < 100:
 		return
@@ -1940,7 +2099,8 @@ static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGen
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	m.set_shader_parameter("tex", TexLib.grass_texture(dry))
-	var tints := {"stalingrad": Color(0.92, 0.95, 0.85), "ardennes": Color(0.9, 0.93, 0.85), "prokhorovka": Color(1.0, 0.96, 0.8), "normandy": Color(0.92, 0.94, 0.85)}
+	var tints := {"stalingrad": Color(0.92, 0.95, 0.85), "ardennes": Color(0.9, 0.93, 0.85), "prokhorovka": Color(1.0, 0.96, 0.8), "normandy": Color(0.92, 0.94, 0.85),
+		"france": Color(0.95, 0.97, 0.85), "moscow": Color(0.9, 0.93, 0.85), "khalkhin": Color(1.05, 0.97, 0.78)}
 	m.set_shader_parameter("tint", tints.get(map_key, Color.WHITE))
 	var g := Geo.Group.new()
 	var q := QuadMesh.new()

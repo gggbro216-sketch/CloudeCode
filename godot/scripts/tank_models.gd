@@ -679,6 +679,80 @@ const SPECS := {
 		"spr": [2.05, 0.72, 0.4], "idl": [-2.15, 0.55, 0.27], "rollers": [1.2, 0.0, -1.2],
 		"tur_x": -1.5, "tpoly": ["stug", 0.7, 0.8, 1.0], "tur_h": 0.8, "tur_top": 1.0, "smooth": false,
 		"mant": "plate", "gun_len": 4.8, "gun_r": [0.1, 0.075], "brake": "none", "cupola": [], "hatch": false, "casemate": true},
+	"s35": {
+		"L": 5.38, "W": 2.12, "tw": 0.36, "th": 1.05, "up_w": 2.0, "camo": "france", "emblem": "france",
+		"hull": [[-2.77, 0.5], [-2.77, 1.5], [1.2, 1.55], [2.3, 1.2], [2.77, 0.95], [2.6, 0.5]],
+		"wheels": [1.75, 1.35, 0.85, 0.45, -0.45, -0.85, -1.35, -1.75], "wr": 0.2, "wheel": "vvss", "bogies": [1.55, 0.65, -0.65, -1.55],
+		"spr": [2.35, 0.75, 0.33], "idl": [-2.4, 0.6, 0.3], "rollers": [1.2, -0.1, -1.4],
+		"tur_x": 0.25, "tpoly": ["hex", 0.95, 1.0, 0.9], "tur_h": 0.7, "tur_top": 0.85, "smooth": false,
+		"mant": "box", "gun_len": 1.6, "gun_r": [0.075, 0.06], "brake": "none", "cupola": [-0.45, 0.25, 0.25, 0.22]},
+	"b1bis": {
+		"L": 6.37, "W": 2.46, "tw": 0.46, "th": 1.75, "up_w": 1.6, "camo": "france", "emblem": "france",
+		"hull": [[-3.3, 0.5], [-3.37, 1.2], [-3.05, 1.78], [2.75, 1.78], [3.3, 1.08], [3.37, 0.98], [3.05, 0.42], [-3.0, 0.42]],
+		"wheels": [2.38, 1.43, 0.48, -0.47, -1.42, -2.37], "wr": 0.3, "wheel": "single",
+		"spr": [-3.05, 0.66, 0.37], "idl": [3.02, 0.62, 0.34], "rollers": [1.9, 0.0, -1.9],
+		"tur_x": 0.4, "tpoly": ["oval", 1.05, 1.38, 1.06], "tur_h": 0.9, "tur_top": 0.8, "smooth": true,
+		"mant": "kv", "gun_len": 2.2, "gun_r": [0.075, 0.058], "brake": "none",
+		"cupola": [], "hatch": false},
+	"h38": {
+		"L": 4.22, "W": 1.95, "tw": 0.27, "th": 0.85, "up_w": 1.6, "camo": "france", "emblem": "france",
+		"hull": [[-2.3, 0.45], [-2.3, 1.42], [1.4, 1.47], [2.3, 1.1], [2.2, 0.45]],
+		"wheels": [1.3, 0.45, -0.4, -1.25], "wr": 0.39, "wheel": "single",
+		"spr": [2.0, 0.65, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.2, -1.0],
+		"tur_x": 0.17, "tpoly": ["pz", 0.75, 0.85, 0.72], "tur_h": 0.62, "tur_top": 0.9, "smooth": false,
+		"mant": "box", "gun_len": 1.7, "gun_r": [0.04, 0.03], "brake": "none", "cupola": [-0.5, 0.0, 0.25, 0.2], "hatch": false},
+	"t26": {
+		"L": 4.65, "W": 2.44, "tw": 0.26, "th": 0.8, "up_w": 2.3, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.83, 0.45], [-2.83, 1.32], [0.9, 1.42], [2.83, 0.78], [2.6, 0.4], [-2.6, 0.4]],
+		"wheels": [1.75, 0.6, -0.6, -1.75], "wr": 0.41, "wheel": "single",
+		"spr": [-2.45, 0.62, 0.32], "idl": [2.4, 0.55, 0.3], "rollers": [],
+		"tur_x": 0.45, "tpoly": ["oval", 0.95, 1.1, 0.9], "tur_h": 0.6, "tur_top": 0.85, "smooth": true,
+		"mant": "box", "gun_len": 2.1, "gun_r": [0.05, 0.04], "brake": "none", "cupola": [], "hatch": false},
+	"t60": {
+		"L": 4.1, "W": 2.3, "tw": 0.26, "th": 0.75, "up_w": 2.2, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.14, 0.45], [-2.14, 1.25], [0.9, 1.3], [2.14, 0.9], [2.05, 0.45], [-2.0, 0.42]],
+		"wheels": [1.42, 0.71, 0.0, -0.71, -1.42], "wr": 0.27, "wheel": "single",
+		"spr": [1.92, 0.62, 0.27], "idl": [-1.96, 0.6, 0.27], "rollers": [1.05, 0.0, -1.05],
+		"tur_x": -0.1, "tpoly": ["hex", 0.82, 0.82, 0.75], "tur_h": 0.6, "tur_top": 0.82, "smooth": false,
+		"mant": "box", "gun_len": 1.95, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [], "hatch": false},
+	"m4a2": {
+		"L": 5.92, "W": 2.62, "tw": 0.42, "th": 0.98, "up_w": 2.6, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.92, 0.62], [-2.92, 1.88], [1.45, 1.9], [2.35, 1.2], [2.68, 1.1], [2.92, 0.85], [2.86, 0.52], [2.5, 0.4], [-2.7, 0.55]],
+		"wheels": [1.86, 1.26, 0.3, -0.3, -1.26, -1.86], "wr": 0.254, "wheel": "vvss", "bogies": [1.56, 0.0, -1.56],
+		"spr": [2.6, 0.8, 0.31], "idl": [-2.62, 0.5, 0.29], "rollers": [1.4, -0.16, -1.72],
+		"tur_x": -0.15, "tpoly": ["oval", 0.95, 1.28, 0.88], "tur_h": 0.74, "tur_top": 0.87, "smooth": true,
+		"mant": "rotor", "gun_len": 2.3, "gun_r": [0.068, 0.054], "brake": "none",
+		"cupola": [], "hatch": false, "shelf": false},
+	"pz3b": {
+		"L": 5.67, "W": 2.81, "tw": 0.36, "th": 0.85, "up_w": 2.7, "camo": "german", "emblem": "germany",
+		"hull": [[-2.76, 0.55], [-2.78, 1.62], [1.58, 1.64], [1.62, 1.36], [2.5, 1.2], [2.76, 0.92], [2.66, 0.55], [2.36, 0.42], [-2.5, 0.45]],
+		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
+		"spr": [2.46, 0.72, 0.33], "idl": [-2.52, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
+		"tur_x": -0.1, "tpoly": ["pz", 0.85, 1.12, 0.86], "tur_h": 0.74, "tur_top": 0.86, "smooth": false,
+		"mant": "box_spaced", "gun_len": 2.85, "gun_r": [0.058, 0.045], "brake": "none",
+		"cupola": [-0.86, 0.0, 0.3, 0.28], "hatch": false, "skirts": 1943, "skirt_y": 0.83},
+	"pzj1": {
+		"L": 4.42, "W": 2.06, "tw": 0.28, "th": 0.8, "up_w": 1.9, "camo": "german", "emblem": "germany",
+		"hull": [[-2.7, 0.55], [-2.75, 1.38], [1.8, 1.4], [2.48, 1.2], [2.7, 0.92], [2.62, 0.55], [2.32, 0.42], [-2.45, 0.45]],
+		"wheels": [1.64, 1.02, 0.3, -0.32, -1.04, -1.66], "wr": 0.26, "wheel": "double",
+		"spr": [2.42, 0.72, 0.33], "idl": [-2.47, 0.62, 0.3], "rollers": [1.35, 0.0, -1.3],
+		"tur_x": 0.12, "tpoly": ["stug", 1.1, 1.36, 1.32], "tur_h": 0.66, "tur_top": 0.9, "smooth": false,
+		"mant": "saukopf", "gun_len": 2.34, "gun_r": [0.08, 0.06], "brake": "double",
+		"cupola": [-0.62, -0.7, 0.28, 0.18], "hatch": false, "skirts": 1943, "skirt_y": 0.83, "casemate": true},
+	"hago": {
+		"L": 4.38, "W": 2.06, "tw": 0.25, "th": 0.85, "up_w": 1.9, "camo": "japan", "emblem": "japan",
+		"hull": [[-2.14, 0.45], [-2.14, 1.25], [0.9, 1.3], [2.14, 0.9], [2.05, 0.45], [-2.0, 0.42]],
+		"wheels": [1.42, 0.71, 0.0, -0.71, -1.42], "wr": 0.27, "wheel": "single",
+		"spr": [1.92, 0.62, 0.27], "idl": [-1.96, 0.6, 0.27], "rollers": [1.05, 0.0, -1.05],
+		"tur_x": -0.1, "tpoly": ["hex", 0.82, 0.82, 0.75], "tur_h": 0.6, "tur_top": 0.82, "smooth": false,
+		"mant": "box", "gun_len": 1.95, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [], "hatch": false},
+	"chiha": {
+		"L": 5.52, "W": 2.33, "tw": 0.33, "th": 0.85, "up_w": 2.2, "camo": "japan", "emblem": "japan",
+		"hull": [[-2.77, 0.5], [-2.77, 1.5], [1.2, 1.55], [2.3, 1.2], [2.77, 0.95], [2.6, 0.5]],
+		"wheels": [1.75, 1.35, 0.85, 0.45, -0.45, -0.85, -1.35, -1.75], "wr": 0.2, "wheel": "vvss", "bogies": [1.55, 0.65, -0.65, -1.55],
+		"spr": [2.35, 0.75, 0.33], "idl": [-2.4, 0.6, 0.3], "rollers": [1.2, -0.1, -1.4],
+		"tur_x": 0.25, "tpoly": ["hex", 0.95, 1.0, 0.9], "tur_h": 0.7, "tur_top": 0.85, "smooth": false,
+		"mant": "box", "gun_len": 1.6, "gun_r": [0.075, 0.06], "brake": "none", "cupola": [-0.45, 0.25, 0.25, 0.22]},
 }
 
 ## Модификации на модели «родителя»: та же готовая модель и её размеры (характеристики свои, в data.gd).
@@ -714,7 +788,7 @@ static func trim(keep: Array) -> void:
 ## зимняя побелка поверх зелёной или серой краски.
 ## Виды камуфляжа в порядке, который знает C++ (native/src/core.cpp, enum Camo).
 const CAMO_KINDS := ["olive", "german", "desert", "german44", "dak", "british", "grey_winter", "whitewash", "italy",
-	"wash44", "olive_wash", "hungary"]
+	"wash44", "olive_wash", "hungary", "france", "japan", "panzergrey"]
 
 
 static func camo_texture(kind: String) -> ImageTexture:
@@ -750,7 +824,7 @@ static func camo_texture(kind: String) -> ImageTexture:
 		return ct
 	var bases := {"olive": "464a2f", "german": "a8956a", "desert": "c4b38a", "german44": "ad9a68", "dak": "9c8358",
 		"british": "4f4b34", "grey_winter": "4b5155", "whitewash": "3f4c2b", "italy": "b9a170",
-		"wash44": "ad9a68", "olive_wash": "464a2f", "hungary": "6b6a42"}
+		"wash44": "ad9a68", "olive_wash": "464a2f", "hungary": "6b6a42", "france": "5d6440", "japan": "7a6a44", "panzergrey": "4a4f52"}
 	var base := Color(bases.get(kind, "3f4c2b"))
 	for y in S:
 		for x in S:
@@ -783,6 +857,21 @@ static func camo_texture(kind: String) -> ImageTexture:
 				var s2 := smoothstep(0.6, 0.64, vb) * (1.0 - s1)
 				c = c.lerp(Color("a08a52"), s1 * 0.9)
 				c = c.lerp(Color("5a3f2a"), s2 * 0.85)
+				c = c.darkened((vg - 0.5) * 0.08)
+			elif kind == "france":
+				# французский 1940 г.: зелёная основа, пятна коричневого и охры с тёмной обводкой
+				var s1 := smoothstep(0.56, 0.6, va)
+				var s2 := smoothstep(0.58, 0.62, vb) * (1.0 - s1)
+				c = c.lerp(Color("6b4a2c"), s1 * 0.95)
+				c = c.lerp(Color("a6905a"), s2 * 0.9)
+				var edge := maxf(smoothstep(0.035, 0.0, absf(va - 0.58)), smoothstep(0.035, 0.0, absf(vb - 0.6)) * (1.0 - s1))
+				c = c.lerp(Color("23231c"), edge * 0.8)
+			elif kind == "japan":
+				# японский трёхцветный: коричнево-хаки, крупные пятна зелёного и бурого
+				var s1 := smoothstep(0.57, 0.61, va)
+				var s2 := smoothstep(0.6, 0.64, vb) * (1.0 - s1)
+				c = c.lerp(Color("4a5634"), s1 * 0.9)
+				c = c.lerp(Color("5b3f27"), s2 * 0.85)
 				c = c.darkened((vg - 0.5) * 0.08)
 			elif kind == "italy":
 				# «каки сахариано»: ровная песочная краска, выгоревшая пятнами
@@ -880,6 +969,17 @@ static func emblem_texture(kind: String) -> ImageTexture:
 		img.fill_rect(Rect2i(16, 16, 96, 96), Color("141414"))
 		img.fill_rect(Rect2i(54, 24, 20, 80), Color("ece8dc"))
 		img.fill_rect(Rect2i(24, 54, 80, 20), Color("ece8dc"))
+	elif kind == "france":
+		# кокарда: синий, белый, красный круги
+		for y in 128:
+			for x in 128:
+				var d := Vector2(x + 0.5 - 64.0, y + 0.5 - 64.0).length()
+				if d < 18.0:
+					img.set_pixel(x, y, Color("1f3c8c"))
+				elif d < 36.0:
+					img.set_pixel(x, y, Color("ece8dc"))
+				elif d < 54.0:
+					img.set_pixel(x, y, Color("a8231b"))
 	elif kind == "germany":
 		img.fill_rect(Rect2i(46, 6, 36, 116), Color("ece8dc"))
 		img.fill_rect(Rect2i(6, 46, 116, 36), Color("ece8dc"))
@@ -891,7 +991,7 @@ static func emblem_texture(kind: String) -> ImageTexture:
 			var r := 60.0 if i % 2 == 0 else 24.0
 			var ang := -PI / 2 + TAU * i / 10.0
 			star.append(Vector2(64, 67) + Vector2(cos(ang), sin(ang)) * r)
-		var col := Color("a8231b") if kind == "ussr" else Color("e8e6dd")
+		var col := Color("a8231b") if kind == "ussr" else (Color("e0b22c") if kind == "japan" else Color("e8e6dd"))
 		for y in 128:
 			for x in 128:
 				var p := Vector2(x + 0.5, y + 0.5)

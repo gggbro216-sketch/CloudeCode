@@ -119,7 +119,7 @@ func _paint_native(map_key: String, craters: Array, roads: Array, obst: Array, a
 	var cf := PackedFloat32Array()
 	for cr in craters:
 		cf.append_array([cr.x, cr.y, cr.z])
-	var md: PackedByteArray = core.paint_mask(1024, map_key == "prokhorovka" or map_key == "normandy", map_key == "berlin", rf, cf)
+	var md: PackedByteArray = core.paint_mask(1024, map_key == "prokhorovka" or map_key == "normandy" or map_key == "france", map_key == "berlin", rf, cf)
 	mask = Image.create_from_data(1024, 1024, false, Image.FORMAT_RGBA8, md)
 	mask.generate_mipmaps()
 	mask_tex = ImageTexture.create_from_image(mask)
@@ -256,7 +256,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	mask.fill(Color(0, 0, 0, 1))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(4)
-	if map_key == "prokhorovka" or map_key == "normandy":
+	if map_key == "prokhorovka" or map_key == "normandy" or map_key == "france":
 		# поля с бороздами
 		for f in 24:
 			var fx := int((rng.randf() * D.WS - ORIGIN) * k)

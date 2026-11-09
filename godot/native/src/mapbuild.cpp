@@ -899,7 +899,7 @@ METHOD(map_build) {
 	B.winter = flags.size() > 0 && flags[0] != 0.0f;
 	B.hq = flags.size() > 1 && flags[1] != 0.0f;
 	B.desert = map == 1;
-	B.stone = map == 3 || map == 5;
+	B.stone = map == 3 || map == 5 || map == 6;
 	std::vector<float> of = f32(a, 2), df = f32(a, 3), bf = f32(a, 4), pf = f32(a, 5), zf = f32(a, 6);
 	B.rng.seed((uint64_t)a.integer(7));
 

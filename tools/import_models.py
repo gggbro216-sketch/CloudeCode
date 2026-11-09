@@ -50,6 +50,10 @@ SIZES = {
     "pz3n": (5.52, 2.95, 0.4, 0.85), "m5a1": (4.84, 2.29, 0.29, 0.95), "jumbo": (6.27, 2.9, 0.42, 0.98),
     "a10": (5.51, 2.54, 0.3, 0.98), "grant": (5.64, 2.72, 0.42, 1.0), "turan": (5.55, 2.44, 0.36, 0.9),
     "luchs": (4.63, 2.48, 0.36, 0.9), "m10": (5.97, 3.05, 0.42, 0.98),
+    "s35": (5.38, 2.12, 0.36, 1.05), "b1bis": (6.37, 2.46, 0.46, 1.75), "h38": (4.22, 1.95, 0.27, 0.85),
+    "t26": (4.65, 2.44, 0.26, 0.8), "t60": (4.1, 2.3, 0.26, 0.75), "m4a2": (5.92, 2.62, 0.42, 0.98),
+    "pz3b": (5.67, 2.81, 0.36, 0.85), "pzj1": (4.42, 2.06, 0.28, 0.8), "hago": (4.38, 2.06, 0.25, 0.85),
+    "chiha": (5.52, 2.33, 0.33, 0.85),
 }
 
 # Модели и правила разметки. Правило — (класс, поле, регулярное выражение) по пути узлов («path»)
@@ -216,6 +220,31 @@ MODELS = {
                       ("gun", "mat", r"3_inch_gun")]},
     "m5a1": {"uid": "8c438b25a58840828cb120194edc03d1", "bare": r"^$", "gun_from": "turret", "clip_y": 2.75,
              "turret_box": [[-0.85, 2.3, 1.85, -0.85, 0.85]], "track_zone": [0.8, 0.85], "wheels_from": ["track", "hull"], "rules": []},
+    "s35": {"uid": "6b977d2580144118bc4850cc5044f883", "bare": r"Track_blinn1|Mirror|Light", "gun_from": "turret", "clip_y": 2.75,
+            "rules": [("drop", "mat", r"Interior|Net_Parts"), ("track", "mat", r"Track_blinn1"), ("wheel", "mat", r"Wheel_blinn2"),
+                      ("turret", "path", r"Turret_GP")]},
+    "b1bis": {"uid": "5a238bd7d3df4dd8bb25589fc1cc1bc9", "bare": r"Track_Color", "gun_from": "turret", "clip_y": 3.0,
+              "rules": [("track", "mat", r"Track_Color"), ("wheel", "mat", r"Wheel_blinn8"), ("turret", "mat", r"Turret_blinn4|^blinn9$")]},
+    "t60": {"uid": "04206e2e9bc7445bb5b75a605339446f", "bare": r"track_mat",
+            "rules": [("track", "mat", r"^track_mat"), ("wheel", "mat", r"tank_chassis"), ("gun", "mat", r"tank_guns"),
+                      ("turret", "mat", r"tank_turret")]},
+    "m4a2": {"uid": "b1fe6a97c7fb454f9ba3e4570568f892", "bare": r"Tracks|MG_|Suspension", "gun_from": "turret",
+             "rules": [("drop", "mat", r"Bullet"), ("track", "mat", r"Tracks"), ("wheel", "mat", r"Suspension"),
+                       ("turret", "mat", r"Tower|MG_M4A2")]},
+    "pz3b": {"uid": "2df9576c69d64bba9aff1d585dca9a29", "nose": 1, "bare": r"TruckL(\.002)?_Int", "gun_from": "turret", "clip_y": 2.6,
+             "turret_cyl": [-0.40, 0.0, 0.01, 9.0], "turret_yaw": 180.0,
+             "rules": [("track", "path", r"TruckL\.00[13]/TruckL(\.002)?/"), ("wheel", "path", r"TruckL\.00[13]/(Cylinder|Circle)"),
+                       ("turret", "path", r"RootNode/(Cube\.(001|002|003|005|012|013)|Circle\.001)/")]},
+    "chiha": {"uid": "d3568f32ec4440848e243e4b893a8ba6", "bare": r"^Track$", "wheels_from": ["hull"],
+              "rules": [("track", "mat", r"^Track$"), ("gun", "path", r"Barrel"), ("turret", "path", r"Turret")]},
+    "h38": {"uid": "045013113c7844f38230fa51955f32de", "bare": r"^$", "nose": 1, "gun_from": "turret", "clip_y": 2.3,
+            "turret_box": [[-0.5, 1.45, 1.1, -0.6, 0.6]], "track_zone": [0.92, 0.66], "wheels_from": ["track", "hull"], "rules": []},
+    "t26": {"uid": "23409ef7654c41b3a8db0705687be79a", "bare": r"^$", "nose": -1, "gun_from": "turret", "clip_y": 2.45,
+            "turret_box": [[-1.6, 2.15, 1.38, -0.9, 0.8]], "track_zone": [1.15, 0.92], "wheels_from": ["hull", "track"], "rules": []},
+    "hago": {"uid": "9ebd80d2ea12441dae8e41ad695d939d", "bare": r"^$", "nose": 1, "gun_from": "turret", "clip_y": 2.4,
+             "turret_box": [[-0.45, 1.95, 1.58, -0.8, 0.8]], "track_zone": [1.1, 0.74], "wheels_from": ["track", "hull"], "rules": []},
+    "pzj1": {"uid": "c0366c48b8f24dce9b21ffa94daaed38", "bare": r"^$", "nose": 1, "casemate": True, "gun_from": "hull", "gun_ymin": 1.55,
+             "clip_y": 2.3, "track_zone": [0.86, 0.72], "wheels_from": ["track", "hull"], "budget_k": 1.5, "rules": []},
 }
 
 CLASSES = ["hull", "turret", "gun", "wheel", "track", "drop"]
@@ -1185,6 +1214,14 @@ def credits(folder):
     lines = []
     for key in MODELS:
         p = os.path.join(folder, key + ".info.json")
+        if not os.path.exists(p):
+            # модель импортирована раньше, в другой папке: сведения об авторе — по API (без скачивания модели)
+            try:
+                m = api("https://api.sketchfab.com/v3/models/" + MODELS[key]["uid"])
+                json.dump({"name": m["name"], "author": m["user"]["displayName"], "user": m["user"]["username"],
+                           "license": m["license"]["label"], "url": m["viewerUrl"]}, open(p, "w"), ensure_ascii=False)
+            except Exception as e:
+                print("сведения об авторе %s не получены: %s" % (key, e))
         if os.path.exists(p):
             i = json.load(open(p))
             lines.append("%s — «%s», %s, %s" % (i["author"], i["name"], i["license"].replace("CC Attribution", "CC-BY 4.0"), i["url"]))
