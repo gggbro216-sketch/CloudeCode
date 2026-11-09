@@ -17,7 +17,7 @@ struct Api {
 	gd::MB set_position = nullptr, set_basis = nullptr, set_transform = nullptr, set_global_position = nullptr;
 	gd::MB set_visible = nullptr, set_param = nullptr, mm_xf = nullptr, mm_color = nullptr, set_emitting = nullptr;
 	gd::MB snd_paused = nullptr, snd_pitch = nullptr, snd_volume = nullptr;
-	gd::Name travel_l, travel_r, off_l, off_r, ground_y;
+	gd::Name travel_l, travel_r, off_l, off_r, ground_y, emitting;
 	bool ok = false;
 	void load() {
 		if (ok) return;
@@ -29,7 +29,8 @@ struct Api {
 		set_param = gd::method("ShaderMaterial", "set_shader_parameter", 3776071444);
 		mm_xf = gd::method("MultiMesh", "set_instance_transform", 3616898986);
 		mm_color = gd::method("MultiMesh", "set_instance_custom_data", 2878471219);
-		set_emitting = gd::method("GPUParticles3D", "set_emitting", 2586408642);
+		// частицы — свои излучатели (scripts/emitter.gd): включаются свойством emitting через Object.set
+		set_emitting = gd::method("Object", "set", 3776071444);
 		snd_paused = gd::method("AudioStreamPlayer3D", "set_stream_paused", 2586408642);
 		snd_pitch = gd::method("AudioStreamPlayer3D", "set_pitch_scale", 373806689);
 		snd_volume = gd::method("AudioStreamPlayer3D", "set_volume_db", 373806689);
@@ -38,11 +39,14 @@ struct Api {
 		off_l = gd::sname("off_l");
 		off_r = gd::sname("off_r");
 		ground_y = gd::sname("ground_y");
+		emitting = gd::sname("emitting");
 		ok = set_position && set_basis && set_transform && set_global_position && set_visible && set_param && mm_xf && mm_color &&
 			 set_emitting && snd_paused && snd_pitch && snd_volume;
 	}
 };
 Api api;
+
+inline void emit_set(gd::Obj p, bool on) { gd::call_param(api.set_emitting, p, api.emitting, on ? 1.0 : 0.0); }
 
 inline void basis9(const M3 &m, float out[9]) {
 	for (int i = 0; i < 3; i++) {
@@ -391,12 +395,12 @@ struct Step {
 		if (by == w.player) w.kills++;
 		if (c->mode == 2 && by >= 0) w.score[team(by)] += 25.0f;
 		if (d.smoke && d.smoke_on == 1) {
-			gd::call_bool(api.set_emitting, d.smoke, false);
+			emit_set(d.smoke, false);
 			d.smoke_on = 0;
 		}
 		for (int k = 0; k < 2; k++) {
 			gd::Obj p = k == 0 ? d.dust : d.mud;
-			if (p) gd::call_bool(api.set_emitting, p, false);
+			if (p) emit_set(p, false);
 		}
 		d.dust_on = d.mud_on = 0;
 		ev.add({ (float)W_KILL, (float)i, (float)by, pop ? 1.0f : 0.0f, (float)why });
@@ -798,7 +802,8 @@ struct Step {
 		const V3 &gp = c->ts[i].gun_pos0;
 		basis9(M3::rot(2, t[P_GUN_PITCH]), b);
 		gd::call_xf(api.set_transform, d.gun_n, b, { gp.x - d.recoil * 0.35f * c->upm, gp.y, gp.z });
-		if (std::fabs(t[P_GROUND] - d.gy_set) > 0.25f) {
+		// высота грунта для пыли на корпусе: три материала — три перезаливки буфера; шлём при сдвиге больше 0,8 (~10 см)
+		if (std::fabs(t[P_GROUND] - d.gy_set) > 0.8f) {
 			d.gy_set = t[P_GROUND];
 			for (gd::Obj m : d.paint) gd::call_param(api.set_param, m, api.ground_y, t[P_GROUND]);
 		}
@@ -818,7 +823,7 @@ struct Step {
 		if (!p) return;
 		if (on) gd::call_v3(api.set_global_position, p, at);
 		if ((state != 0) != on) {
-			gd::call_bool(api.set_emitting, p, on);
+			emit_set(p, on);
 			state = on ? 1 : 0;
 		}
 	}
@@ -1151,7 +1156,7 @@ METHOD(world_step) {
 		float dx = t[P_X] - S.T(w.watch)[P_X], dy = t[P_Y] - S.T(w.watch)[P_Y];
 		bool smoke = d.hp < d.max_hp * 0.35f && (S.team(i) == 0 || t[P_VIS0] != 0.0f) && dx * dx + dy * dy < 1400.0f * 1400.0f;
 		if (d.smoke && (d.smoke_on != 0) != smoke && api.ok) {
-			gd::call_bool(api.set_emitting, d.smoke, smoke);
+			emit_set(d.smoke, smoke);
 			d.smoke_on = smoke ? 1 : 0;
 		}
 	}
@@ -1354,12 +1359,23 @@ METHOD(world_frame) {
 			d.shown = vis ? 1 : 0;
 		}
 		if (!d.alive) continue;
-		if (vis) {
-			S.travel(i, d.travel_prev[0] + (t[P_TRAVEL_L] - d.travel_prev[0]) * frac, d.travel_prev[1] + (t[P_TRAVEL_R] - d.travel_prev[1]) * frac);
-		}
 		// звук: далёкие моторы стоят и не нагружают микшер
 		V3 c = S.center(i);
 		float dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z;
+		// ход гусениц и катков — параметры материалов: каждая смена перезаливает буфер материала в драйвер.
+		// Стоящим не шлём, ближним — каждый кадр, дальше 700 — каждый 4-й, дальше 1300 — не шлём (не видно)
+		if (vis) {
+			float dd = dx * dx + dy * dy + dz * dz;
+			float tl = d.travel_prev[0] + (t[P_TRAVEL_L] - d.travel_prev[0]) * frac;
+			float tr = d.travel_prev[1] + (t[P_TRAVEL_R] - d.travel_prev[1]) * frac;
+			bool moved = std::fabs(tl - d.travel_sent[0]) > 1e-3f || std::fabs(tr - d.travel_sent[1]) > 1e-3f;
+			bool due = dd < 700.0f * 700.0f || (dd < 1300.0f * 1300.0f && (d.travel_tick++ & 3) == 0);
+			if (moved && due) {
+				S.travel(i, tl, tr);
+				d.travel_sent[0] = tl;
+				d.travel_sent[1] = tr;
+			}
+		}
 		bool far = dx * dx + dy * dy + dz * dz > 1300.0f * 1300.0f;
 		for (int k = 0; k < 3; k++) {
 			bool pz = far || paused;

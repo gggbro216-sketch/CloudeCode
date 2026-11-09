@@ -610,7 +610,10 @@ func _build_ui() -> void:
 		if not hist.is_empty():
 			var parts: Array = []
 			for h in hist:
-				parts.append("№%d %d→%d" % [int(h[0]), int(h[2]), int(h[3])])
+				var s := "№%d %d→%d" % [int(h[0]), int(h[2]), int(h[3])]
+				if h.size() > 6 and int(h[6]) >= 30:
+					s += " (%+d МБ/мин)" % roundi(float(int(h[3]) - int(h[2])) / float(h[6]) * 60.0)
+				parts.append(s)
 			mem += " Процесс по боям (после загрузки→пик, МБ): " + ", ".join(parts) + "."
 		var crash_row := HBoxContainer.new()
 		crash_row.add_theme_constant_override("separation", 10)

@@ -233,6 +233,8 @@ struct Core {
 		gd::Obj root = nullptr, hull_n = nullptr, tur_n = nullptr, gun_n = nullptr, paint[3] = { nullptr, nullptr, nullptr };
 		gd::Obj track_mat = nullptr, dust = nullptr, mud = nullptr, smoke = nullptr, snd[3] = { nullptr, nullptr, nullptr };
 		float travel_prev[2] = { 0, 0 }, gy_set = -1e9f, eng_pitch = 1;
+		float travel_sent[2] = { -1e9f, -1e9f };  // ход гусениц, уже отданный шейдерам
+		uint8_t travel_tick = 0;
 		float key[4] = { 1e30f, 0, 0, 0 };  // остов: что нарисовано (не менялось — не трогаем)
 		int8_t shown = -1, smoke_on = -1, dust_on = 0, mud_on = 0, snd_paused[3] = { -1, -1, -1 };
 	};

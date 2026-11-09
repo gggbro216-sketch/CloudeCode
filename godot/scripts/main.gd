@@ -214,10 +214,16 @@ func session_mark(state: String, extra := {}, full := false) -> void:
 		h[3] = maxi(int(h[3]), int(session.proc_mb))
 		h[4] = maxi(int(h[4]), int(session.ram_mb))
 		h[5] = maxi(int(h[5]), int(session.video_mb))
+		if h.size() > 6:
+			h[6] = int(session.get("clock", 0))
+			if int(h[6]) >= 30 and int(h[2]) > 0:
+				# рост процесса в бою, МБ в минуту: до 3.1 на Mali было ~240 (частицы GPUParticles3D)
+				session.grow = roundi(float(int(h[3]) - int(h[2])) / float(h[6]) * 60.0)
 	print("[сеанс] %s, бой %d, %d с: Godot %d МБ, процесс %d МБ (PSS %d, пик %d, swap %d, потоков %d, файлов %d, разбор [куча, Java, библ., видеодрайвер, ассеты, прочее] %s), видео %d МБ, свободно в системе %d МБ, %d кадров/с, худший кадр %d мс, узлов %d, ядер C++ %d" % [
 		state, int(session.battles), int(session.get("clock", 0)), session.ram_mb, session.proc_mb, session.pss_mb,
 		session.hwm_mb, session.swap_mb, session.thr, session.fds, str(session.get("cat", [])), session.video_mb,
-		session.free_mb, session.fps, session.worst_ms, session.nodes, session.cores])
+		session.free_mb, session.fps, session.worst_ms, session.nodes, session.cores]
+		+ (", рост в бою %d МБ/мин" % int(session.grow) if session.has("grow") and state == "battle" else ""))
 	_session_save()
 
 
@@ -241,7 +247,7 @@ func _life(what: String) -> void:
 ## Новая строка истории боёв: [номер, карта, память процесса после загрузки, её пик, пик Godot, пик видео].
 func _hist_begin(map_key: String) -> void:
 	var hist: Array = session.hist
-	hist.append([int(session.battles), map_key, process_mb(), 0, 0, 0])
+	hist.append([int(session.battles), map_key, process_mb(), 0, 0, 0, 0])  # …, секунд боя
 	while hist.size() > 6:
 		hist.pop_front()
 

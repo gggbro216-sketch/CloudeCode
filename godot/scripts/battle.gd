@@ -20,6 +20,7 @@ const Models = preload("res://scripts/tank_models.gd")
 const TankScript = preload("res://scripts/tank.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const FxScript = preload("res://scripts/fx.gd")
+const Emitter = preload("res://scripts/emitter.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const WeatherScript = preload("res://scripts/weather.gd")
 
@@ -192,6 +193,7 @@ void fragment() {
 var shell_mm: MultiMesh
 var shell_mat: ShaderMaterial
 var shell_slot := 0
+var bush_fade := [Vector3.INF, Vector3.INF]  # что уже отдано материалу кустов
 var loops := {}  # танк -> [двигатель, гусеницы, башня]
 var reload_cue := false
 
@@ -1387,7 +1389,7 @@ func _trail(tk: TankScript, fwd: Vector2, v_f: float) -> void:
 		tk.mud_fx.basis = Basis(Quaternion(Vector3.UP, d))
 
 
-func _fx_on(p: GPUParticles3D, on: bool, at: Vector3) -> void:
+func _fx_on(p: Emitter, on: bool, at: Vector3) -> void:
 	if on:
 		p.global_position = at
 	if p.emitting != on:
@@ -4071,8 +4073,13 @@ func _sync(dt: float) -> void:
 		for tk: TankScript in tanks:
 			if tk.alive and tk.visible:
 				tk.sync_travel(frac)
-	bush_mat.set_shader_parameter("fade_a", w.center())
-	bush_mat.set_shader_parameter("fade_b", cam.global_position)
+	# прозрачность кустов между камерой и танком: параметр материала (буфер в драйвер) — только при сдвиге
+	var fa := w.center()
+	var fb := cam.global_position
+	if fa.distance_squared_to(bush_fade[0]) > 0.04 or fb.distance_squared_to(bush_fade[1]) > 0.04:
+		bush_fade = [fa, fb]
+		bush_mat.set_shader_parameter("fade_a", fa)
+		bush_mat.set_shader_parameter("fade_b", fb)
 	for z in zones:
 		# перекрашиваем, только когда меняется владелец или начинается захват
 		var cap := 1 if z.prog[0] > 0 and z.side != 0 else (2 if z.prog[1] > 0 and z.side != 1 else 0)
@@ -4105,7 +4112,7 @@ func _wrecks_update() -> void:
 		var age := clock - tk.wreck_t
 		var near := cp.distance_to(tk.center()) < 1000.0
 		for k in tk.wreck_fx.size():
-			var p: GPUParticles3D = tk.wreck_fx[k]
+			var p: Emitter = tk.wreck_fx[k]
 			if p == null:
 				continue
 			var lim := 60.0 if k == 0 else 20.0

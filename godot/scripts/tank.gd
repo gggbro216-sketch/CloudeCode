@@ -4,6 +4,7 @@ extends Node3D
 
 const D = preload("res://scripts/data.gd")
 const Models = preload("res://scripts/tank_models.gd")
+const Emitter = preload("res://scripts/emitter.gd")
 
 ## Модули: прочность 0–100. Больше 50 — исправен, 1–50 — повреждён, 0 — уничтожен.
 const MODS := ["engine", "gun", "turret", "optics", "ammo", "fuel"]
@@ -70,8 +71,8 @@ var track_w := 4.0  # ширина гусеницы и расстояние от
 var track_z := 9.0
 var last_mark := [Vector2(-1e6, 0), Vector2(-1e6, 0)]  # где кончился след левой и правой
 var mark_v := [0.0, 0.0]  # пройдено вдоль следа (рисунок траков идёт непрерывно)
-var dust_fx: GPUParticles3D
-var mud_fx: GPUParticles3D
+var dust_fx: Emitter
+var mud_fx: Emitter
 
 # счётчики боя
 var shots_fired := 0
@@ -82,8 +83,8 @@ var dmg_dealt := 0.0
 # повреждения
 var track_broken := 0.0  # сколько ещё стоит с перебитой гусеницей, с
 var fire := 0.0  # сколько ещё горит, с
-var fire_fx: GPUParticles3D
-var engine_fx: GPUParticles3D  # дым разбитого моторного отделения
+var fire_fx: Emitter
+var engine_fx: Emitter  # дым разбитого моторного отделения
 var mod_hp := {}
 var mod_fix := {}  # уничтоженный модуль → секунд до полевого ремонта
 var crew_ok := {}
@@ -182,7 +183,7 @@ var casemate := false  # САУ: орудие в неподвижной рубк
 var up_node: Node3D  # башня или рубка — верхняя коробка попаданий
 var up_min := Vector3.ZERO
 var up_max := Vector3.ZERO
-var smoke: GPUParticles3D
+var smoke: Emitter
 
 # башня, сорванная детонацией боеукладки
 var popping := false
