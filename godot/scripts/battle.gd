@@ -288,6 +288,7 @@ func _ready() -> void:
 	if not core:
 		_start_nav_thread()
 	t0 = Time.get_ticks_usec()
+	terra.terrain_shadows = int(G.get("shadows", 2)) >= 3
 	terra.build(self, map_key, hq)
 	_prof("load: сетка рельефа", t0)
 	await _stage("Постройки и лес")
@@ -1052,7 +1053,8 @@ func _phys_init() -> void:
 			1.0 if tk.casemate else 0.0, float(T.get("trav", 0.0)), el[0], el[1], T.shell_v, T.tspd,
 			tk.gun_pos0.x, tk.gun_pos0.y, tk.gun_pos0.z, tk.tur_pos0.x, tk.tur_pos0.y, tk.tur_pos0.z,
 			T.disp, float(T.get("stab", 0.0)), T.aim, tk.track_z, tk.track_w,
-			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref, tk.hh, tk.th, 1.0 if T.armored else 0.0])
+			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref, tk.hh, tk.th, 1.0 if T.armored else 0.0,
+			1.0 if D.NEUTRAL_STEER.has(tk.type_key) else 0.0])
 	core.tanks_static(st)
 	var pf := PackedFloat32Array()
 	for pr in props:

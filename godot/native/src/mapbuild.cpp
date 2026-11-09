@@ -113,11 +113,24 @@ inline void put_xf(float *B, const M3 &b, V3 o) {
 	B[8] = b.m[2][0]; B[9] = b.m[2][1]; B[10] = b.m[2][2]; B[11] = o.z;
 }
 
+// Участки карты для отсечения: 3×3 на квадрат [-400, WS + 400]
+const int TILES = 3;
+inline int tile_of(double x, double z) {
+	double span = (WS_D + 800.0) / TILES;
+	int ix = (int)std::floor((x + 400.0) / span), iz = (int)std::floor((z + 400.0) / span);
+	ix = std::min(TILES - 1, std::max(0, ix));
+	iz = std::min(TILES - 1, std::max(0, iz));
+	return iz * TILES + ix;
+}
+
 struct Build {
 	Core *core;
 	GRng rng;
 	bool winter = false, desert = false, stone = false, hq = false;
-	Group g;
+	// сетки по участкам 3×3: видеокарта рисует (и бросает в тени) только участки в поле зрения,
+	// а не всю карту целиком
+	std::vector<Group> gt = std::vector<Group>(TILES * TILES);
+	int tile = 0;
 	std::vector<float> phys;
 	std::vector<V3> smokes;
 
@@ -127,7 +140,7 @@ struct Build {
 	// в Нормандии и Арденнах кирпич и штукатурка — один материал (одна сетка)
 	int mat(int m) const { return (stone && m == M_BRICK) ? M_PLASTER : m; }
 	void add(const Prim &p, const Xf &x, int m, bool flat = false) {
-		g.add(p, x, mat(m), flat);
+		gt[tile].add(p, x, mat(m), flat);
 		if (coll) coll_add(p, x);
 	}
 	// точная коллизия (Core::mesh_build): те же треугольники, что идут на экран, наружной стороной наружу;
@@ -183,6 +196,7 @@ void Build::coll_add(const Prim &pm, const Xf &x) {
 }
 
 void Build::obst(const ObstIn &o) {
+	tile = tile_of(o.x + o.w * 0.5, o.y + o.h * 0.5);
 	int t_start = tri_count();
 	coll = o.kind != K_HEDGEHOGS;  // ежи — тонкие рельсы, снаряд пролетает
 	obst_body(o);
@@ -732,6 +746,7 @@ void Build::obst_body(const ObstIn &o) {
 
 // мелочь без коллизии: столбы, фонари, ящики, сено, бочки
 void Build::decor(int kind, float px, float py, float rot) {
+	tile = tile_of(px, py);
 	coll = false;
 	decor_body(kind, px, py, rot);
 	coll = true;
@@ -911,8 +926,8 @@ METHOD(map_build) {
 	for (size_t k = 0; k + 3 < df.size(); k += 4) B.decor((int)df[k], df[k + 1], df[k + 2], df[k + 3]);
 
 	// кусты и ели: одна сетка (материал кустов), цвет — тон и радиус, UV2 — центр куста
-	Group bg;
-	bg.extra = true;
+	std::vector<Group> bgt(TILES * TILES);
+	for (Group &q : bgt) q.extra = true;
 	{
 		const Prim ico = sphere(9, 5);
 		const Prim cone = cyl(0.0, 0.5, 1.0, 7);
@@ -936,6 +951,7 @@ METHOD(map_build) {
 			ac[3] = (float)((double)br / 100.0);
 			lc[3] = ac[3];
 			V2 bp = { bpx, bpy };
+			Group &bg = bgt[tile_of(bpx, bpy)];
 			for (int i = 0; i < ns && q + 2 < bf.size(); i++) {
 				float sx = bf[q], sy = bf[q + 1], sz = bf[q + 2];
 				q += 3;
@@ -960,8 +976,9 @@ METHOD(map_build) {
 
 	// деревья и заборы: сетки частей и буферы MultiMesh (3×4 и цвет на экземпляр)
 	std::vector<std::vector<Group>> parts = prop_meshes(B.winter);
-	std::vector<std::vector<float>> bufs(PROP_N);
+	std::vector<std::vector<float>> bufs((size_t)PROP_N * TILES * TILES);
 	std::vector<float> ys;
+	std::vector<int32_t> prop_tile;  // на каждое дерево: участок × 65536 + номер в буфере участка
 	for (size_t k = 0; k + 4 < pf.size(); k += 5) {
 		int kind = std::min(PROP_N - 1, std::max(0, (int)pf[k]));
 		float px = pf[k + 1], py = pf[k + 2], rot = pf[k + 3], sc = pf[k + 4];
@@ -973,7 +990,9 @@ METHOD(map_build) {
 		float tint[4];
 		from_hsv((float)hh, (float)ss, (float)vv, tint);
 		M3 b = axis(UP, -(double)rot) * scl(v(sc, sc, sc));
-		std::vector<float> &bu = bufs[kind];
+		int pt = tile_of(px, py);
+		std::vector<float> &bu = bufs[(size_t)kind * TILES * TILES + pt];
+		prop_tile.push_back(pt * 65536 + (int32_t)(bu.size() / 16));
 		size_t o = bu.size();
 		bu.resize(o + 16);
 		put_xf(&bu[o], b, v(px, y, py));
@@ -1016,6 +1035,7 @@ METHOD(map_build) {
 		const Prim pole = cyl(0.8, 0.8, 56, 10);
 		for (size_t k = 0; k + 2 < zf.size(); k += 3) {
 			double zy = B.height(zf[k], zf[k + 1]);
+			B.tile = tile_of(zf[k], zf[k + 1]);
 			B.add(pole, X(v(zf[k], zy + 28, zf[k + 1])), M_STEEL);
 		}
 	}
@@ -1023,9 +1043,17 @@ METHOD(map_build) {
 	B.coll = true;
 	self->mesh_build(B.ctri, B.cobj);
 
-	ArrayOut out(10);
-	ret_group(out.at(0), B.g);
-	ret_group(out.at(1), bg);
+	ArrayOut out(11);
+	{
+		ArrayOut tg(TILES * TILES);
+		for (int k = 0; k < TILES * TILES; k++) ret_group(tg.at(k), B.gt[k]);
+		tg.to_variant(out.at(0));
+	}
+	{
+		ArrayOut tb(TILES * TILES);
+		for (int k = 0; k < TILES * TILES; k++) ret_group(tb.at(k), bgt[k]);
+		tb.to_variant(out.at(1));
+	}
 	ret_f32(out.at(2), B.phys.data(), (int64_t)B.phys.size());
 	ret_v3s(out.at(3), B.smokes.data(), (int64_t)B.smokes.size());
 	{
@@ -1038,10 +1066,19 @@ METHOD(map_build) {
 		pm.to_variant(out.at(4));
 	}
 	{
+		// [вид][участок] → буфер MultiMesh
 		ArrayOut bb(PROP_N);
-		for (int k = 0; k < PROP_N; k++) ret_f32(bb.at(k), bufs[k].data(), (int64_t)bufs[k].size());
+		for (int k = 0; k < PROP_N; k++) {
+			ArrayOut kt(TILES * TILES);
+			for (int q = 0; q < TILES * TILES; q++) {
+				const std::vector<float> &bu = bufs[(size_t)k * TILES * TILES + q];
+				ret_f32(kt.at(q), bu.data(), (int64_t)bu.size());
+			}
+			kt.to_variant(bb.at(k));
+		}
 		bb.to_variant(out.at(5));
 	}
+	ret_i32(out.at(10), prop_tile.data(), (int64_t)prop_tile.size());
 	ret_f32(out.at(6), ys.data(), (int64_t)ys.size());
 	{
 		ArrayOut pp((int64_t)peb.size() * 2);

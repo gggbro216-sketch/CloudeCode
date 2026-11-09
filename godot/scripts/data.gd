@@ -487,6 +487,11 @@ const ROMAN := ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
 ## Ключи машин, заменённых в 2.4, → замена (перенос сохранений).
 const RENAMED := {"crusader": "a10", "matilda": "grant", "su76": "t34_57", "marder3": "grille", "m36": "t28",
 	"valentine": "tetrarch", "sem7518": "sem10525", "sem9053": "l3cc", "toldi": "pz2", "zrinyi": "stug4"}
+## Разворот на месте вокруг центра (планетарные и двухпоточные механизмы поворота: «Тигры», «Пантеры»,
+## британский Merritt-Brown, гидростатика Naeder у B1 bis). У остальных (бортовые фрикционы и тормоза,
+## управляемый дифференциал) танк без хода поворачивается вокруг заторможенной гусеницы.
+const NEUTRAL_STEER := ["tiger", "tiger2", "tiger_p", "panther", "jagdpanther", "jagdtiger", "ferdinand",
+	"churchill", "cromwell", "comet", "challenger", "b1bis"]
 const STARTERS := ["t34_76", "a10", "pz3", "m13_40", "stuart", "l6_40", "pz38t", "t70", "bt7", "pz3j", "tetrarch", "pz2",
 	"h38", "hago"]
 # Дерево исследования: какие машины открывает опыт, набранный на танке.

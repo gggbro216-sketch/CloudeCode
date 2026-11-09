@@ -642,6 +642,46 @@ METHOD(terrain_mesh) {
 	out.to_variant(r);
 }
 
+// Сетка рельефа участками k×k (те же треугольники, что у terrain_mesh): [[вершины, нормали, индексы]×k²].
+// Видеокарта рисует и бросает в тени только участки в поле зрения.
+METHOD(terrain_mesh_chunks) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int k = std::max(1, std::min(16, (int)a.integer(0)));
+	int N = self->tn;
+	ArrayOut out((int64_t)k * k);
+	for (int cz = 0; cz < k; cz++) {
+		for (int cx = 0; cx < k; cx++) {
+			int x0 = cx * N / k, x1 = (cx + 1) * N / k, z0 = cz * N / k, z1 = (cz + 1) * N / k;
+			int w = x1 - x0 + 1;
+			std::vector<V3> verts, norms;
+			verts.reserve((size_t)w * (z1 - z0 + 1));
+			for (int iz = z0; iz <= z1; iz++) {
+				for (int ix = x0; ix <= x1; ix++) {
+					float x = self->origin + ix * self->cell, z = self->origin + iz * self->cell;
+					verts.push_back({ x, self->h[(size_t)iz * (N + 1) + ix], z });
+					norms.push_back(self->normal(x, z, self->cell));
+				}
+			}
+			std::vector<int32_t> idx;
+			idx.reserve((size_t)(x1 - x0) * (z1 - z0) * 6);
+			for (int iz = 0; iz < z1 - z0; iz++) {
+				for (int ix = 0; ix < x1 - x0; ix++) {
+					int32_t p = iz * w + ix, q = p + 1, c = p + w, d = c + 1;
+					int32_t tri[6] = { p, q, c, q, d, c };
+					idx.insert(idx.end(), tri, tri + 6);
+				}
+			}
+			ArrayOut ch(3);
+			ret_v3s(ch.at(0), verts.data(), verts.size());
+			ret_v3s(ch.at(1), norms.data(), norms.size());
+			ret_i32(ch.at(2), idx.data(), idx.size());
+			ch.to_variant(out.at((int64_t)cz * k + cx));
+		}
+	}
+	out.to_variant(r);
+}
+
 // Высоты для HeightMapShape3D (квадрат клеток lo..hi, в долях шага)
 METHOD(terrain_collision) {
 	SELF;
@@ -1325,7 +1365,7 @@ METHOD(props_set) {
 }
 
 // Характеристики танков, STATIC чисел на танк (порядок — Battle._phys_init)
-static const int STATIC = 37;
+static const int STATIC = 38;
 METHOD(tanks_static) {
 	SELF;
 	if (!need(a, 1, e)) return;
@@ -1341,7 +1381,7 @@ METHOD(tanks_static) {
 		t.tur_pos0 = { q[19], q[20], q[21] };
 		t.disp = q[22]; t.stab = q[23]; t.aim = q[24]; t.track_z = q[25]; t.track_w = q[26];
 		t.armor0 = q[27]; t.armor1 = q[28]; t.armor2 = q[29]; t.slope = q[30]; t.side_slope = q[31]; t.pen = q[32]; t.pref = q[33];
-		t.hh = q[34]; t.th = q[35]; t.armored = q[36];
+		t.hh = q[34]; t.th = q[35]; t.armored = q[36]; t.neutral = q[37];
 		self->ts.push_back(t);
 	}
 	self->rng ^= (uint32_t)(f.size() * 2654435761u) ^ (uint32_t)(f.empty() ? 1 : f[0] * 1000.0f);
@@ -1644,9 +1684,15 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		steer = clampf(steer, -1.0f, 1.0f);
 		t[P_THROTTLE] = thr;
 		V2 gnd = self->ground_at(t[P_X], t[P_Y]);
-		float mu = gnd.x;
 		t[P_SOFT] = gnd.y;
-		float soft = std::min(1.0f, gnd.y * std::pow(T.press, 1.3f));
+		// грунт под каждой гусеницей свой: одна на дороге, другая в грязи — танк тянет в сторону
+		float sh0 = std::sin(t[P_HULL]), ch0 = std::cos(t[P_HULL]);
+		V2 g_l = self->ground_at(t[P_X] + sh0 * T.track_z, t[P_Y] - ch0 * T.track_z);
+		V2 g_r = self->ground_at(t[P_X] - sh0 * T.track_z, t[P_Y] + ch0 * T.track_z);
+		float pk = std::pow(T.press, 1.3f);
+		float soft_l = std::min(1.0f, g_l.y * pk), soft_r = std::min(1.0f, g_r.y * pk);
+		float mu = 0.5f * (g_l.x + g_r.x);
+		float soft = 0.5f * (soft_l + soft_r);
 		float go = (1.0f - 0.5f * soft) * t[P_SPEED_K];
 		float vmax = T.speed * go, vrev = T.rev * go;
 		t[P_VMAX] = vmax;
@@ -1655,7 +1701,10 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		float v0 = v_f;
 		bool rev = v_f < -1.0f || thr < -0.05f;
 		float turn = T.turn * t[P_TURN_K] * (1.0f - 0.3f * soft);
-		float want_turn = turn * steer * (rev ? -1.0f : 1.0f) * (1.0f - clampf(std::fabs(v_f) / std::max(vmax, 1.0f), 0.0f, 1.0f) * 0.3f);
+		float vfr = clampf(std::fabs(v_f) / std::max(vmax, 1.0f), 0.0f, 1.0f);
+		float want_turn = turn * steer * (rev ? -1.0f : 1.0f) * (1.0f - vfr * 0.3f);
+		// увод в сторону: гусеница на вязком грунте тормозит сильнее (левая быстрее — рыскание +)
+		want_turn += turn * (soft_r - soft_l) * 0.3f * vfr * signf(v_f);
 		t[P_YAW] = move_toward(t[P_YAW], want_turn, T.turn * 3.0f * dt);
 		t[P_HULL] = wrapf(t[P_HULL] + t[P_YAW] * dt, -PI_F, PI_F);
 		t[P_TUR] = wrapf(t[P_TUR] + t[P_YAW] * dt, -PI_F, PI_F);
@@ -1674,8 +1723,17 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		float acc = 0.0f;
 		t[P_SLIP] = 0.0f;
 		float vfrac = clampf(std::fabs(v_f) / std::max(vmax, 1.0f), 0.0f, 1.0f);
+		// сопротивление повороту гусеничной машины (Мерритт): момент μп·G·L/4 забирает мощность двигателя —
+		// в крутом повороте танк теряет скорость, тяжёлый и слабый на мягком грунте сильнее
+		float upm_k = 1.0f / 7.5f;
+		float m_kg = T.mass * 1000.0f;
+		float mu_turn = 0.45f + 0.4f * soft;
+		float m_res = mu_turn * m_kg * 9.81f * (T.L * upm_k * 0.8f) * 0.25f;
+		float p_eng = std::max(1.0f, T.accel * T.mass / 2.4f) * 735.5f * t[P_ACCEL_K];
+		float turn_load = m_res * std::fabs(t[P_YAW]) / p_eng;
+		float turn_slow = clampf(1.0f - 1.3f * turn_load, 0.35f, 1.0f);
 		if (std::fabs(thr) > 0.05f) {
-			float target = thr * (thr > 0.0f ? vmax : vrev) * (1.0f - std::fabs(steer) * 0.25f);
+			float target = thr * (thr > 0.0f ? vmax : vrev) * turn_slow;
 			float push = T.accel * t[P_ACCEL_K] * (1.0f - 0.55f * soft) * (1.0f - vfrac * 0.6f);
 			// на подъёме выручает низкая передача
 			float up = slope_f * signf(thr);
@@ -1683,6 +1741,11 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 				push += std::min(g * up * cos_f, push * 1.5f) * (1.0f - vfrac);
 			}
 			acc = clampf((target - v_f) * 2.5f, -push * 2.5f, push);
+		} else if (std::fabs(steer) > 0.05f && T.neutral == 0.0f) {
+			// разворот без хода у бортового фрикциона или тормоза: одна гусеница стоит, другая тянет —
+			// танк поворачивается вокруг заторможенной гусеницы, центр корпуса идёт вперёд
+			float target = std::fabs(t[P_YAW]) * T.W * 0.5f;
+			acc = clampf((target - v_f) * 3.0f, -0.4f * g, T.accel * t[P_ACCEL_K]);
 		} else {
 			acc = -signf(v_f) * std::min(std::fabs(v_f) * 3.0f, 0.4f * g);
 		}
@@ -1695,7 +1758,8 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		acc -= g * slope_f * cos_f;
 		v_f += acc * dt;
 		v_f = move_toward(v_f, 0.0f, g * (0.03f + soft * 0.07f) * dt);
-		if (std::fabs(thr) <= 0.05f && std::fabs(v_f) < 1.5f && std::fabs(slope_f) < mu * 0.95f) {
+		bool pivot = std::fabs(thr) <= 0.05f && std::fabs(steer) > 0.05f && T.neutral == 0.0f;
+		if (std::fabs(thr) <= 0.05f && !pivot && std::fabs(v_f) < 1.5f && std::fabs(slope_f) < mu * 0.95f) {
 			v_f = 0.0f;
 		}
 		if (std::fabs(slope_f) > mu * 0.95f) {
@@ -1787,9 +1851,13 @@ void physics_run(Core *self, float dt, float clock, std::vector<float> &P, std::
 		t[P_DIST] += std::sqrt(mdx * mdx + mdy * mdy);
 		// путь гусениц: в повороте внешняя быстрее, при пробуксовке обе крутятся быстрее хода
 		float half_w = T.W * 0.5f;
+		// буксование: гусеница на скользком грунте прокручивается сильнее
 		float spin = t[P_SLIP] * signf(thr) * vmax * 0.6f;
-		t[P_TRAVEL_L] += (v_f + spin + t[P_YAW] * half_w) * dt;
-		t[P_TRAVEL_R] += (v_f + spin - t[P_YAW] * half_w) * dt;
+		float mu_m = std::max(0.05f, mu);
+		float spin_l = spin * clampf(mu_m / std::max(0.05f, g_l.x), 0.5f, 2.0f);
+		float spin_r = spin * clampf(mu_m / std::max(0.05f, g_r.x), 0.5f, 2.0f);
+		t[P_TRAVEL_L] += (v_f + spin_l + t[P_YAW] * half_w) * dt;
+		t[P_TRAVEL_R] += (v_f + spin_r - t[P_YAW] * half_w) * dt;
 		if (t[P_DISP_CMD] != 0.0f) update_disp(T, t, dt);
 		// следы гусениц: от прошлой точки каждой гусеницы до текущей — отрезок с рисунком траков
 		for (int sd = 0; sd < 2; sd++) {
@@ -3663,7 +3731,7 @@ void register_core(GDExtensionClassLibraryPtr lib) {
 		Method m;
 	} methods[] = {
 		{ "terrain_set", terrain_set }, { "height", height }, { "terrain_generate", terrain_generate },
-		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_collision", terrain_collision },
+		{ "terrain_heights", terrain_heights }, { "terrain_mesh", terrain_mesh }, { "terrain_mesh_chunks", terrain_mesh_chunks }, { "terrain_collision", terrain_collision },
 		{ "obst_set", obst_set }, { "blocked_at", blocked_at }, { "straight", straight }, { "boxes_set", boxes_set },
 		{ "los", los }, { "world_ray", world_ray }, { "mesh_info", mesh_info }, { "spot", spot }, { "nav_build", nav_build }, { "nav_path", nav_path }, { "geo_add", geo_add }, { "rng_seed", rng_seed }, { "cores_alive", cores_alive }, { "proc_stats", proc_stats },
 		{ "scale_v3", scale_v3 }, { "camo", camo }, { "grime", grime }, { "mask_set", mask_set }, { "grass_chunk", grass_chunk },

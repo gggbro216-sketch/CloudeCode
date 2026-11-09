@@ -17,6 +17,7 @@ var noise_img: Image  # шум шейдера земли — по нему же 
 var core: Object = null  # C++ этого боя (SteelCore, см. native.gd); null — всё считает GDScript
 
 
+var terrain_shadows := false  # рельеф отбрасывает тень (настройка «Тени: высокие»)
 var map_seed := 0  # зерно карты (карты постоянные): шум рельефа и маска земли от него
 
 
@@ -413,7 +414,11 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 	var idx := PackedInt32Array()
 	var lo := int((-150.0 - ORIGIN) / CELL)
 	var hi := int((D.WS + 150.0 - ORIGIN) / CELL)
-	if core:
+	var chunks: Array = []
+	if core and core.has_method("terrain_mesh_chunks"):
+		# участками 4×4: в кадр и в тени попадают только видимые
+		chunks = core.terrain_mesh_chunks(4)
+	elif core:
 		var arrs: Array = core.terrain_mesh()
 		verts = arrs[0]
 		norms = arrs[1]
@@ -433,13 +438,18 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 				var c := a + N + 1
 				var d := c + 1
 				idx.append_array([a, b, c, b, d, c])
-	var arr := []
-	arr.resize(Mesh.ARRAY_MAX)
-	arr[Mesh.ARRAY_VERTEX] = verts
-	arr[Mesh.ARRAY_NORMAL] = norms
-	arr[Mesh.ARRAY_INDEX] = idx
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	if chunks.is_empty():
+		chunks = [[verts, norms, idx]]
+	var meshes: Array = []
+	for ch in chunks:
+		var arr := []
+		arr.resize(Mesh.ARRAY_MAX)
+		arr[Mesh.ARRAY_VERTEX] = ch[0]
+		arr[Mesh.ARRAY_NORMAL] = ch[1]
+		arr[Mesh.ARRAY_INDEX] = ch[2]
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		meshes.append(mesh)
 	var noise := FastNoiseLite.new()
 	noise.seed = 3
 	noise.frequency = 0.02
@@ -462,11 +472,13 @@ func build(parent: Node3D, map_key: String, shadows: bool) -> void:
 		mat.set_shader_parameter("c_" + k, Color(M[k]))
 	mat.set_shader_parameter("origin", ORIGIN)
 	mat.set_shader_parameter("size", SIZE)
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mi)
+	for mesh in meshes:
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		# тень рельефа на самого себя почти не видна при дальности теней 20–70 м, а стоит целого прохода
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows and terrain_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mi)
 	# коллизия для лучей (снаряды, видимость, камера): сетка высот — луч идёт по клеткам,
 	# это в разы дешевле, чем по дереву из треугольников; масштаб общий, поэтому высоты делим на шаг
 	var body := StaticBody3D.new()

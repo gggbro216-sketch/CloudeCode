@@ -1947,44 +1947,51 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 		body.add_child(cs)
 	# кусты и ели
 	var bmat := _bush_mat()
-	Geo.commit_arrays(parent, res[1], [bmat], hq, true)
+	# сетки — по участкам 3×3: невидимые участки не рисуются и не попадают в тени
+	for tg in res[1]:
+		Geo.commit_arrays(parent, tg, [bmat], hq, true)
 	# деревья и заборы: MultiMesh на часть, буфер (поза и оттенок) — из C++
 	var pm := _prop_mats(map_key, M)
 	var groups: Array = res[4]
 	var bufs: Array = res[5]
-	var mms := {}
+	var mms := {}  # вид → [участок → MultiMesh каждой части]
 	for pk in ["tree", "apple", "palm", "bare", "spruce", "fence"]:
 		var ki := PROP_KINDS.find(pk)
-		var buf: PackedFloat32Array = bufs[ki]
-		var count := buf.size() / 16
-		if count == 0:
-			continue
-		var list: Array = []
+		var kb: Array = bufs[ki]
 		var kg: Array = groups[ki]
-		for j in kg.size():
-			var mm := MultiMesh.new()
-			mm.transform_format = MultiMesh.TRANSFORM_3D
-			mm.use_colors = true
-			mm.mesh = Geo.part_mesh(kg[j], 0)
-			mm.instance_count = count
-			mm.buffer = buf
-			var mmi := MultiMeshInstance3D.new()
-			mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
-			mmi.multimesh = mm
-			mmi.material_override = pm[pk][j]
-			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if hq else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			parent.add_child(mmi)
-			list.append(mm)
-		mms[pk] = list
+		var per_tile: Array = []
+		for q in kb.size():
+			var buf: PackedFloat32Array = kb[q]
+			var count := buf.size() / 16
+			var list: Array = []
+			if count > 0:
+				for j in kg.size():
+					var mm := MultiMesh.new()
+					mm.transform_format = MultiMesh.TRANSFORM_3D
+					mm.use_colors = true
+					mm.mesh = Geo.part_mesh(kg[j], 0)
+					mm.instance_count = count
+					mm.buffer = buf
+					var mmi := MultiMeshInstance3D.new()
+					mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # ставится разом, сглаживать нечего
+					mmi.multimesh = mm
+					mmi.material_override = pm[pk][j]
+					mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if hq else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					parent.add_child(mmi)
+					list.append(mm)
+			per_tile.append(list)
+		mms[pk] = per_tile
 	var ys: PackedFloat32Array = res[6]
-	var counters := {}
+	var where: PackedInt32Array = res[10]  # участок × 65536 + номер в его буфере
 	for k in data.props.size():
 		var pr = data.props[k]
-		var i: int = counters.get(pr.kind, 0)
-		counters[pr.kind] = i + 1
 		pr.y = ys[k]
-		for mm in mms.get(pr.kind, []):
-			pr.mms.append([mm, i])
+		var q := where[k] >> 16
+		var i := where[k] & 0xffff
+		var pt: Array = mms.get(pr.kind, [])
+		if q < pt.size():
+			for mm in pt[q]:
+				pr.mms.append([mm, i])
 	# камешки в пустыне: участки 4×4, дальние не рисуются
 	if desert:
 		var pebble := Geo.part_mesh(res[8], 0)
@@ -2014,7 +2021,8 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 	_zone_nodes(parent, zones, terra)
 	var mats: Array = [M.plaster, M.brick, M.roof, M.concrete, M.concrete_d, M.wood, M.steel, M.rust, M.charred, M.sand,
 		M.rubble, M.rock, M.snow, M.canvas, M.olive, M.pole, M.earth, M.leaves, M.hay, M.adobe, M.crate, wall_mats[0], wall_mats[1]]
-	Geo.commit_arrays(parent, res[0], mats, hq)
+	for tg in res[0]:
+		Geo.commit_arrays(parent, tg, mats, hq)
 	var smokes: Array = []
 	for sp: Vector3 in (res[3] as PackedVector3Array):
 		smokes.append(sp)
