@@ -197,10 +197,11 @@ var pop_spin := Vector2.ZERO
 ## year — год сражения (модификация и бортовые экраны), paint — окраска и знаки стороны.
 ## top — какие модули стоят исследованные ({слот: true/false}, без слота — исследованный).
 func setup(key: String, tm: int, p: Vector2, nm: String, player: bool, shadows: bool, year := 1944, paint_cfg := {},
-		top := {}) -> void:
+		top := {}, skills := {}) -> void:
 	type_key = key
 	T = D.spec(key, year, top)
 	T.merge(D.derived(T), true)
+	D.apply_crew(T, skills)  # навыки экипажа: обзор, перезарядка, разброс, сведение, вождение
 	team = tm
 	pos = p
 	b_last = p

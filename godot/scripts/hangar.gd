@@ -79,6 +79,7 @@ var info_lbl: Label
 var tank_bars: TankBars
 var xp_lbl: Label
 var mods_btn: Button
+var crew_btn: Button
 var cons_btns := {}
 var cons_desc: Label
 var mode_desc: Label
@@ -697,11 +698,21 @@ func _build_ui() -> void:
 	lv.add_child(tank_bars)
 	xp_lbl = UI.label("", 13, UI.DIM)
 	lv.add_child(xp_lbl)
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 6)
+	lv.add_child(mrow)
 	mods_btn = Button.new()
 	mods_btn.custom_minimum_size = Vector2(0, 42)
+	mods_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mods_btn.add_theme_font_size_override("font_size", 16)
 	mods_btn.pressed.connect(_show_modules)
-	lv.add_child(mods_btn)
+	mrow.add_child(mods_btn)
+	crew_btn = Button.new()
+	crew_btn.custom_minimum_size = Vector2(0, 42)
+	crew_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	crew_btn.add_theme_font_size_override("font_size", 16)
+	crew_btn.pressed.connect(_show_crew)
+	mrow.add_child(crew_btn)
 	lv.add_child(UI.label("СНАРЯЖЕНИЕ В БОЙ", 12, UI.DIM))
 	var cr := HBoxContainer.new()
 	cr.add_theme_constant_override("separation", 6)
@@ -1096,6 +1107,9 @@ func _show_tank_info() -> void:
 		if main.module_researched(key, s):
 			done += 1
 	mods_btn.text = "МОДУЛИ  %d / %d" % [done, slots.size()] if not slots.is_empty() else "МОДУЛИ"
+	var pts: int = main.crew_points(key)
+	crew_btn.text = "ЭКИПАЖ  ур. %d%s" % [D.crew_level(int(main.crew(key).xp)), ("  +%d" % pts) if pts > 0 else ""]
+	crew_btn.modulate = Color(1.0, 0.86, 0.5) if pts > 0 else Color(1, 1, 1)
 	_update_res()
 
 
@@ -1265,6 +1279,86 @@ func _show_credits() -> void:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(l)
+
+
+# ---------- Экипаж ----------
+
+## Экипаж выбранного танка: кто, звания, уровень и опыт, навыки (очко за уровень, до 3 уровней на навык).
+func _show_crew() -> void:
+	var key: String = main.save.tank
+	var c: Dictionary = main.crew(key)
+	var lv := D.crew_level(int(c.xp))
+	var v := _modal("ЭКИПАЖ · " + String(D.TYPES[key].name).to_upper())
+	var head: Control = v.get_node("Head")
+	var lvl := _chip(head, "УРОВЕНЬ ЭКИПАЖА")
+	lvl.text = "%d из %d" % [lv, D.CREW_MAX_LEVEL]
+	var ptl := _chip(head, "ОЧКИ НАВЫКОВ")
+	ptl.text = str(main.crew_points(key))
+	_close_btn(head)
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 6)
+	sc.add_child(list)
+	# состав
+	var names := D.crew_names(key)
+	var seats := D.crew_seats(key)
+	var people: Array = []
+	for i in seats.size():
+		var rank: String = D.RANKS[clampi(lv - 1 + (1 if i == 0 else 0), 0, D.RANKS.size() - 1)]
+		var role: String = D.CREW_ROLES[seats[i]]
+		if seats.size() == 2 and i == 0:
+			role = "Командир-наводчик"
+		people.append("%s — %s %s" % [role, rank.to_lower(), names[i]])
+	var pl := UI.label("\n".join(people), 15)
+	pl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	list.add_child(pl)
+	var nxt := "максимальный уровень" if lv >= D.CREW_MAX_LEVEL else "до %d-го уровня: %s из %s опыта" % [lv + 1, _num(int(c.xp) - D.crew_xp_for(lv)),
+		_num(D.crew_xp_for(lv + 1) - D.crew_xp_for(lv))]
+	list.add_child(UI.label("Опыт экипажа: %s (%s). Экипаж учится в бою: весь опыт танка идёт и ему." % [_num(int(c.xp)), nxt], 13, UI.DIM))
+	# навыки
+	for s: Array in D.CREW_SKILLS:
+		var sk: String = s[0]
+		var have := int(c.sk.get(sk, 0))
+		var row := PanelContainer.new()
+		row.add_theme_stylebox_override("panel", UI.box(UI.PANEL2, UI.LINE, 1, 8, 0.9, 10.0))
+		list.add_child(row)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		row.add_child(h)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.add_theme_constant_override("separation", 1)
+		h.add_child(info)
+		info.add_child(UI.label(String(s[1]).to_upper() + "  ·  " + String(s[2]), 15))
+		info.add_child(UI.label(String(s[3]), 12, UI.DIM))
+		var dots := UI.label("%d / %d" % [have, D.SKILL_MAX], 17, D.AMBER if have > 0 else UI.DIM)
+		dots.custom_minimum_size = Vector2(70, 0)
+		dots.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		h.add_child(dots)
+		var b := Button.new()
+		b.text = "+"
+		b.custom_minimum_size = Vector2(52, 44)
+		b.disabled = have >= D.SKILL_MAX or main.crew_points(key) <= 0
+		b.pressed.connect(func() -> void:
+			if main.learn_skill(key, sk):
+				_show_tank_info()
+				_show_crew())
+		h.add_child(b)
+	if not c.sk.is_empty():
+		var rb := Button.new()
+		rb.text = "ПЕРЕОБУЧИТЬ (сбросить навыки) · %s серебра" % _num(main.CREW_RESET)
+		rb.custom_minimum_size = Vector2(0, 44)
+		rb.disabled = int(main.save.silver) < main.CREW_RESET
+		rb.pressed.connect(func() -> void:
+			if main.reset_skills(key):
+				_update_res()
+				_show_tank_info()
+				_show_crew())
+		list.add_child(rb)
 
 
 # ---------- Модули ----------

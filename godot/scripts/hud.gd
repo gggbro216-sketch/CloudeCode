@@ -1103,6 +1103,9 @@ func show_result(st: Dictionary) -> void:
 		row.call("Особые снаряды", "", "−" + _num(st.ammo_cost), "e2563c")
 	row.call("ИТОГО (+%s свободного опыта)" % _num(st.free_xp), "+" + _num(st.xp),
 		("+" if int(st.silver) >= 0 else "−") + _num(absi(int(st.silver))), D.AMBER, 18)
+	if int(st.get("crew_xp", 0)) > 0:
+		row.call("Опыт экипажа" + (" — новый уровень, есть очко навыка!" if st.get("crew_up", false) else ""),
+			"+" + _num(st.crew_xp), "", "7bc65a", 14)
 	result_box.visible = true
 
 

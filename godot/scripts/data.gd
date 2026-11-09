@@ -846,6 +846,102 @@ static func crew_n(key: String) -> int:
 	return int(CREW_N.get(key, 4))
 
 
+# ---------- Экипаж: имена, уровни, навыки ----------
+
+## Навыки: ключ, название, кто владеет, что даёт. До 3 уровней каждый, очко — за уровень экипажа.
+const CREW_SKILLS := [
+	["eagle", "Орлиный глаз", "Командир", "обзор +3 % за уровень"],
+	["mentor", "Наставник", "Командир", "опыт экипажа +10 % за уровень"],
+	["accuracy", "Меткость", "Наводчик", "разброс −3 % за уровень"],
+	["aiming", "Быстрое сведение", "Наводчик", "время сведения −4 % за уровень"],
+	["loading", "Скорость заряжания", "Заряжающий", "перезарядка −2,5 % за уровень"],
+	["driving", "Мастер вождения", "Механик-водитель", "поворот корпуса и разгон +3 % за уровень"],
+	["team", "Слаженность", "Весь экипаж", "обзор +1 %, перезарядка и сведение −1 % за уровень"],
+]
+const SKILL_MAX := 3
+const CREW_MAX_LEVEL := 10
+const CREW_ROLES := {"commander": "Командир", "gunner": "Наводчик", "loader": "Заряжающий", "driver": "Механик-водитель",
+	"radio": "Радист"}
+const RANKS := ["Рядовой", "Ефрейтор", "Младший сержант", "Сержант", "Старший сержант", "Старшина", "Младший лейтенант",
+	"Лейтенант", "Старший лейтенант", "Капитан"]
+## Имена экипажей по нациям: [имена, фамилии].
+const CREW_NAMES := {
+	"СССР": [["Иван", "Пётр", "Николай", "Алексей", "Василий", "Михаил", "Григорий", "Фёдор", "Сергей", "Андрей", "Павел", "Степан"],
+		["Петров", "Кузнецов", "Смирнов", "Волков", "Зайцев", "Морозов", "Лавриненко", "Колобанов", "Орлов", "Белов", "Гусев", "Титов"]],
+	"Германия": [["Hans", "Karl", "Otto", "Walter", "Kurt", "Ernst", "Fritz", "Heinz", "Josef", "Paul", "Willi", "Günter"],
+		["Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Wagner", "Becker", "Hoffmann", "Koch", "Richter", "Klein", "Wolf"]],
+	"США": [["John", "Robert", "William", "James", "Charles", "George", "Frank", "Joseph", "Edward", "Henry", "Walter", "Harry"],
+		["Smith", "Johnson", "Miller", "Davis", "Wilson", "Anderson", "Taylor", "Moore", "Jackson", "White", "Clark", "Lewis"]],
+	"Великобритания": [["Thomas", "Arthur", "Albert", "Frederick", "Alfred", "Ernest", "Harold", "Leonard", "Stanley", "Sidney", "Reginald", "Cyril"],
+		["Brown", "Jones", "Evans", "Roberts", "Hughes", "Walker", "Wright", "Green", "Hall", "Wood", "Hill", "Cooper"]],
+	"Италия": [["Giuseppe", "Giovanni", "Antonio", "Mario", "Luigi", "Francesco", "Angelo", "Vincenzo", "Pietro", "Salvatore", "Carlo", "Franco"],
+		["Rossi", "Russo", "Ferrari", "Esposito", "Bianchi", "Romano", "Colombo", "Ricci", "Marino", "Greco", "Bruno", "Gallo"]],
+	"Венгрия": [["László", "István", "József", "János", "Zoltán", "Sándor", "Ferenc", "Gábor", "Lajos", "Imre", "Béla", "Mihály"],
+		["Nagy", "Kovács", "Tóth", "Szabó", "Horváth", "Varga", "Kiss", "Molnár", "Németh", "Farkas", "Balogh", "Papp"]],
+	"Франция": [["Jean", "Pierre", "Louis", "Henri", "Marcel", "André", "René", "Georges", "Paul", "Robert", "Roger", "Maurice"],
+		["Martin", "Bernard", "Dubois", "Durand", "Lefebvre", "Moreau", "Laurent", "Simon", "Michel", "Garnier", "Billotte", "Faure"]],
+	"Япония": [["Hiroshi", "Takeshi", "Kenji", "Isamu", "Masao", "Tadashi", "Shigeru", "Kiyoshi", "Akira", "Saburo", "Ichiro", "Yoshio"],
+		["Sato", "Suzuki", "Takahashi", "Tanaka", "Watanabe", "Ito", "Yamamoto", "Nakamura", "Kobayashi", "Kato", "Yoshida", "Yamada"]],
+}
+
+
+## Опыт экипажа, нужный для уровня lv (1 — с начала).
+static func crew_xp_for(lv: int) -> int:
+	return 0 if lv <= 1 else roundi(800.0 * pow(float(lv - 1), 1.5))
+
+
+static func crew_level(xp: int) -> int:
+	var lv := 1
+	while lv < CREW_MAX_LEVEL and xp >= crew_xp_for(lv + 1):
+		lv += 1
+	return lv
+
+
+## Места экипажа танка (как Tank.CREW_SEATS): 2 — командир-наводчик и мехвод.
+static func crew_seats(key: String) -> Array:
+	match crew_n(key):
+		5: return ["commander", "gunner", "loader", "driver", "radio"]
+		4: return ["commander", "gunner", "loader", "driver"]
+		3: return ["commander", "gunner", "driver"]
+	return ["commander", "driver"]
+
+
+## Имена экипажа танка — всегда одни и те же для этой машины.
+static func crew_names(key: String) -> Array:
+	var nation := String(TYPES[key].get("nation", "СССР"))
+	var lists: Array = CREW_NAMES.get(nation, CREW_NAMES["СССР"])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(key + "/crew")
+	var out: Array = []
+	for s in crew_seats(key):
+		out.append("%s %s" % [lists[0][rng.randi() % lists[0].size()], lists[1][rng.randi() % lists[1].size()]])
+	return out
+
+
+## Навыки экипажа → характеристики танка (T уже с модулями).
+static func apply_crew(T: Dictionary, sk: Dictionary) -> void:
+	var lv := func(k: String) -> float: return float(clampi(int(sk.get(k, 0)), 0, SKILL_MAX))
+	var team: float = lv.call("team")
+	T.spot = float(T.spot) * (1.0 + 0.03 * lv.call("eagle") + 0.01 * team)
+	T.reload = float(T.reload) * (1.0 - 0.025 * lv.call("loading") - 0.01 * team)
+	T.disp = float(T.disp) * (1.0 - 0.03 * lv.call("accuracy"))
+	T.aim = float(T.aim) * (1.0 - 0.04 * lv.call("aiming") - 0.01 * team)
+	T.turn = float(T.turn) * (1.0 + 0.03 * lv.call("driving"))
+	if T.has("accel"):
+		T.accel = float(T.accel) * (1.0 + 0.03 * lv.call("driving"))
+
+
+## Экипаж бота: обучен по уровню машины (очков навыков 0…8), навыки случайные.
+static func bot_skills(tier: int, rng: RandomNumberGenerator) -> Dictionary:
+	var sk := {}
+	var pts := clampi(tier - 3 + rng.randi_range(0, 3), 0, 8)
+	for i in pts:
+		var k: String = CREW_SKILLS[rng.randi() % CREW_SKILLS.size()][0]
+		if k != "mentor" and int(sk.get(k, 0)) < SKILL_MAX:
+			sk[k] = int(sk.get(k, 0)) + 1
+	return sk
+
+
 ## Виды снарядов (как AmmoKind в native/src/common.h): основной бронебойный, подкалиберный, фугасный,
 ## кумулятивный, дымовой. short — подпись на кнопке, price — серебро за выстрел (× уровень танка).
 const AMMO := [

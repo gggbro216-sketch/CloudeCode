@@ -76,6 +76,7 @@ var map_key := "prokhorovka"
 var hq := true
 var player_type := "t34_76"
 var player_mods := {}  # модули танка игрока: {слот: true — исследованный}
+var player_skills := {}  # навыки экипажа игрока: {навык: уровень}
 var player_cons: Array = ["repair", "medkit", "ext"]  # снаряжение, взятое в бой
 var history := true  # только машины, воевавшие на этой карте
 var side := "allies"  # сторона игрока; команда 0 — его сторона, команда 1 — противник
@@ -227,6 +228,7 @@ func setup(cfg: Dictionary) -> void:
 	scorch_n = [1, 80, SCORCH][clampi(int(G.decals), 0, 2)]
 	player_type = cfg.tank
 	player_mods = cfg.get("mods", {})
+	player_skills = cfg.get("skills", {})
 	player_cons = cfg.get("cons", player_cons)
 	history = cfg.get("history", true)
 	xray_on = bool(cfg.get("xray", true))
@@ -630,7 +632,8 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	var top: Dictionary = player_mods if is_player else D.random_mods(key, rng)
-	tk.setup(key, team, p, nm, is_player, int(G.get("shadows", 2)) > 0, year, D.paint(key, map_key, history), top)
+	var skills: Dictionary = player_skills if is_player else D.bot_skills(D.tier(key), rng)
+	tk.setup(key, team, p, nm, is_player, int(G.get("shadows", 2)) > 0, year, D.paint(key, map_key, history), top, skills)
 	tk.sync_node()
 	tk.reset_physics_interpolation()  # появился на месте, а не приехал из начала координат
 	for c in (player_cons if is_player else D.CONSUMABLES.keys()):

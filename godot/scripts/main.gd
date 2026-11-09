@@ -590,7 +590,7 @@ func start_battle() -> void:
 	_session_t = 20.0
 	var b: Node = BattleScript.new()
 	b.setup({"mode": save.mode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": save.tank, "history": save.history, "xray": save.xray,
-		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req})
+		"mods": top_config(save.tank), "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(save.tank).sk.duplicate()})
 	bench_req = false
 	b.ended.connect(_on_ended)
 	b.bench_done.connect(_on_bench)
@@ -621,11 +621,63 @@ func _on_ended(st: Dictionary) -> void:
 	ts.wins = int(ts.wins) + (1 if st.result == "win" else 0)
 	ts.dmg = int(ts.dmg) + int(st.dmg)
 	save.tstats[key] = ts
-	save.last = {"tank": key, "xp": st.xp, "silver": st.silver, "result": st.result}
+	# опыт экипажа: весь опыт танка за бой (с «Наставником» — больше)
+	var cw := crew(key)
+	var lv0 := D.crew_level(int(cw.xp))
+	var cxp := roundi(float(st.xp) * (1.0 + 0.1 * float(int(cw.sk.get("mentor", 0)))))
+	cw.xp = int(cw.xp) + cxp
+	st.crew_xp = cxp  # экран итогов покажет (словарь тот же)
+	st.crew_up = D.crew_level(int(cw.xp)) > lv0
+	save.last = {"tank": key, "xp": st.xp, "silver": st.silver, "result": st.result, "crew_xp": cxp, "crew_up": st.crew_up}
 	persist()
 
 
 var _leaving := false  # уход из боя уже начат (ждём рекламу)
+
+# ---------- Экипаж ----------
+
+## Экипаж танка: {xp, sk: {навык: уровень}} (заводится при первом обращении).
+func crew(key: String) -> Dictionary:
+	var all: Dictionary = save.get("crews", {})
+	if not all.has(key):
+		all[key] = {"xp": 0, "sk": {}}
+	save.crews = all
+	var c: Dictionary = all[key]
+	if not c.has("sk") or not (c.sk is Dictionary):
+		c.sk = {}
+	return c
+
+
+## Свободные очки навыков: уровень − 1 минус изученное.
+func crew_points(key: String) -> int:
+	var c := crew(key)
+	var used := 0
+	for k in c.sk:
+		used += int(c.sk[k])
+	return D.crew_level(int(c.xp)) - 1 - used
+
+
+func learn_skill(key: String, skill: String) -> bool:
+	var c := crew(key)
+	if crew_points(key) <= 0 or int(c.sk.get(skill, 0)) >= D.SKILL_MAX:
+		return false
+	c.sk[skill] = int(c.sk.get(skill, 0)) + 1
+	persist()
+	return true
+
+
+const CREW_RESET := 20000  # серебра за переобучение (сброс навыков)
+
+
+func reset_skills(key: String) -> bool:
+	var c := crew(key)
+	if c.sk.is_empty() or int(save.silver) < CREW_RESET:
+		return false
+	save.silver = int(save.silver) - CREW_RESET
+	c.sk = {}
+	persist()
+	return true
+
 
 # ---------- Замер FPS ----------
 var bench_req := false  # следующий бой — замер (без наград)
