@@ -36,6 +36,7 @@ var auto_rect := Rect2()
 var pause_c := Vector2.ZERO
 var zoom_c := Vector2.ZERO
 var cons_c := {}  # снаряжение → центр кнопки
+var ammo_r: Array = []  # кнопки снарядов: [прямоугольник, номер в боекомплекте]
 
 var feed: Array = []
 var radio_lines: Array = []  # {cs, text, tr, t}
@@ -186,6 +187,10 @@ func _input(event: InputEvent) -> void:
 			if p.distance_to(cons_c[c]) < 36.0:
 				battle.use_cons(c)
 				return
+		for ab: Array in ammo_r:
+			if (ab[0] as Rect2).grow(6.0).has_point(p):
+				battle.pick_ammo(int(ab[1]))
+				return
 		if p.x < size.x * 0.5:
 			if move_idx == -1:
 				move_idx = e.index
@@ -203,6 +208,8 @@ func _input(event: InputEvent) -> void:
 		var keys := {KEY_1: "repair", KEY_2: "medkit", KEY_3: "ext"}
 		if k.pressed and not k.echo and keys.has(k.keycode):
 			battle.use_cons(keys[k.keycode])
+		elif k.pressed and not k.echo and k.keycode >= KEY_4 and k.keycode <= KEY_8 and not battle.paused and not battle.over:
+			battle.pick_ammo(k.keycode - KEY_4)
 		elif k.pressed and not k.echo and (k.keycode == KEY_ESCAPE or k.keycode == KEY_P):
 			# пауза с клавиатуры (на ПК — в том числе в браузере)
 			if battle.loaded and not battle.over and not battle.briefing:
@@ -258,6 +265,14 @@ func _process(delta: float) -> void:
 	fire_c = Vector2(s.x - r - 96.0, s.y - bt - 104.0)
 	auto_rect = Rect2(fire_c.x - 60.0, fire_c.y - fire_r - 62.0, 120.0, 44.0)
 	zoom_c = Vector2(fire_c.x - fire_r - 64.0, fire_c.y + 26.0)
+	ammo_r.clear()
+	if battle and battle.ammo_list.size() > 1:
+		# снаряды — ряд над кнопкой «АВТО», справа налево
+		var bw := 66.0
+		var x0 := s.x - r - 8.0 - bw
+		for k in range(battle.ammo_list.size() - 1, -1, -1):
+			ammo_r.append([Rect2(x0, auto_rect.position.y - 64.0, bw - 6.0, 44.0), k])
+			x0 -= bw
 	cons_c.clear()
 	if battle and battle.player:
 		var x := zoom_c.x - 84.0
@@ -804,6 +819,26 @@ func _draw_controls() -> void:
 	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
+	_draw_ammo()
+
+
+## Кнопки снарядов: заряженный — жёлтая рамка; под кнопкой — сколько осталось (у основного счёта нет).
+func _draw_ammo() -> void:
+	var st: PackedFloat32Array = battle.ammo_now
+	var cur := int(st[0]) if st.size() > 0 else 0
+	for ab: Array in ammo_r:
+		var rc: Rect2 = ab[0]
+		var k: int = ab[1]
+		var q := 1 + k * 3
+		var left := int(st[q + 1]) if q + 1 < st.size() else -1
+		var on := k == cur
+		var empty := left == 0
+		Gfx.box(cv, _sb("0a0c08", D.AMBER if on else UI.LINE, 3 if on else 2, 10, 0.68), rc)
+		var a: Dictionary = battle.ammo_list[k]
+		var col: Color = col_dim if empty else (col_amber if on else col_text)
+		_text(rc.get_center() + Vector2(0, 2), String(a.short), 17, col, true, 0)
+		if left >= 0:
+			_text(rc.get_center() + Vector2(0, 19), str(left), 11, col_dim, true, 0)
 
 
 ## Кнопки снаряжения: жёлтая рамка — пора применить, кольцо и секунды — перезарядка.
@@ -1064,6 +1099,8 @@ func show_result(st: Dictionary) -> void:
 		row.call("Ремонт", "", "−" + _num(st.repair), "e2563c")
 	if int(st.cons_cost) > 0:
 		row.call("Снаряжение", "", "−" + _num(st.cons_cost), "e2563c")
+	if int(st.get("ammo_cost", 0)) > 0:
+		row.call("Особые снаряды", "", "−" + _num(st.ammo_cost), "e2563c")
 	row.call("ИТОГО (+%s свободного опыта)" % _num(st.free_xp), "+" + _num(st.xp),
 		("+" if int(st.silver) >= 0 else "−") + _num(absi(int(st.silver))), D.AMBER, 18)
 	result_box.visible = true

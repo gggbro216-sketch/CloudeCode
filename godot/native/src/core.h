@@ -188,6 +188,7 @@ struct Core {
 		V3 pos, vel;
 		float dmg, pen, cal, dist;
 		float he = 0.0f;  // ВВ в снаряде, г (0 — сплошная болванка)
+		int kind = 0;  // AM_*: основной, подкалиберный, фугасный, кумулятивный, дымовой
 		int owner, rico, slot;
 		bool whiz = false, dead = false;
 		// попадание в танк на этом шаге (разбирает shell_hit)
@@ -195,6 +196,14 @@ struct Core {
 		V3 hit_pos, hit_n, hit_v;
 	};
 	std::vector<Shell> shells;
+	// дымовые завесы: шар, до какого времени снарядов (shell_clock) стоит; закрывают прямую видимость
+	struct Smoke {
+		V3 p;
+		float r, until;
+	};
+	std::vector<Smoke> smokes;
+	float shell_clock = 0.0f;
+	bool smoke_blocks(V3 a, V3 b) const;
 	struct TankHit {
 		int tank = -1, part = 0;  // part: 0 корпус, 1 башня (рубка)
 		float t = 2.0f;
@@ -217,6 +226,13 @@ struct Core {
 		float swap_t[5] = { -1, -1, -1, -1, -1 };  // подмена: через сколько займёт место (< 0 — нет)
 		float swap_hp[5] = { 0, 0, 0, 0, 0 };  // здоровье того, кто пересаживается
 		float he = 0;  // ВВ снаряда, г
+		// боекомплект: виды снарядов этого орудия (первый — основной, без счёта)
+		struct Ammo {
+			int kind = 0, left = -1, used = 0;  // left < 0 — без счёта
+			float pen = 0, dmg = 0, he = 0, vel_k = 1;
+		};
+		Ammo am[5];
+		int am_n = 0, am_cur = 0;
 		bool gun_crew = true, drive_crew = true;  // есть кому стрелять / вести
 		bool alive = true, player = false, immobile = false, popping = false;
 		float speed_k = 1, accel_k = 1, turn_k = 1, tspd_k = 1, reload_k = 1, aim_k = 1, disp_k = 1, spot_k = 1;

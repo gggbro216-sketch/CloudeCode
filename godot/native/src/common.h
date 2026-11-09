@@ -105,8 +105,12 @@ enum ShellEv {
 	EV_PEN_DMG,  // танк, стрелок, урон, взрыв боеукладки
 	EV_HIT,  // номер снаряда, танк — разобрать через shell_hit
 	EV_XRAY,  // итог попадания для рентген-окна: танк, стрелок, исход (0 рикошет, 1 не пробил, 2 пробил), броня, приведённая броня, пробитие, угол°, где остановился снаряд, радиус разрыва, осколков, часть, взрыватель взведён
+	EV_SMOKE,  // дымовая завеса: x, y, z, радиус, секунд
 };
 static const int EV_N = 13;
+// виды снарядов
+enum AmmoKind { AM_AP, AM_APCR, AM_HE, AM_HEAT, AM_SMOKE };
+static const float SMOKE_R = 75.0f, SMOKE_T = 28.0f;  // радиус завесы (ед., ~10 м) и сколько стоит, с
 struct EvOut {
 	std::vector<float> v;
 	void add(std::initializer_list<float> f) {
@@ -130,6 +134,7 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev);
 void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev);
 void aim_run(Core *self, V3 o, V3 far, V3 mz, V3 vel, int p, float out[7]);
 V3 muzzle_at(const Core *self, int i, V3 &dir);
+int ammo_bot_pick(Core *c, int i);
 
 struct MethodDef {
 	const char *name;

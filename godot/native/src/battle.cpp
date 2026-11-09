@@ -448,16 +448,30 @@ struct Step {
 		gx *= spread;
 		gy *= spread;
 		dir = v3norm(v3add(dir, v3add(v3mul(u, gx), v3mul(v, gy))));
-		V3 vel = v3mul(dir, TS.shell_v);
+		// снаряд: у игрока — выбранный, у бота — по цели
+		if (!d.player && d.am_n > 1) d.am_cur = ammo_bot_pick(c, i);
+		Core::TankDyn::Ammo am;
+		am.pen = DS.pen;
+		am.dmg = d.dmg;
+		am.he = d.he;
+		if (d.am_n > 0) {
+			Core::TankDyn::Ammo &cur = d.am[d.am_cur];
+			am = cur;
+			cur.used++;
+			if (cur.left > 0 && --cur.left == 0) d.am_cur = 0;  // кончились — дальше основным
+		}
+		float sv = TS.shell_v * clampf(am.vel_k, 0.3f, 2.0f);
+		V3 vel = v3mul(dir, sv);
 		int slot = c->w.shell_slot;
 		c->w.shell_slot = (slot + 1) % 64;
 		if (c->shells.size() < 512) {
 			Core::Shell s;
 			s.pos = p;
 			s.vel = vel;
-			s.dmg = d.dmg;
-			s.he = d.he;
-			s.pen = DS.pen;
+			s.dmg = am.dmg;
+			s.he = am.he;
+			s.pen = am.pen;
+			s.kind = am.kind;
 			s.cal = DS.cal;
 			s.dist = 0.0f;
 			s.rico = 0;
@@ -488,7 +502,7 @@ struct Step {
 			}
 		}
 		if (i == c->w.player) c->w.shots++;
-		ev.add({ (float)W_SHOT, (float)i, (float)slot, p.x, p.y, p.z, dir.x, dir.y, dir.z, DS.cal, TS.shell_v });
+		ev.add({ (float)W_SHOT, (float)i, (float)slot, p.x, p.y, p.z, dir.x, dir.y, dir.z, DS.cal, sv });
 	}
 
 	// маршрут боту (как Battle._set_route): в фоновый поток C++ или сразу (прогоны без кадров)
@@ -1087,7 +1101,8 @@ METHOD(world_step) {
 			V3 far = v3add(o, v3mul(dir, 1800.0f));
 			V3 gdir;
 			V3 mz = muzzle_at(self, i, gdir);
-			aim_run(self, o, far, mz, v3mul(gdir, self->ts[i].shell_v), i, aim);
+			float avk = self->td[i].am_n > 0 ? self->td[i].am[self->td[i].am_cur].vel_k : 1.0f;
+			aim_run(self, o, far, mz, v3mul(gdir, self->ts[i].shell_v * clampf(avk, 0.3f, 2.0f)), i, aim);
 			if (self->ds[i].casemate && steer == 0.0f) {
 				float off = ang_diff(std::atan2(aim[2] - t[P_Y], aim[0] - t[P_X]), t[P_HULL]);
 				if (std::fabs(off) > self->ts[i].trav * 0.9f) {
@@ -1470,8 +1485,67 @@ METHOD(world_rewards) {
 	ret_f32(r, out.data(), (int64_t)out.size());
 }
 
+
+// Боекомплект танка i: по 6 чисел на вид — вид (AM_*), пробитие, урон, ВВ г, скорость ×, сколько (-1 — без счёта).
+METHOD(ammo_set) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int i = (int)a.integer(0);
+	if (i < 0 || (size_t)i >= self->td.size()) return;
+	std::vector<float> f = f32(a, 1);
+	Core::TankDyn &d = self->td[i];
+	d.am_n = 0;
+	d.am_cur = 0;
+	for (size_t k = 0; k + 6 <= f.size() && d.am_n < 5; k += 6) {
+		Core::TankDyn::Ammo &m = d.am[d.am_n++];
+		m.kind = (int)clampf(f[k], 0.0f, 4.0f);
+		m.pen = std::max(0.0f, f[k + 1]);
+		m.dmg = std::max(0.0f, f[k + 2]);
+		m.he = std::max(0.0f, f[k + 3]);
+		m.vel_k = clampf(f[k + 4], 0.3f, 2.0f);
+		m.left = (int)f[k + 5];
+		m.used = 0;
+	}
+}
+
+// Игрок выбрал снаряд k: если орудие уже заряжено другим — перезарядка заново (как в War Thunder).
+METHOD(ammo_pick) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int i = (int)a.integer(0), k = (int)a.integer(1);
+	if (i < 0 || (size_t)i >= self->td.size()) return;
+	Core::TankDyn &d = self->td[i];
+	if (k < 0 || k >= d.am_n || k == d.am_cur || d.am[k].left == 0) return;
+	d.am_cur = k;
+	if (d.rl <= 0.0f && d.alive) {
+		d.rl_max = d.reload * d.reload_k;
+		d.rl = d.rl_max;
+	}
+}
+
+// Боекомплект танка i для интерфейса: текущий, затем по виду — вид, осталось, выпущено.
+METHOD(ammo_state) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int i = (int)a.integer(0);
+	std::vector<float> o;
+	if (i >= 0 && (size_t)i < self->td.size()) {
+		const Core::TankDyn &d = self->td[i];
+		o.push_back((float)d.am_cur);
+		for (int k = 0; k < d.am_n; k++) {
+			o.push_back((float)d.am[k].kind);
+			o.push_back((float)d.am[k].left);
+			o.push_back((float)d.am[k].used);
+		}
+	}
+	ret_f32(r, o.data(), (int64_t)o.size());
+}
+
 void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 	static const MethodDef defs[] = {
+		{ "ammo_set", ammo_set },
+		{ "ammo_pick", ammo_pick },
+		{ "ammo_state", ammo_state },
 		{ "world_init", world_init },
 		{ "world_nodes", world_nodes },
 		{ "world_step", world_step },

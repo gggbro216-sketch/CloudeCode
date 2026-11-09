@@ -101,11 +101,12 @@ var tree_sel := ""
 class TankBars extends Control:
 	var T: Dictionary = {}
 	var key := ""
+	var year := 1943  # год карты: от него зависят подкалиберные и кумулятивные снаряды
 	var font: Font
 
 	func _ready() -> void:
 		font = ThemeDB.fallback_font
-		custom_minimum_size = Vector2(0, 175)
+		custom_minimum_size = Vector2(0, 195)
 
 	func _draw() -> void:
 		if T.is_empty():
@@ -128,6 +129,17 @@ class TankBars extends Control:
 			draw_rect(Rect2(0, y + 18, size.x, 4), Color(0.05, 0.06, 0.04))
 			draw_rect(Rect2(0, y + 18, size.x * clampf(r[2], 0.05, 1.0), 4), Color(GREEN))
 			y += 25.0
+		# боекомплект: основной с пробитием, особые — с пробитием и числом в бою
+		var parts: Array = []
+		for a: Dictionary in D.ammo_types(T, year):
+			var s := String(a.short)
+			if int(a.kind) != 4:
+				s += " %d" % int(a.pen)
+			if int(a.left) > 0:
+				s += " ×%d" % int(a.left)
+			parts.append(s)
+		draw_string(font, Vector2(0, y + 14), "Снаряды", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(UI.DIM))
+		draw_string(font, Vector2(0, y + 14), " · ".join(parts), HORIZONTAL_ALIGNMENT_RIGHT, size.x, 12, Color(UI.TEXT))
 
 
 ## Карточка танка: уровень, нация, класс, название. Касание без сдвига — выбор (сдвиг листает ленту).
@@ -1075,6 +1087,7 @@ func _show_tank_info() -> void:
 	name_lbl.text = String(T.name).to_upper()
 	tank_bars.T = T
 	tank_bars.key = key
+	tank_bars.year = _map_year(key)
 	tank_bars.queue_redraw()
 	xp_lbl.text = "Опыт танка: %s" % _num(main.txp(key))
 	var slots: Dictionary = D.MODULES.get(key, {})

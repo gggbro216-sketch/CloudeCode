@@ -846,6 +846,48 @@ static func crew_n(key: String) -> int:
 	return int(CREW_N.get(key, 4))
 
 
+## Виды снарядов (как AmmoKind в native/src/common.h): основной бронебойный, подкалиберный, фугасный,
+## кумулятивный, дымовой. short — подпись на кнопке, price — серебро за выстрел (× уровень танка).
+const AMMO := [
+	{"name": "Бронебойный", "short": "ББ", "price": 0},
+	{"name": "Подкалиберный", "short": "ПК", "price": 12},
+	{"name": "Осколочно-фугасный", "short": "ОФ", "price": 0},
+	{"name": "Кумулятивный", "short": "КС", "price": 8},
+	{"name": "Дымовой", "short": "ДЫМ", "price": 5},
+]
+## Подкалиберные: с какого года и во сколько раз пробитие больше основного (PzGr 40, БР-240П/350П, HVAP, APDS).
+const APCR := {"Германия": [1940, 1.35, 20.0, 88.0], "СССР": [1942, 1.3, 45.0, 85.0], "США": [1944, 1.45, 76.0, 90.0],
+	"Великобритания": [1944, 1.3, 57.0, 77.0]}
+
+
+## Боекомплект орудия в бою года year: [{kind, name, short, pen, dmg, he, vel_k, left}], первый — основной (без счёта).
+## Подкалиберные — где и когда они были; кумулятивные — у короткоствольных пушек и гаубиц от 75 мм с 1942 года
+## (кроме советских 152 мм); фугасные — у всех от 37 мм; дымовые — от 75 мм.
+static func ammo_types(T: Dictionary, year: int) -> Array:
+	var cal: float = T.caliber
+	var pen: float = T.pen
+	var dmg: float = T.dmg
+	var v: float = T.get("shell", 700.0)
+	var nation := String(T.get("nation", ""))
+	var he := shell_he(T)
+	var out: Array = [{"kind": 0, "name": "Бронебойный" + (" (каморный)" if he > 0.0 else ""), "short": "БР" if he > 0.0 else "ББ",
+		"pen": pen, "dmg": dmg, "he": he, "vel_k": 1.0, "left": -1}]
+	var cr: Array = APCR.get(nation, [])
+	if not cr.is_empty() and year >= int(cr[0]) and cal >= float(cr[2]) and cal <= float(cr[3]) and v >= 600.0:
+		out.append({"kind": 1, "name": "Подкалиберный", "short": "ПК", "pen": roundf(pen * float(cr[1])), "dmg": roundf(dmg * 0.55),
+			"he": 0.0, "vel_k": 1.2, "left": 6})
+	if cal >= 37.0:
+		var he_g := 0.0015 * cal * cal * cal  # ВВ фугасного снаряда, г (75 мм ~630, 152 мм ~5300)
+		out.append({"kind": 2, "name": "Осколочно-фугасный", "short": "ОФ", "pen": roundf(0.14 * cal + 0.004 * he_g), "dmg": dmg,
+			"he": he_g, "vel_k": 0.92, "left": 15})
+	if year >= 1942 and cal >= 75.0 and v <= 520.0 and not (nation == "СССР" and cal > 130.0):
+		out.append({"kind": 3, "name": "Кумулятивный", "short": "КС", "pen": roundf(40.0 + cal * 0.8), "dmg": roundf(dmg * 0.9),
+			"he": 0.0, "vel_k": 1.0, "left": 8})
+	if cal >= 75.0:
+		out.append({"kind": 4, "name": "Дымовой", "short": "ДЫМ", "pen": 0.0, "dmg": 0.0, "he": 0.0, "vel_k": 0.92, "left": 3})
+	return out
+
+
 ## Масса ВВ в бронебойном снаряде, г (в тротиловом эквиваленте, упрощённо по стране и калибру):
 ## каморные снаряды СССР, Германии, США рвутся за бронёй; британские и малокалиберные — сплошные болванки.
 ## Орудие сменили модулем — калибр другой, и снаряд тоже.

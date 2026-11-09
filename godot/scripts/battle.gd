@@ -195,6 +195,9 @@ var shell_mm: MultiMesh
 var shell_mat: ShaderMaterial
 var shell_slot := 0
 var bush_fade := [Vector3.INF, Vector3.INF]  # что уже отдано материалу кустов
+var ammo_list: Array = []  # виды снарядов игрока (D.ammo_types)
+var ammo_now := PackedFloat32Array()  # из C++: текущий, затем по виду — вид, осталось, выпущено
+var ammo_t := 0.0
 var loops := {}  # танк -> [двигатель, гусеницы, башня]
 var reload_cue := false
 
@@ -1178,6 +1181,18 @@ func _world_init() -> void:
 		core.world_nodes(tk.idx, tk, tk.hull_node, tk.tur_node, tk.gun_node, pm[0] if pm.size() > 0 else null,
 			pm[1] if pm.size() > 1 else null, pm[2] if pm.size() > 2 else null, tk.tracks[0] if not tk.tracks.is_empty() else null,
 			tk.dust_fx, tk.mud_fx, tk.smoke, lp[0], lp[1], lp[2])
+	# боекомплект: виды снарядов орудия в год карты (у ботов тоже — они выбирают снаряд по цели)
+	if core.has_method("ammo_set"):
+		var year := int(D.MAPS[map_key].get("year", 1943))
+		for tk: TankScript in tanks:
+			var list := D.ammo_types(tk.T, year)
+			var af := PackedFloat32Array()
+			for a: Dictionary in list:
+				af.append_array([float(a.kind), float(a.pen), float(a.dmg), float(a.he), float(a.vel_k), float(a.left)])
+			core.ammo_set(tk.idx, af)
+			if tk.is_player:
+				ammo_list = list
+		_ammo_poll()
 	core_world = true
 
 
@@ -3603,6 +3618,8 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				if ev[q + 4] != 0.0:
 					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
+			17:  # дымовая завеса: место, радиус, секунд
+				fx.smoke_screen(Vector3(ev[q + 1], ev[q + 2], ev[q + 3]), ev[q + 4], ev[q + 5])
 			16:  # итог попадания для рентген-окна: броня, угол, пробитие, разрыв
 				hud.xray.finish(ev[q + 4], ev[q + 5], ev[q + 6], ev[q + 7], ev[q + 8], ev[q + 9], int(ev[q + 10]), ev[q + 12] != 0.0)
 			20:  # выстрел
@@ -3887,9 +3904,42 @@ func _physics_process(delta: float) -> void:
 		_show_result()
 
 
+## Боекомплект игрока из C++ (текущий снаряд, остаток) — для кнопок снарядов.
+func _ammo_poll() -> void:
+	if core_world and player and core.has_method("ammo_state"):
+		ammo_now = core.ammo_state(player.idx)
+
+
+## Игрок выбрал снаряд (кнопка или клавиши 4–8). Заряженное орудие перезаряжается заново.
+func pick_ammo(k: int) -> void:
+	if not core_world or player == null or not player.alive or k < 0 or k >= ammo_list.size():
+		return
+	if ammo_now.size() > 0 and int(ammo_now[0]) == k:
+		return
+	core.ammo_pick(player.idx, k)
+	_ammo_poll()
+	if ammo_now.size() > 0 and int(ammo_now[0]) == k:
+		hud.alert("ЗАРЯЖАЕМ: " + String(ammo_list[k].name).to_upper(), Color("ffd37a"))
+
+
+## Серебро за особые снаряды, выпущенные игроком (подкалиберные, кумулятивные, дымовые).
+func ammo_cost() -> int:
+	var tier := D.tier(player_type)
+	var cost := 0
+	for k in ammo_list.size():
+		var q := 1 + k * 3
+		if q + 2 < ammo_now.size():
+			cost += int(ammo_now[q + 2]) * int(D.AMMO[int(ammo_list[k].kind)].price) * tier
+	return cost
+
+
 func _process(delta: float) -> void:
 	_cam_input(minf(delta, 0.05))
 	_sync(minf(delta, 0.05))
+	ammo_t -= delta
+	if ammo_t <= 0.0:
+		ammo_t = 0.1
+		_ammo_poll()
 	if bench and not paused:
 		_bench_tick(delta)
 
@@ -4046,6 +4096,9 @@ func _show_result() -> void:
 		"mode": D.MODES[mode].name, "map": D.MAPS[map_key].name, "tank": player_type,
 	}
 	stats.merge(rewards())
+	_ammo_poll()
+	stats.ammo_cost = ammo_cost()
+	stats.silver = int(stats.silver) - int(stats.ammo_cost)
 	ended.emit(stats)
 	hud.show_result(stats)
 

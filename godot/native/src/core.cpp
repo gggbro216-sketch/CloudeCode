@@ -215,8 +215,19 @@ static bool hits_box(const Box &b, V3 a, V3 d) {
 	return tmin >= 0.0f && tmin <= 1.0f;
 }
 
+// Отрезок a→b проходит через живую дымовую завесу (ближе 0,8 радиуса к её центру).
+bool Core::smoke_blocks(V3 a, V3 b) const {
+	for (const Smoke &s : smokes) {
+		if (s.until < shell_clock) continue;
+		V3 cl = closest_on(s.p, a, v3sub(b, a));
+		if (v3len(v3sub(cl, s.p)) < s.r * 0.8f) return true;
+	}
+	return false;
+}
+
 bool Core::los(V3 a, V3 b) const {
 	if (!finite3(a) || !finite3(b)) return false;
+	if (!smokes.empty() && smoke_blocks(a, b)) return false;
 	V3 d = { b.x - a.x, b.y - a.y, b.z - a.z };
 	if (!terrain_clear(a, b)) {
 		return false;
@@ -2021,6 +2032,36 @@ static float armor_toward(const Core::TankStatic &T, const float *tg, float fx, 
 	return T.armor1 / std::cos(T.side_slope) / std::max(std::sin(off), 0.5f);
 }
 
+// Снаряд для бота i по его цели: основной, а если он не берёт — подкалиберный или кумулятивный;
+// по тонкой броне — фугас, если он пробивает с запасом. Номер в боекомплекте (0 — основной).
+int ammo_bot_pick(Core *c, int i) {
+	if (i < 0 || (size_t)i >= c->td.size() || (size_t)i >= c->ai.size()) return 0;
+	Core::TankDyn &d = c->td[i];
+	if (d.am_n <= 1) return 0;
+	int tg = c->ai[i].tg;
+	if (tg < 0 || (size_t)tg >= c->ts.size() || (size_t)(tg + 1) * PHYS > c->snap.size() || (size_t)(i + 1) * PHYS > c->snap.size()) return 0;
+	const float *G = &c->snap[(size_t)tg * PHYS];
+	const float *M = &c->snap[(size_t)i * PHYS];
+	float arm = armor_toward(c->ts[tg], G, M[P_X], M[P_Y]);
+	float k = clampf(std::sqrt((G[P_X] - M[P_X]) * (G[P_X] - M[P_X]) + (G[P_Y] - M[P_Y]) * (G[P_Y] - M[P_Y])) / RANGE, 0.0f, 1.0f);
+	auto find = [&](int kind) {
+		for (int j = 1; j < d.am_n; j++) {
+			if (d.am[j].kind == kind && d.am[j].left != 0) return j;
+		}
+		return -1;
+	};
+	float main_pen = d.am[0].pen * (1.0f - 0.18f * k);
+	if (main_pen > arm * 1.1f) {
+		int he = find(AM_HE);
+		return he >= 0 && d.am[he].pen > arm * 1.3f ? he : 0;
+	}
+	int heat = find(AM_HEAT);
+	if (heat >= 0 && d.am[heat].pen > arm * 0.9f) return heat;
+	int cr = find(AM_APCR);
+	if (cr >= 0 && d.am[cr].pen * (1.0f - 0.45f * k) > main_pen * 1.05f) return cr;
+	return 0;
+}
+
 // Выбор цели бота i (как Battle._choose_target) → номер танка или -1
 METHOD(choose_target) {
 	SELF;
@@ -3179,7 +3220,7 @@ struct Item {
 };
 }  // namespace
 
-static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float thick, int part, float *xi = nullptr) {
+static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float thick, int part, float *xi = nullptr, int kind = AM_AP) {
 	Core *c = h.c;
 	const float U = c->upm;
 	M3 Bp[2];
@@ -3232,9 +3273,10 @@ static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float
 	};
 
 	// 1) снаряд за бронёй
-	float reach = 3.5f * U;
-	float fuse = 1.2f * U;
-	bool armed = he > 0.0f && thick >= cal * 0.12f;  // тонкий лист не взводит взрыватель: снаряд прошивает насквозь
+	// кумулятивная струя короче болванки; фугас рвётся сразу за бронёй (мгновенный взрыватель)
+	float reach = (kind == AM_HEAT ? 2.2f : 3.5f) * U;
+	float fuse = (kind == AM_HE ? 0.25f : 1.2f) * U;
+	bool armed = he > 0.0f && (kind == AM_HE || thick >= cal * 0.12f);  // тонкий лист не взводит взрыватель: снаряд прошивает насквозь
 	std::vector<std::pair<float, int>> path;
 	ray(hp, v3mul(dir, reach), &path);
 	std::stable_sort(path.begin(), path.end(), [](const std::pair<float, int> &x, const std::pair<float, int> &y) { return x.first < y.first; });
@@ -3253,7 +3295,9 @@ static bool internal_damage(HitCtx &h, V3 hp, V3 dir, float cal, float he, float
 	}
 	// 2) осколки брони: конус ~20°, длина ~2,4 м
 	float ratio = clampf(thick / std::max(cal, 1.0f), 0.2f, 2.5f);
-	int frags = (int)clampf(std::round(3.0f + cal / 14.0f * ratio), 3.0f, 16.0f);
+	// подкалиберный сердечник тонкий — осколков брони меньше; у кумулятивной струи — тоже
+	float fk = kind == AM_APCR ? 0.55f : (kind == AM_HEAT ? 0.7f : 1.0f);
+	int frags = (int)clampf(std::round((3.0f + cal / 14.0f * ratio) * fk), 2.0f, 16.0f);
 	V3 u = std::fabs(dir.y) < 0.9f ? v3norm({ -dir.z, 0.0f, dir.x }) : V3{ 1.0f, 0.0f, 0.0f };
 	V3 w = { dir.y * u.z - dir.z * u.y, dir.z * u.x - dir.x * u.z, dir.x * u.y - dir.y * u.x };
 	float cone = std::tan(20.0f * PI_F / 180.0f);
@@ -3316,6 +3360,20 @@ static void outer_damage(HitCtx &h, int part, V3 local, int zone, float dmg) {
 
 static const float DEG = PI_F / 180.0f;
 
+// Пробитие по виду снаряда: на дистанции dist; нормализация и угол рикошета, градусы (рикошет < 0 — не бывает).
+// Подкалиберный быстро теряет пробитие и легче рикошетит; кумулятивный и фугасный от дистанции не зависят;
+// фугас не рикошетит (рвётся), у кумулятивного рикошет только на очень остром угле.
+static void ammo_model(int kind, float base, float dist, float &pen, float &norm, float &rico) {
+	float k = clampf(dist / RANGE, 0.0f, 1.0f);
+	switch (kind) {
+		case AM_APCR: pen = base * (1.0f - 0.45f * k); norm = 2.0f; rico = 64.0f; break;
+		case AM_HE: pen = base; norm = 0.0f; rico = -1.0f; break;
+		case AM_HEAT: pen = base; norm = 0.0f; rico = 80.0f; break;
+		case AM_SMOKE: pen = 0.0f; norm = 0.0f; rico = -1.0f; break;
+		default: pen = base * (1.0f - 0.18f * k); norm = 5.0f; rico = 70.0f; break;
+	}
+}
+
 // Попадание снаряда в танк (как Battle._shell_hits_tank).
 void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	int i = s.hit_tank, by = s.owner;
@@ -3336,13 +3394,21 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	int zone;
 	float thick = armor_of(d, s.hit_part, s.hit_n, B, n, zone);
 	float cal = s.cal;
+	if (s.kind == AM_SMOKE) {
+		// дымовой: удар без вреда, на месте — завеса
+		c->smokes.push_back({ hp, SMOKE_R, c->shell_clock + SMOKE_T });
+		ev.add({ (float)EV_SPARK, (float)s.slot, hp.x, hp.y, hp.z });
+		ev.add({ (float)EV_SMOKE, hp.x, hp.y, hp.z, SMOKE_R, SMOKE_T });
+		return;
+	}
 	float cos_a = clampf(-v3dot(dir, n), 0.0f, 1.0f);
-	float ang = std::max(0.0f, std::acos(cos_a) - 5.0f * DEG);
-	// бронепробиваемость падает с дистанцией
-	float pen = s.pen * (1.0f - 0.18f * clampf(s.dist / RANGE, 0.0f, 1.0f)) * h.rnd(0.8f, 1.2f);
+	float pen, norm, rico_deg;
+	ammo_model(s.kind, s.pen, s.dist, pen, norm, rico_deg);
+	float ang = std::max(0.0f, std::acos(cos_a) - norm * DEG);
+	pen *= s.kind == AM_HEAT ? h.rnd(0.95f, 1.05f) : h.rnd(0.8f, 1.2f);
 	bool overmatch = cal > thick * 3.0f;
-	h.kick(dir, cal, 0.12f);
-	if (ang > 70.0f * DEG && !overmatch && s.rico == 0) {
+	h.kick(dir, cal, s.kind == AM_HE ? 0.2f : 0.12f);
+	if (rico_deg > 0.0f && ang > rico_deg * DEG && !overmatch && s.rico == 0) {
 		// рикошет: снаряд отражается и летит дальше
 		s.dead = false;
 		s.rico = 1;
@@ -3354,16 +3420,24 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 		ev.add({ (float)EV_XRAY, (float)i, (float)by, 0.0f, thick, thick / std::max(std::cos(ang), 0.12f), pen, std::acos(cos_a) / DEG, 0.0f, 0.0f, 0.0f, (float)s.hit_part, 0.0f });
 		return;
 	}
-	float eff = thick / std::max(std::cos(ang), 0.12f);
+	// фугас пробивает толщину листа почти без поправки на наклон (рвётся о поверхность)
+	float eff = s.kind == AM_HE ? thick * (1.0f + 0.25f * (1.0f - cos_a)) : thick / std::max(std::cos(ang), 0.12f);
 	// попадание в ходовую: гусеница принимает удар на себя и может слететь
 	V3 local = B.tmul(v3sub(hp, O));
 	bool track_zone = s.hit_part == 0 && local.y < d.th * 1.05f && (zone == Z_SIDE || zone == Z_FRONT || zone == Z_REAR);
-	if (track_zone && c->randf() < 0.7f) {
+	if (track_zone && c->randf() < (s.kind == AM_HE ? 0.95f : 0.7f)) {
 		ev.add({ (float)EV_TRACK, (float)i, (float)by, hp.x, hp.y, hp.z });
 	}
 	if (pen < eff) {
 		ev.add({ (float)EV_NOPEN, (float)s.slot, (float)i, (float)by, hp.x, hp.y, hp.z, dir.x, dir.y, dir.z, cal, s.dmg, track_zone ? 1.0f : 0.0f });
-		outer_damage(h, s.hit_part, local, zone, s.dmg);
+		outer_damage(h, s.hit_part, local, zone, s.kind == AM_HE ? s.dmg * 1.8f : s.dmg);
+		float xi[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		bool boom = false;
+		if (s.kind == AM_HE && thick < pen * 1.8f) {
+			// крупный фугас по тонкой броне: удар и осколки внутрь без пробития (контузия, разбитые приборы)
+			boom = internal_damage(h, hp, dir, cal * 0.5f, s.he * 0.3f, thick, s.hit_part, xi, AM_HE);
+		}
+		if (boom) ev.add({ (float)EV_PEN_DMG, (float)i, (float)by, 0.0f, 1.0f });
 		ev.add({ (float)EV_XRAY, (float)i, (float)by, 1.0f, thick, eff, pen, std::acos(cos_a) / DEG, 0.0f, 0.0f, 0.0f, (float)s.hit_part, 0.0f });
 		return;
 	}
@@ -3372,7 +3446,7 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	h.kick(dir, cal, 0.2f);
 	// за бронёй: модули и экипаж на пути снаряда, осколки
 	float xi[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	bool boom = internal_damage(h, hp, dir, cal, s.he, thick, s.hit_part, xi);
+	bool boom = internal_damage(h, hp, dir, cal, s.kind == AM_APCR || s.kind == AM_HEAT ? 0.0f : s.he, thick, s.hit_part, xi, s.kind);
 	ev.add({ (float)EV_PEN_DMG, (float)i, (float)by, dmg, boom ? 1.0f : 0.0f });
 	ev.add({ (float)EV_XRAY, (float)i, (float)by, 2.0f, thick, eff, pen, std::acos(cos_a) / DEG, xi[0], xi[1], xi[2], (float)s.hit_part, xi[3] });
 }
@@ -3470,6 +3544,12 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 	if (!(dt > 0.0f && dt < 1.0f) || self->ds.empty() || self->snap.size() < self->ds.size() * PHYS) {
 		return;
 	}
+	self->shell_clock += dt;
+	if (!self->smokes.empty()) {
+		float now = self->shell_clock;
+		self->smokes.erase(std::remove_if(self->smokes.begin(), self->smokes.end(), [now](const Core::Smoke &x) { return x.until < now; }),
+			self->smokes.end());
+	}
 	for (size_t k = 0; k < S.size(); k++) {
 		Core::Shell &s = S[k];
 		s.hit_tank = -1;
@@ -3503,6 +3583,11 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 			s.dead = true;
 			V3 hp = v3add(p0, v3mul(seg, tw));
 			ev.add({ (float)EV_WORLD, (float)s.slot, hp.x, hp.y, hp.z, ground ? 1.0f : 0.0f });
+			if (s.kind == AM_SMOKE && self->smokes.size() < 24) {
+				V3 sp = v3add(hp, { 0.0f, SMOKE_R * 0.4f, 0.0f });
+				self->smokes.push_back({ sp, SMOKE_R, self->shell_clock + SMOKE_T });
+				ev.add({ (float)EV_SMOKE, sp.x, sp.y, sp.z, SMOKE_R, SMOKE_T });
+			}
 		} else {
 			s.pos = p1;
 			s.vel = v;
@@ -3603,11 +3688,21 @@ void aim_run(Core *self, V3 o, V3 far, V3 mz, V3 vel, int p, float out[7]) {
 		float thick = armor_of(self->ds[tg], tg_part, tg_n, B, nw, zone);
 		V3 vd = v3norm(tg_v);
 		float cos_a = clampf(-v3dot(vd, nw), 0.0f, 1.0f);
-		float ang = std::max(0.0f, std::acos(cos_a) - 5.0f * DEG);
-		float eff = thick / std::max(std::cos(ang), 0.12f);
 		V2 pp = { T[(size_t)p * PHYS + P_X], T[(size_t)p * PHYS + P_Y] }, tp = { T[(size_t)tg * PHYS + P_X], T[(size_t)tg * PHYS + P_Y] };
-		float pen = dp.pen * (1.0f - 0.18f * clampf(dist2(pp, tp) / RANGE, 0.0f, 1.0f));
-		if (ang > 70.0f * DEG && dp.cal < thick * 3.0f) {
+		int kind = AM_AP;
+		float base = dp.pen;
+		if ((size_t)p < self->td.size() && self->td[p].am_n > 0) {
+			const Core::TankDyn::Ammo &am = self->td[p].am[self->td[p].am_cur];
+			kind = am.kind;
+			base = am.pen;
+		}
+		float pen, norm, rico_deg;
+		ammo_model(kind, base, dist2(pp, tp), pen, norm, rico_deg);
+		float ang = std::max(0.0f, std::acos(cos_a) - norm * DEG);
+		float eff = kind == AM_HE ? thick * (1.0f + 0.25f * (1.0f - cos_a)) : thick / std::max(std::cos(ang), 0.12f);
+		if (kind == AM_SMOKE) {
+			out[6] = -1.0f;
+		} else if (rico_deg > 0.0f && ang > rico_deg * DEG && dp.cal < thick * 3.0f) {
 			out[6] = 0.0f;
 		} else if (pen > eff * 1.2f) {
 			out[6] = 2.0f;

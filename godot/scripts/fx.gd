@@ -98,6 +98,7 @@ func _ready() -> void:
 	_set_ramp("snow", [Color(0.94, 0.95, 0.98, 0.62), Color(0.94, 0.95, 0.98, 0)])
 	_set_ramp("mud", [Color(0.2, 0.16, 0.11, 1), Color(0.18, 0.14, 0.1, 1), Color(0.18, 0.14, 0.1, 0)])
 	_set_ramp("engine", [Color(0.16, 0.16, 0.15, 0.6), Color(0.22, 0.22, 0.21, 0)])
+	_set_ramp("screen", [Color(0.8, 0.8, 0.78, 0.0), Color(0.8, 0.8, 0.78, 0.9), Color(0.74, 0.74, 0.72, 0.85), Color(0.7, 0.7, 0.68, 0)])
 	set_dust(Color(0.55, 0.5, 0.4))
 	ramp_tex = ImageTexture.create_from_image(ramp_img)
 	for gi in 2:
@@ -283,6 +284,13 @@ func _emit_active(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	now += delta
+	for i in range(screens.size() - 1, -1, -1):
+		if now > float(screens[i][1]):
+			var e = screens[i][0]
+			if is_instance_valid(e):
+				e.emitting = false
+				e.queue_free()
+			screens.remove_at(i)
 	_emit_active(delta)
 	for g: Dictionary in groups:
 		var any := false
@@ -413,6 +421,19 @@ func smoke_column(at: Vector3, big: bool) -> void:
 		emit(at + Vector3(0, 20, 0), 16, 9.0, "dark", 25, 40, Vector3.UP, 12, 2, 120, false, true, 0, false)
 	else:
 		emit(at, 10, 4.5, "dark", 14, 24, Vector3.UP, 10, 3, 26, false, true, 0, false)
+
+
+## Дымовая завеса: плотные белёсые клубы на r единиц вокруг, сколько секунд стоит в C++ (там же она
+## закрывает прямую видимость); последние клубы гаснут вместе с ней.
+var screens: Array = []  # [излучатель, до какого времени (now)]
+
+
+func smoke_screen(at: Vector3, r: float, secs: float) -> void:
+	var c := _cfg(18, 6.0, "screen", 3.0, r * 0.32, 180.0, 1.2, r * 0.75, false, true, 2.5)
+	for k in 14:
+		_spawn(c, at + Vector3(randf_range(-0.4, 0.4) * r, randf_range(-0.2, 0.2) * r, randf_range(-0.4, 0.4) * r), Basis())
+	var e := emit(at, 18, 6.0, "screen", 3.0, r * 0.32, Vector3.UP, 180.0, 1.2, r * 0.75, false, true, 2.5, false)
+	screens.append([e, now + maxf(1.0, secs - 5.0)])
 
 
 func explosion(at: Vector3) -> void:
