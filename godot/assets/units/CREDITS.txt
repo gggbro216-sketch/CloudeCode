@@ -1,0 +1,17 @@
+Модели пехоты и стрелкового оружия (Sketchfab, лицензия CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/).
+Модели упрощены, собраны в атласы и анимированы заново (tools/import_units.py).
+
+WW2 German Wehrmacht Soldier — Tactical_Beard (CC BY 4.0)
+Kar98k — TastyTony (CC BY 4.0)
+MP40 — Tactical_Beard (CC BY 4.0)
+PTRD-41 — milhause.cz (CC BY 4.0)
+Panzerschreck — Tactical_Beard (CC BY 4.0)
+Panzerfaust — Tactical_Beard (CC BY 4.0)
+WW2 Soviet Soldier — Michael Jones (CC BY 4.0)
+Mosin Nagant — TastyTony (CC BY 4.0)
+PPSh-41 — TastyTony (CC BY 4.0)
+WW2 US Army Ranger — Tactical_Beard (CC BY 4.0)
+M1 Garand — TastyTony (CC BY 4.0)
+Bazooka — Félix Poirier (CC BY 4.0)
+WW2 Allied Soldier Low Poly — Zack (CC BY 4.0)
+SMLE Mk III — TastyTony (CC BY 4.0)
