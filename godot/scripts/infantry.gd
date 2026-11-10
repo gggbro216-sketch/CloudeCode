@@ -73,18 +73,20 @@ var tracers: Array = []
 var tracer_mm: MultiMesh
 var snd_t := 0.0
 var snd_n := 0
-var stat := {"shots": [0, 0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
+var plane_of := ["plane_il2", "plane_ju87"]  # самолёт каждой команды
+var planes: Array = []
+var decor: Array = []
+const PLANE_V := 520.0  # скорость пролёта, ед/с
+var stat := {"shots": [0, 0, 0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
 
 
 ## rows — отделения для C++ (по 16 чисел, см. compose). Возвращает число бойцов.
 func setup(b, c, rows: PackedFloat32Array, shadows: bool) -> int:
 	battle = b
 	core = c
-	if core == null or not core.has_method("inf_init") or rows.is_empty():
+	if core == null or not core.has_method("inf_init"):
 		return 0
 	count = int(core.inf_init(rows))
-	if count <= 0:
-		return 0
 	shader = Shader.new()
 	shader.code = SHADER
 	view = core.inf_view()
@@ -107,8 +109,49 @@ func setup(b, c, rows: PackedFloat32Array, shadows: bool) -> int:
 		var u := _load_unit(nm, shadows)
 		if not u.is_empty():
 			units[nm] = u
+	for pn in plane_of:
+		if not units.has(pn):
+			var pu := _load_unit(pn, false)
+			if not pu.is_empty():
+				units[pn] = pu
 	_make_tracers()
 	return count
+
+
+## Неподвижные мелочи окружения (камни, трава, мешки): свой MultiMesh на модель, ставится один раз.
+## items — [Transform3D, Color]. Возвращает, сколько поставлено.
+func scatter(nm: String, items: Array, shadows: bool) -> int:
+	if items.is_empty() or shader == null:
+		return 0
+	var u := _load_unit(nm, shadows)
+	if u.is_empty():
+		return 0
+	var mm: MultiMesh = u.mm
+	mm.instance_count = items.size()
+	for i in items.size():
+		mm.set_instance_transform(i, items[i][0])
+		mm.set_instance_color(i, items[i][1])
+		mm.set_instance_custom_data(i, Color(0, 0, 0, 0))
+	decor.append(u)
+	return items.size()
+
+
+## Где стоят пушки: [x, z, курс, команда] — вокруг них battle ставит мешки с песком.
+func gun_spots() -> Array:
+	var out: Array = []
+	for k in count:
+		var q := k * VIEW
+		if int(view[q + 7]) % 8 == 6:
+			out.append([view[q], view[q + 2], view[q + 3], int(view[q + 6])])
+	return out
+
+
+## Штурмовик: пролёт над целью через delay секунд по курсу dir (x, z).
+func add_plane(team: int, target: Vector3, dir: Vector2, delay: float) -> void:
+	var nm: String = plane_of[clampi(team, 0, 1)]
+	if not units.has(nm):
+		return
+	planes.append({"unit": nm, "t": -delay, "target": target, "dir": Vector3(dir.x, 0.0, dir.y).normalized(), "snd": false})
 
 
 func _crew_name(code: int) -> String:
@@ -261,11 +304,27 @@ func step() -> void:
 
 ## Каждый кадр: положения между шагами логики, позы, трассы.
 func frame(frac: float, dt: float) -> void:
-	if count <= 0:
-		return
 	for nm in units:
 		(units[nm].list as Array).clear()
 		(units[nm].extra as Array).clear()
+	# самолёты: заход с пологим пикированием на цель и уход с набором
+	var pi := 0
+	while pi < planes.size():
+		var pl: Dictionary = planes[pi]
+		pl.t += dt
+		if pl.t > 7.0:
+			planes.remove_at(pi)
+			continue
+		var along: float = float(pl.t) * PLANE_V
+		var h := 190.0 + 0.00018 * along * along
+		var pp: Vector3 = pl.target + pl.dir * along + Vector3(0, minf(h, 520.0), 0)
+		var climb := atan(0.00036 * along) * 0.8
+		var pb := Basis.looking_at(-(pl.dir as Vector3), Vector3.UP) * Basis(Vector3.RIGHT, -climb)
+		(units[pl.unit].extra as Array).append([pp, pb.scaled(Vector3(SCALE, SCALE, SCALE)), 0, 0])
+		if not pl.snd and pl.t > -3.0:
+			pl.snd = true
+			battle.sfx.play3d("plane", pp, 6.0)
+		pi += 1
 	for k in count:
 		var q := k * VIEW
 		var fl := int(view[q + 8])
@@ -294,7 +353,7 @@ func frame(frac: float, dt: float) -> void:
 		var single: bool = int(u.np) <= 1
 		for j in extra.size():
 			var e: Array = extra[j]
-			var eb := Basis(Vector3.UP, PI * 0.5 - float(e[1])).scaled(Vector3(SCALE, SCALE, SCALE))
+			var eb: Basis = e[1] if e[1] is Basis else Basis(Vector3.UP, PI * 0.5 - float(e[1])).scaled(Vector3(SCALE, SCALE, SCALE))
 			mm.set_instance_transform(list.size() + j, Transform3D(eb, e[0]))
 			mm.set_instance_color(list.size() + j, TINT[int(e[3])])
 			mm.set_instance_custom_data(list.size() + j, Color(float(e[2]), float(e[2]), 0.0, 0.0))
@@ -407,7 +466,7 @@ func frame(frac: float, dt: float) -> void:
 ## Выстрел: вид (роль бойца, 5 — пулемёт танка, 6 — граната), откуда, направление, место трассера, скорость/дальность.
 func on_shot(ev: PackedFloat32Array, q: int) -> void:
 	var kind := int(ev[q + 1])
-	stat.shots[clampi(kind, 0, 7)] += 1
+	stat.shots[clampi(kind, 0, 8)] += 1
 	var at := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
 	var dir := Vector3(ev[q + 5], ev[q + 6], ev[q + 7])
 	var slot := int(ev[q + 8])
@@ -416,6 +475,13 @@ func on_shot(ev: PackedFloat32Array, q: int) -> void:
 		battle.fx.impact(at, true)
 		battle.fx.flash(at, Color(1, 0.7, 0.4), 4.0, 60.0)
 		battle.sfx.play3d("grenade", at)
+		return
+	if kind == 8:
+		# снаряд артиллерии или бомба
+		battle._slot_visual(slot, at, dir * ev[q + 9], 1e9)
+		if snd_n < 3:
+			snd_n += 1
+			battle.sfx.play3d("whiz", at + dir * 300.0, 6.0, 0.7)
 		return
 	if kind == 7:
 		# ПТ-пушка
@@ -441,7 +507,7 @@ func on_shot(ev: PackedFloat32Array, q: int) -> void:
 		battle.fx.emit(at, 3, 0.07, "fire", 20, 90, dir, 14, 0, 2.2, true, false, 5)
 	if snd_n < 3:
 		snd_n += 1
-		battle.sfx.play3d("mg" if kind == 5 else ("smg" if kind == 1 else "rifle"), at)
+		battle.sfx.play3d("mg" if kind == 5 else ("smg" if kind == 1 else ("rifle" if int(ev[q + 10]) % 2 == 0 else "rifle2")), at)
 
 
 func on_dead(ev: PackedFloat32Array, q: int) -> void:

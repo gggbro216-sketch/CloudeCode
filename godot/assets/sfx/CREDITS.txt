@@ -31,3 +31,7 @@ EmoPreben (загрузил Marscaleb) — «Painsounds v2», CC0, https://openg
 Слова-выкрики («Nein!», «Hilfe!», «Mein Bein!», «Help!», «My leg!» и др.) синтезированы голосами Piper:
 Thorsten Müller — «Thorsten (high)», немецкий, CC0; Joe — «en_US-joe-medium», английский, CC0. Речь доведена до выкрика
 и вместе с настоящим криком пропущена через «стальную коробку» (металлическая реверберация) скриптом import_screams.py.
+
+Стрелковое оружие, самолёт, пуск ракеты, граната (версия 3.4) — OpenGameArt.org, CC0:
+Ben Jaszczak и др. — «The Free Firearm Sound Library» (винтовка Мосина, M1917, ППШ), https://opengameart.org/content/the-free-firearm-sound-library
+yd — «War on Water: SNDFX» (самолёт, пуск, разрыв), https://opengameart.org/content/war-on-water-sndfx

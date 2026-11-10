@@ -603,7 +603,7 @@ func start_battle() -> void:
 	# танк из парка кампании, которого нет в ангаре, — с лучшими модулями своего времени
 	var mods: Dictionary = top_config(tank) if save.owned.has(tank) or not ms else {}
 	b.setup({"mode": bmode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": tank, "history": true if ms else save.history,
-		"xray": save.xray, "mods": mods, "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(tank).sk.duplicate(),
+		"xray": save.xray, "difficulty": int(save.get("difficulty", 1)), "realism": bool(save.get("realism", false)) and not ms, "mods": mods, "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(tank).sk.duplicate(),
 		"mission": mission_req})
 	bench_req = false
 	mission_req = {}

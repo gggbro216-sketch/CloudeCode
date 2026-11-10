@@ -74,6 +74,15 @@ static func make_zones(mode: String) -> Array:
 	return out
 
 
+## Прорыв: секторы по порядку взятия — фланг, центр, база обороны. att — какая команда атакует.
+static func make_bt_zones(att: int, flank_left: bool) -> Array:
+	var ws := D.WS
+	var def := 1 - att
+	return [_zone(Vector2(ws * (0.24 if flank_left else 0.76), ws / 2), 140.0, def, "A"),
+		_zone(Vector2(ws / 2, ws / 2), 140.0, def, "B"),
+		_zone(Vector2(ws / 2, 160.0 if att == 0 else ws - 160.0), 95.0, def, "C")]
+
+
 ## Карты постоянные: у каждой своё зерно — расстановка, рельеф, маска земли, постройки, кусты, трава
 ## и камешки одни и те же в каждом бою.
 const MAP_SALT := 1943

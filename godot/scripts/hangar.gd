@@ -86,6 +86,8 @@ var mode_desc: Label
 var map_desc: Label
 var qual_btn: Button
 var hangar_sun: DirectionalLight3D
+var diff_btn: Button
+var real_btn: Button
 var hist_btn: Button
 var go_btn: Button
 var map_btns := {}
@@ -809,6 +811,23 @@ func _build_ui() -> void:
 		main.persist()
 		_refresh())
 	rv.add_child(hist_btn)
+	# сложность противника и режим «Реализм»
+	diff_btn = Button.new()
+	diff_btn.add_theme_font_size_override("font_size", 15)
+	diff_btn.custom_minimum_size = Vector2(0, 36)
+	diff_btn.pressed.connect(func():
+		main.save.difficulty = (int(main.save.get("difficulty", 1)) + 1) % 3
+		main.persist()
+		_refresh())
+	rv.add_child(diff_btn)
+	real_btn = Button.new()
+	real_btn.add_theme_font_size_override("font_size", 15)
+	real_btn.custom_minimum_size = Vector2(0, 36)
+	real_btn.pressed.connect(func():
+		main.save.realism = not bool(main.save.get("realism", false))
+		main.persist()
+		_refresh())
+	rv.add_child(real_btn)
 	rv.add_child(_spacer(true))
 	go_btn = Button.new()
 	go_btn.text = "В БОЙ"
@@ -1144,6 +1163,8 @@ func _refresh() -> void:
 		var ok: bool = m == "random" or not hist or D.MAPS[m].roster[T.side].has(key)
 		(map_btns[m] as Button).modulate.a = 1.0 if ok else 0.45
 	hist_btn.text = "Составы: исторические" if hist else "Составы: свободные"
+	diff_btn.text = "Противник: " + ["новички", "обычный", "ветераны"][clampi(int(main.save.get("difficulty", 1)), 0, 2)]
+	real_btn.text = "Реализм: вкл (награды ×1,3)" if bool(main.save.get("realism", false)) else "Реализм: выкл"
 	var can := _available(key)
 	go_btn.disabled = not can
 	go_btn.text = "В БОЙ" if can else "НЕ ВОЕВАЛ ЗДЕСЬ"
@@ -1277,7 +1298,7 @@ func _show_credits() -> void:
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	v.add_child(sc)
 	var txt := "Карты, окружение, ангар и «Крусейдер» — процедурная генерация.\n\n"
-	for path in ["res://assets/models/CREDITS.txt", "res://assets/sfx/CREDITS.txt"]:
+	for path in ["res://assets/models/CREDITS.txt", "res://assets/units/CREDITS.txt", "res://assets/units/CREDITS_props.txt", "res://assets/sfx/CREDITS.txt"]:
 		var f := FileAccess.open(path, FileAccess.READ)
 		if f:
 			txt += f.get_as_text() + "\n"

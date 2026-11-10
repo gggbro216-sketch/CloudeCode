@@ -1,0 +1,11 @@
+Модели пушек и самолётов (Sketchfab, CC BY 4.0), упрощены и собраны в атласы (tools/import_props.py).
+
+Pak 40 / ZiS-3 Anti-Tank Gun — Pavluha (CC BY 4.0)
+37mm AT Gun M3 — Ronald_Reagan (CC BY 4.0)
+8.8 cm Flak 18 — Liminal Bifrost (CC BY 4.0)
+Junkers Ju 87 Stuka — Arthur C. Galuppo (CC BY 4.0)
+P-47 Thunderbolt — Yo Boy (CC BY 4.0)
+Ilyushin Il-2 — helijah (CC BY 4.0)
+Free Pack — Rocks Stylized — PolyOne Studio (CC BY 4.0)
+Stylized Foliage — Aki (CC BY 4.0)
+Sandbag — Islide (CC BY 4.0)

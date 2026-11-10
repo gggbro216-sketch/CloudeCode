@@ -1581,8 +1581,21 @@ static void bot_control(Core *self, std::vector<float> &P, int n, int i, float d
 		aim_tank(T, t, dt);
 		t[P_AIM] = 0.0f;
 		bool aligned = std::fabs(ang_diff(std::atan2(lz - pos.y, lx - pos.x), t[P_TUR])) < 0.03f && std::fabs(t[P_GUN_PITCH] - t[P_GUN_TARGET]) < 0.015f;
-		if (t[P_RL] <= 0.0f && d < RANGE * 0.85f && aligned && t[P_LOS] != 0.0f && t[P_HOLD] == 0.0f && t[P_DISP] < T.disp * 3.0f && t[P_CAN_FIRE] != 0.0f) {
+		bool ready = t[P_RL] <= 0.0f && aligned && t[P_HOLD] == 0.0f && t[P_DISP] < T.disp * 3.0f && t[P_CAN_FIRE] != 0.0f;
+		if ((size_t)i < self->ai.size()) self->ai[i].cover_shot = false;
+		if (ready && d < RANGE * 0.85f && t[P_LOS] != 0.0f) {
 			t[P_FIRE] = 1.0f;
+		} else if (ready && d < 520.0f && t[P_LOS] == 0.0f && (size_t)i < self->ai.size() && (size_t)i < self->ds.size() && self->ds[i].cal >= 70.0f) {
+			// цель за мягким укрытием (сарай, изгородь, забор) — крупный калибр ломает укрытие
+			V3 a = { pos.x, t[P_GROUND] + T.hh, pos.y }, b = { lx, ly, lz };
+			float tw;
+			bool ground;
+			int hobj = -1;
+			if (self->segment_hit(a, b, tw, ground, &hobj) && !ground && hobj >= 0 && (size_t)hobj < self->obj_soft.size() && self->obj_soft[hobj] &&
+				!self->obj_dead[hobj] && tw > 0.5f) {
+				self->ai[i].cover_shot = true;
+				t[P_FIRE] = 1.0f;
+			}
 		}
 	} else {
 		// башня — туда, где последний раз видели врага, иначе по ходу
@@ -2067,6 +2080,10 @@ int ammo_bot_pick(Core *c, int i) {
 		}
 		return -1;
 	};
+	if (c->ai[i].cover_shot) {
+		int he = find(AM_HE);
+		if (he >= 0) return he;
+	}
 	float main_pen = d.am[0].pen * (1.0f - 0.18f * k);
 	if (main_pen > arm * 1.1f) {
 		int he = find(AM_HE);
@@ -2407,6 +2424,28 @@ V2 Core::plan(int i) {
 	A.zone = -1;
 	if (clock < A.release_t) return bp;  // резерв волны ждёт своего часа
 	auto zp = [&](int z, float k) { return V2{ zones[z].x + off.x * k, zones[z].y + off.y * k }; };
+	// приказ игрока своему взводу
+	if (my == 0 && order > 0 && clock < order_until && A.ordered && !A.player) {
+		if (order == 2) return A.hold_p;
+		if (order == 1 && w.player >= 0 && (size_t)(w.player + 1) * PHYS <= snap.size()) {
+			const float *Pl = snap_at(this, w.player);
+			return { Pl[P_X] + off.x * 0.7f - std::cos(Pl[P_HULL]) * 70.0f, Pl[P_Y] + off.y * 0.7f - std::sin(Pl[P_HULL]) * 70.0f };
+		}
+	}
+	// прорыв: атака идёт на текущий сектор, оборона стоит за ним и выходит сбивать захват
+	if (mode == 3 && !zones.empty()) {
+		int z = std::min(std::max(bt_cur, 0), (int)zones.size() - 1);
+		if (my == bt_att) {
+			A.zone = z;
+			return zp(z, 0.45f);
+		}
+		if (zones[z].prog[en] > 15.0f) {
+			A.zone = z;
+			return zp(z, 0.4f);
+		}
+		float back = my == 0 ? 1.0f : -1.0f;
+		return { zones[z].x + off.x * 1.3f, zones[z].y + off.y * 0.5f + back * 160.0f };
+	}
 	if (mode == 0 && zones.size() >= 2) {
 		int own = zones[0].side == my ? 0 : 1, foe = own == 0 ? 1 : 0;
 		float d_own = dist2(bp, { zones[own].x, zones[own].y });
@@ -2526,6 +2565,8 @@ bool Core::think(int i, V2 &route_to, bool &route_safe) {
 	}
 	// разведчик после засвета откатывается; в конце стандартного боя все, кроме сцепившихся вплотную, — на базу
 	bool rush = mode == 0 && !hold_team[team] && ((cap_mask >> team) & 1) && clock > time_limit * 0.72f && G && dist2(pos_of(G), bp) > 250.0f;
+	// прорыв: атака не застревает в перестрелке — кто не видит цель, идёт к сектору, остальные по очереди
+	if (mode == 3 && team == bt_att && G && dist2(pos_of(G), bp) > 220.0f && (!A.los || ((i + (int)(clock / 20.0f)) & 1) == 0)) rush = true;
 	if (G && !(A.cls == CLS_LT && clock < A.back_t) && !rush) {
 		float d = dist2(bp, pos_of(G));
 		V3 eye = { G[P_X], G[P_GROUND] + ai[nt].height, G[P_Y] };  // верх цели + 2
@@ -2602,6 +2643,9 @@ bool Core::think(int i, V2 &route_to, bool &route_safe) {
 	if (danger && clock - B[P_HIT_T] < 6.0f && !covered(bp)) {
 		V2 cv;
 		if (cover_near(bp, 175.0f, cv)) goal = cv;
+	}
+	if (std::getenv("STEEL_DEBUG_BT") && (i % 4) == 1 && ((int)(clock * 2.0f) % 40) == 0) {
+		std::fprintf(stderr, "BT i=%d team=%d mode=%d att=%d cur=%d rel=%.0f pos=%.0f,%.0f goal=%.0f,%.0f G=%d zone=%d\n", i, team, mode, bt_att, bt_cur, A.release_t, bp.x, bp.y, goal.x, goal.y, G ? 1 : 0, A.zone);
 	}
 	if (dist2(bp, goal) < 30.0f) {
 		A.act = ACT_HOLD;

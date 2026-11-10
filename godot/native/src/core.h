@@ -151,7 +151,9 @@ struct Core {
 		bool def = false, player = false, has_spot = false, has_peek = false, hold = false, adv = true, los = false;
 		V2 off = { 0, 0 }, spot = { 0, 0 }, peek = { 0, 0 }, goal = { 0, 0 };
 		float side = 1.0f, back_t = 0.0f, spot_t = 0.0f, pts = 5.0f, max_hp = 1.0f, dmg = 100.0f, reload = 3.0f, height = 20.0f, barrel = 30.0f;
-		float release_t = 0.0f;  // резерв волны: до этого времени стоит на месте
+		float release_t = 0.0f;
+		bool ordered = false, cover_shot = false;  // под приказом игрока; стреляет по укрытию цели
+		V2 hold_p = { 0, 0 };  // резерв волны: до этого времени стоит на месте
 	};
 	std::vector<BotAi> ai;
 	bool ai_on = false;
@@ -231,6 +233,23 @@ struct Core {
 	};
 	std::vector<Soldier> inf;
 	std::vector<InfSquad> isq;
+	// удары: артиллерия (0) и штурмовик (1) — очередь падающих снарядов
+	struct Strike {
+		int kind = 0, team = 0, by = -1, left = 0;
+		float x = 0, z = 0, t = 0, dx = 0, dz = -1, next = 0, cal = 122;
+		bool told = false;
+	};
+	std::vector<Strike> strikes;
+	bool strike_ai = false;
+	float strike_t[2] = { 70.0f, 85.0f };
+	// сложность: разброс и перезарядка ботов противника
+	float bot_spread_k = 1.0f, bot_reload_k = 1.15f;
+	// прорыв (mode 3): кто атакует, какой сектор берут сейчас, сколько секунд даёт взятый сектор
+	int bt_att = -1, bt_cur = 0;
+	float bt_bonus = 90.0f;
+	// приказ взводу игрока: 0 нет, 1 за мной, 2 держать позицию
+	int order = 0;
+	float order_until = 0.0f;
 	std::vector<float> mg_t;  // по танку: до следующей очереди пулемёта по пехоте
 	float inf_t = 0.0f;
 	int inf_kills = 0;  // бойцов противника на счету игрока

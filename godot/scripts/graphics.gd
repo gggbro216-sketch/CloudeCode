@@ -31,6 +31,10 @@ const ITEMS := [
 		[0, 1, 2], ["ВЫКЛ", "СЛАБАЯ", "ПОЛНАЯ"]],
 	["decals", "Следы", "Следы гусениц, гарь от разрывов и пробоины на броне.",
 		[0, 1, 2], ["ВЫКЛ", "МАЛО", "МНОГО"]],
+	["infantry", "Пехота и пушки", "Отделения пехоты и противотанковые пушки в бою.",
+		[0, 1, 2], ["ВЫКЛ", "МЕНЬШЕ", "ПОЛНЫЙ СОСТАВ"]],
+	["decor", "Окружение", "Камни, трава и мешки с песком на карте.",
+		[0, 1, 2], ["ВЫКЛ", "МАЛО", "МНОГО"]],
 	["detail", "Рельеф текстур", "Объёмные кирпич, штукатурка и земля (карты нормалей).",
 		[0, 1], ["ВЫКЛ", "ВКЛ"]],
 	["fps_counter", "Счётчик кадров", "Число кадров в секунду в углу экрана в бою.",
@@ -39,13 +43,13 @@ const ITEMS := [
 
 const PRESETS := {
 	"low": {"res": 0.6, "fps": 30, "vsync": 1, "msaa": 0, "shadows": 0, "shadow_dist": 30, "obj_shadows": 0, "view": 0.75,
-		"grass": 0, "particles": 0, "weather": 1, "decals": 1, "detail": 0},
+		"infantry": 1, "decor": 0, "grass": 0, "particles": 0, "weather": 1, "decals": 1, "detail": 0},
 	"medium": {"res": 0.75, "fps": 60, "vsync": 1, "msaa": 0, "shadows": 1, "shadow_dist": 30, "obj_shadows": 0, "view": 0.9,
-		"grass": 1, "particles": 1, "weather": 1, "decals": 1, "detail": 0},
+		"infantry": 2, "decor": 1, "grass": 1, "particles": 1, "weather": 1, "decals": 1, "detail": 0},
 	"high": {"res": 0.85, "fps": 60, "vsync": 1, "msaa": 1, "shadows": 2, "shadow_dist": 40, "obj_shadows": 1, "view": 1.0,
-		"grass": 3, "particles": 2, "weather": 2, "decals": 2, "detail": 1},
+		"infantry": 2, "decor": 2, "grass": 3, "particles": 2, "weather": 2, "decals": 2, "detail": 1},
 	"ultra": {"res": 1.0, "fps": 0, "vsync": 1, "msaa": 2, "shadows": 3, "shadow_dist": 55, "obj_shadows": 1, "view": 1.15,
-		"grass": 3, "particles": 2, "weather": 2, "decals": 2, "detail": 1},
+		"infantry": 2, "decor": 2, "grass": 3, "particles": 2, "weather": 2, "decals": 2, "detail": 1},
 }
 const PRESET_ORDER := ["low", "medium", "high", "ultra"]
 const PRESET_NAMES := {"low": "НИЗКАЯ", "medium": "СРЕДНЯЯ", "high": "ВЫСОКАЯ", "ultra": "УЛЬТРА", "custom": "СВОЯ"}

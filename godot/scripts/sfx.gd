@@ -6,13 +6,15 @@ extends Node3D
 const DIR := "res://assets/sfx/"
 const ONE_SHOTS := ["gun_75", "gun_88", "gun_122", "explosion", "hit_pen", "hit_nopen", "ricochet",
 	"impact_ground", "impact_stone", "reload", "tree", "track_break", "capture", "whiz", "distant",
-	"radio_1", "radio_2", "radio_3"]
+	"radio_1", "radio_2", "radio_3", "rifle", "rifle2", "smg", "mg", "atr", "rocket", "grenade", "plane"]
 const LOOPS := ["engine_diesel", "engine_petrol", "tracks", "turret", "wind", "fire"]
 # громкость (дБ) и «размер» источника (на каком расстоянии звук начинает затухать, единицы карты)
 const MIX := {
 	"gun_75": [0.0, 120.0], "gun_88": [1.0, 130.0], "gun_122": [2.0, 150.0], "explosion": [3.0, 160.0],
 	"hit_pen": [-1.0, 70.0], "hit_nopen": [-3.0, 60.0], "ricochet": [-4.0, 60.0], "impact_ground": [-4.0, 70.0],
 	"impact_stone": [-4.0, 60.0], "tree": [-6.0, 40.0], "track_break": [-3.0, 45.0], "whiz": [-4.0, 25.0],
+	"rifle": [-9.0, 45.0], "rifle2": [-9.0, 45.0], "smg": [-10.0, 40.0], "mg": [-7.0, 55.0], "atr": [-5.0, 60.0],
+	"rocket": [-4.0, 60.0], "grenade": [-3.0, 70.0], "plane": [4.0, 260.0],
 }
 
 var streams := {}

@@ -27,6 +27,8 @@ var dragging := false
 var fire_idx := -1
 var fire_req := false
 var auto_aim := true
+var abil_c := {}  # кнопки ударов и приказов: имя → центр
+var range_r: Array = []  # «Реализм»: кнопки дальности [прямоугольник, шаг в метрах]
 
 # раскладка (пересчитывается каждый кадр)
 var margins := Vector4.ZERO
@@ -177,9 +179,27 @@ func _input(event: InputEvent) -> void:
 			fire_idx = e.index
 			fire_req = true
 			return
-		if auto_rect.grow(10.0).has_point(p):
+		for rr: Array in range_r:
+			if (rr[0] as Rect2).grow(6.0).has_point(p):
+				battle.range_set = clampf(battle.range_set + float(rr[1]), 100.0, 2000.0)
+				return
+		if auto_rect.grow(10.0).has_point(p) and not battle.realism:
 			auto_aim = not auto_aim
 			return
+		for an in abil_c:
+			if p.distance_to(abil_c[an]) < 32.0:
+				match an:
+					"arty":
+						battle.call_strike(0)
+					"air":
+						battle.call_strike(1)
+					"follow":
+						battle.give_order(1)
+					"hold":
+						battle.give_order(2)
+					"attack":
+						battle.give_order(3)
+				return
 		if p.distance_to(zoom_c) < 50.0:
 			battle.toggle_sniper()
 			return
@@ -205,6 +225,22 @@ func _input(event: InputEvent) -> void:
 			aim_moved = 0.0
 	elif event is InputEventKey:
 		var k := event as InputEventKey
+		if k.pressed and not k.echo and not battle.paused and not battle.over:
+			match k.keycode:
+				KEY_G:
+					battle.call_strike(0)
+				KEY_H:
+					battle.call_strike(1)
+				KEY_Z:
+					battle.give_order(1)
+				KEY_X:
+					battle.give_order(2)
+				KEY_C:
+					battle.give_order(3)
+				KEY_BRACKETLEFT:
+					battle.range_set = clampf(battle.range_set - 100.0, 100.0, 2000.0)
+				KEY_BRACKETRIGHT:
+					battle.range_set = clampf(battle.range_set + 100.0, 100.0, 2000.0)
 		var keys := {KEY_1: "repair", KEY_2: "medkit", KEY_3: "ext"}
 		if k.pressed and not k.echo and keys.has(k.keycode):
 			battle.use_cons(keys[k.keycode])
@@ -280,6 +316,21 @@ func _process(delta: float) -> void:
 			if battle.player.cons.has(c):
 				cons_c[c] = Vector2(x, s.y - bt - 36.0)
 				x -= 66.0
+	abil_c.clear()
+	range_r.clear()
+	if battle and battle.player and battle.core_world:
+		# удары — продолжают ряд снаряжения; приказы — столбик слева под рацией
+		var ax := zoom_c.x - 84.0
+		abil_c["air"] = Vector2(ax, s.y - bt - 36.0 - 84.0)
+		abil_c["arty"] = Vector2(ax - 66.0, s.y - bt - 36.0 - 84.0)
+		var oy := 12.0 + margins.y + 170.0 + 150.0
+		for o in ["follow", "hold", "attack"]:
+			abil_c[o] = Vector2(14.0 + margins.x + 34.0, oy)
+			oy += 58.0
+		if battle.realism:
+			auto_aim = false
+			range_r.append([Rect2(auto_rect.position.x - 4.0, auto_rect.position.y, 56.0, 44.0), -100.0])
+			range_r.append([Rect2(auto_rect.position.x + 68.0, auto_rect.position.y, 56.0, 44.0), 100.0])
 	for f in feed:
 		f.t -= delta
 	feed = feed.filter(func(x): return x.t > 0)
@@ -360,7 +411,7 @@ func _draw_world() -> void:
 	for tk in battle.tanks:
 		if not tk.alive or tk == w:
 			continue
-		if tk.team == 1 and not tk.vis[0]:
+		if tk.team == 1 and (not tk.vis[0] or battle.realism):
 			continue
 		if tk.pos.distance_to(w.pos) > 1100.0:
 			continue
@@ -398,12 +449,20 @@ func _draw_crosshair() -> void:
 		cv.draw_line(c + Vector2(0, 26), c + Vector2(0, r), Color(0, 0, 0, 0.7), 2.0)
 		for k in range(1, 5):
 			cv.draw_line(c + Vector2(-6, 26 + k * 18), c + Vector2(6, 26 + k * 18), Color(0, 0, 0, 0.7), 1.5)
+		if battle.realism:
+			_draw_reticle(c, r)
 	else:
 		Gfx.circle(cv, c, 2.0, Color(1, 1, 1, 0.8))
 	if not w.alive or battle.gun_point == null or not gun_has:
 		return
 	var s = _proj(gun_s)
 	if s == null:
+		return
+	if battle.realism:
+		# без круга сведения и подсказки пробития: только метка, куда смотрит ствол, и перезарядка
+		Gfx.arc(cv, s, 5.0, 0, TAU, 16, Color(1, 1, 1, 0.7), 1.5)
+		if w.rl > 0:
+			Gfx.arc(cv, s, 11.0, -PI / 2, -PI / 2 + TAU * (1.0 - w.rl / maxf(float(w.rl_max), 0.01)), 32, col_amber, 3.0)
 		return
 	var half_h := size.y / 2.0 / tan(deg_to_rad(cam.fov) / 2.0)
 	var r := clampf(tan(disp_s) * half_h, 7.0, size.y * 0.4)
@@ -421,6 +480,45 @@ func _draw_crosshair() -> void:
 	for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, 1)]:
 		cv.draw_line(s + v * (r + 2), s + v * (r + 11), col, 2.0, true)
 	Gfx.circle(cv, s, 1.8, col)
+
+
+## «Реализм»: сетка прицела по школе — немецкая (треугольники TZF), советская (шкала ТШ с угольниками),
+## союзная (перекрестие с боковыми поправками). Справа — шкала дальности с указателем.
+func _draw_reticle(c: Vector2, r: float) -> void:
+	var ink := Color(0, 0, 0, 0.8)
+	var nat := String(battle.player.nation)
+	if nat in ["Германия", "Италия", "Япония", "Венгрия"]:
+		Gfx.polygon(cv, PackedVector2Array([c, c + Vector2(-9, 20), c + Vector2(9, 20)]), ink)
+		for k in range(1, 4):
+			for sg in [-1.0, 1.0]:
+				var b := c + Vector2(sg * (26.0 + k * 22.0), 0)
+				Gfx.polygon(cv, PackedVector2Array([b, b + Vector2(-5, 11), b + Vector2(5, 11)]), ink)
+	elif nat == "СССР":
+		for k in range(0, 4):
+			var y := c.y + k * 20.0
+			cv.draw_line(Vector2(c.x - 10.0 + k * 1.5, y + 9), Vector2(c.x, y), ink, 2.0, true)
+			cv.draw_line(Vector2(c.x + 10.0 - k * 1.5, y + 9), Vector2(c.x, y), ink, 2.0, true)
+		for k in range(1, 5):
+			for sg in [-1.0, 1.0]:
+				cv.draw_line(c + Vector2(sg * k * 20.0, -5), c + Vector2(sg * k * 20.0, 5), ink, 1.5)
+	else:
+		cv.draw_line(c + Vector2(-14, 0), c + Vector2(14, 0), ink, 2.0)
+		cv.draw_line(c + Vector2(0, -14), c + Vector2(0, 14), ink, 2.0)
+		for k in range(1, 5):
+			for sg in [-1.0, 1.0]:
+				cv.draw_line(c + Vector2(sg * k * 22.0, -4.0 - (k % 2) * 4.0), c + Vector2(sg * k * 22.0, 4.0 + (k % 2) * 4.0), ink, 1.5)
+	# шкала дальности справа: деления через 200 м, указатель — выставленная дальность
+	var x := c.x + r * 0.62
+	var top := c.y - r * 0.55
+	var hgt := r * 1.1
+	cv.draw_line(Vector2(x, top), Vector2(x, top + hgt), ink, 1.5)
+	for m in range(0, 2001, 200):
+		var y2 := top + hgt * float(m) / 2000.0
+		cv.draw_line(Vector2(x - (8.0 if m % 400 == 0 else 4.0), y2), Vector2(x, y2), ink, 1.5)
+		if m % 400 == 0:
+			_text(Vector2(x - 26.0, y2 + 5.0), str(m / 100), 12, ink, true, 0)
+	var yr := top + hgt * float(battle.range_set) / 2000.0
+	Gfx.polygon(cv, PackedVector2Array([Vector2(x + 2, yr), Vector2(x + 14, yr - 6), Vector2(x + 14, yr + 6)]), ink)
 
 
 func _pen_color() -> Color:
@@ -448,10 +546,13 @@ func _draw_top() -> void:
 	if obj != "":
 		_text(Vector2(cx, y + 10), obj, 14, col_amber, true, 4)
 		y += 22
-	if battle.mode == "supremacy":
+	if battle.mode == "supremacy" or battle.mode == "breakthrough":
 		Gfx.box(cv, sb_panel, Rect2(cx - 130, y, 260, 44))
-		_text(Vector2(cx - 98, y + 30), str(int(battle.score[0])), 20, col_ally, true, 0)
-		_text(Vector2(cx + 98, y + 30), str(int(battle.score[1])), 20, col_foe, true, 0)
+		if battle.mode == "supremacy":
+			_text(Vector2(cx - 98, y + 30), str(int(battle.score[0])), 20, col_ally, true, 0)
+			_text(Vector2(cx + 98, y + 30), str(int(battle.score[1])), 20, col_foe, true, 0)
+		else:
+			_text(Vector2(cx - 98, y + 28), "АТАКА" if battle.bt_att == 0 else "ОБОРОНА", 13, col_ally, true, 0)
 		for i in battle.zones.size():
 			var z = battle.zones[i]
 			var c := Vector2(cx + (i - 1) * 44.0, y + 22)
@@ -817,8 +918,9 @@ func _draw_controls() -> void:
 	_text(fire_c + Vector2(0, 9), label, 24, Color("1b1405") if ready else col_text, true, 0)
 	# автоприцел
 	var ac := col_amber if auto_aim else col_dim
-	Gfx.box(cv, _sb("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6), auto_rect)
-	_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
+	if not battle.realism:
+		Gfx.box(cv, _sb("0a0c08", D.AMBER if auto_aim else UI.LINE, 2, 22, 0.6), auto_rect)
+		_text(auto_rect.get_center() + Vector2(0, 7), "АВТО", 18, ac, true, 0)
 	# снайперский прицел
 	var on: bool = battle.sniper
 	Gfx.circle(cv, zoom_c, 40, Color(0.04, 0.05, 0.03, 0.62) if not on else Color(0.94, 0.72, 0.23, 0.85))
@@ -828,6 +930,7 @@ func _draw_controls() -> void:
 	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
+	_draw_abilities()
 	_draw_ammo()
 
 
@@ -866,6 +969,55 @@ func _draw_cons(p) -> void:
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
 		else:
 			_text(cc + Vector2(0, 46), ["1", "2", "3"][["repair", "medkit", "ext"].find(c)], 11, col_dim, true, 3)
+
+
+## Удары (артиллерия, штурмовик), приказы взводу и дальность «Реализма».
+func _draw_abilities() -> void:
+	for an in abil_c:
+		var cc: Vector2 = abil_c[an]
+		var strike: bool = an == "arty" or an == "air"
+		var k := 0 if an == "arty" else 1
+		var cd: float = battle.strike_cd[k] if strike else 0.0
+		var on: bool = not strike and battle.order_cur == {"follow": 1, "hold": 2}.get(an, -1)
+		var rr := 30.0 if strike else 26.0
+		Gfx.circle(cv, cc, rr, Color(0.04, 0.05, 0.03, 0.62))
+		Gfx.arc(cv, cc, rr, 0, TAU, 40, col_amber if (on or (strike and cd <= 0.0)) else Color(UI.LINE), 3.0 if on else 2.0)
+		var col := col_text if cd <= 0.0 else col_dim
+		match an:
+			"arty":
+				# разрыв
+				for a in 6:
+					var v := Vector2.from_angle(-PI / 2 + (a - 2.5) * 0.42)
+					cv.draw_line(cc + Vector2(0, 9) + v * 5.0, cc + Vector2(0, 9) + v * (15.0 + 4.0 * (a % 2)), col, 2.5, true)
+				cv.draw_line(cc + Vector2(-13, 11), cc + Vector2(13, 11), col, 2.5, true)
+			"air":
+				# самолёт сверху
+				cv.draw_line(cc + Vector2(0, -13), cc + Vector2(0, 12), col, 4.0, true)
+				cv.draw_line(cc + Vector2(-15, -1), cc + Vector2(15, -1), col, 4.0, true)
+				cv.draw_line(cc + Vector2(-6, 11), cc + Vector2(6, 11), col, 3.0, true)
+			"follow":
+				Gfx.polygon(cv, PackedVector2Array([cc + Vector2(-9, 8), cc + Vector2(0, -11), cc + Vector2(9, 8), cc + Vector2(0, 3)]), col)
+			"hold":
+				cv.draw_rect(Rect2(cc + Vector2(-9, -9), Vector2(18, 18)), col)
+			"attack":
+				for dx in [-7.0, 5.0]:
+					cv.draw_line(cc + Vector2(dx - 4, -9), cc + Vector2(dx + 5, 0), col, 3.0, true)
+					cv.draw_line(cc + Vector2(dx + 5, 0), cc + Vector2(dx - 4, 9), col, 3.0, true)
+		if strike and cd > 0.0:
+			Gfx.arc(cv, cc, rr - 4.0, -PI / 2, -PI / 2 + TAU * (1.0 - cd / float(battle.STRIKE_CD[k])), 40, col_amber, 3.0)
+			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
+		elif strike:
+			_text(cc + Vector2(0, 46), "АРТ" if an == "arty" else "АВИА", 11, col_dim, true, 3)
+		else:
+			_text(cc + Vector2(34, 5), {"follow": "ЗА МНОЙ", "hold": "СТОЯТЬ", "attack": "В АТАКУ"}[an], 12, col_amber if on else col_dim, false, 3)
+	if battle.realism and not range_r.is_empty():
+		var r0: Rect2 = range_r[0][0]
+		var r1: Rect2 = range_r[1][0]
+		for rr2: Rect2 in [r0, r1]:
+			cv.draw_rect(rr2, Color(0.04, 0.05, 0.03, 0.62))
+		_text(r0.get_center() + Vector2(0, 8), "−", 24, col_text, true, 3)
+		_text(r1.get_center() + Vector2(0, 8), "+", 24, col_text, true, 3)
+		_text(Vector2((r0.end.x + r1.position.x) * 0.5, r0.position.y - 8.0), "ДАЛЬНОСТЬ %d м" % int(battle.range_set), 14, col_amber, true, 3)
 
 
 func _cons_icon(kind: String, c: Vector2, col: Color) -> void:

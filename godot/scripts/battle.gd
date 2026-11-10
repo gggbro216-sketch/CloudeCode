@@ -167,6 +167,16 @@ var trk_n := TRK  # сколько отрезков следов держит Mu
 var scorch_n := SCORCH
 var G := {}  # настройки графики (Graphics, save.gfx)
 var cam_hook := Callable()
+var difficulty := 1  # 0 — лёгкий противник, 1 — обычный, 2 — опытный
+var realism := false  # без меток и подсказок, дальность выставляет игрок
+var range_set := 600.0  # «Реализм»: выставленная дальность, м
+var bt_att := -1  # «Прорыв»: какая команда атакует (−1 — другой режим)
+var strike_cd := [45.0, 90.0]  # до готовности артудара и штурмовика, с
+const STRIKE_CD := [120.0, 180.0]
+var strikes_used := 0
+var decor_n := 0  # сколько мелочей окружения поставлено
+var order_cur := 0
+var order_t := 0.0
 var inf_kills := 0  # бойцов противника на счету игрока
 var inf: Node3D = null  # пехота (infantry.gd); null — её нет в этом бою
 var no_tank: TankScript = null  # «стрелок» для событий, где урон нанёс не танк (пехота, артиллерия)
@@ -246,8 +256,13 @@ func setup(cfg: Dictionary) -> void:
 	xray_on = bool(cfg.get("xray", true))
 	bench = bool(cfg.get("bench", false))
 	mission = cfg.get("mission", {})
+	difficulty = clampi(int(cfg.get("difficulty", 1)), 0, 2)
+	realism = bool(cfg.get("realism", false))
 	if not mission.is_empty():
 		time_limit = float(mission.get("time", D.TIME_LIMIT))
+	elif mode == "breakthrough":
+		bt_att = int(cfg.get("bt_att", randi() % 2))
+		time_limit = 300.0
 	side = D.TYPES[player_type].side
 
 
@@ -317,7 +332,7 @@ func _ready() -> void:
 	mu_base = {"grass": 0.78, "sand": 0.62, "snow": 0.5, "urban": 0.85}.get(surf, 0.75)
 	road_mu = 0.5 if surf == "snow" else 0.9
 	year = D.MAPS[map_key].year
-	zones = MapGen.make_zones(mode)
+	zones = MapGen.make_bt_zones(bt_att, MapGen.map_seed(map_key) % 2 == 0) if bt_att >= 0 else MapGen.make_zones(mode)
 	# карта постоянная: зерно карты и зоны всех режимов (раскладка не зависит от режима)
 	var map_seed := MapGen.map_seed(map_key)
 	var gen_zones := MapGen.all_zones()
@@ -608,9 +623,15 @@ func _spawn() -> void:
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
 	var wk: Array = mission.get("weight", [1.0, 1.0])
+	if bt_att >= 0:
+		wk = [1.8, 1.0] if bt_att == 0 else [1.0, 1.8]  # атакующих больше, они идут тремя волнами
 	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)) * float(wk[0]),
 		float(hc.get(D.foe_side(side), 1.0)) * float(wk[1]))
 	var waves: Array = mission.get("waves", [])
+	var wave_team := 1
+	if bt_att >= 0:
+		waves = [0.0, 25.0, 50.0]
+		wave_team = bt_att
 	var keep: Array = [player_type]
 	for t in teams:
 		for k in t:
@@ -628,7 +649,7 @@ func _spawn() -> void:
 		var list: Array = teams[team]
 		var y := ws - 300.0 if team == 0 else 300.0
 		# волны обороны: враг делится на части, вторая и дальше ждут у своего края карты
-		var per := ceili(float(list.size()) / maxi(1, waves.size())) if team == 1 and waves.size() > 1 else list.size()
+		var per := ceili(float(list.size()) / maxi(1, waves.size())) if team == wave_team and waves.size() > 1 else list.size()
 		for i in list.size():
 			# игрок в центре строя, остальные расходятся в стороны
 			var wave := i / per if per > 0 else 0
@@ -636,7 +657,7 @@ func _spawn() -> void:
 			var slot := (row + 1) / 2 * (1 if row % 2 == 1 else -1)
 			var p := Vector2(ws / 2 + slot * 165.0, y + (-30.0 if team == 0 else 30.0) * (row % 2))
 			if wave > 0:
-				p.y = 110.0 + 40.0 * (row % 2)
+				p.y = (110.0 + 40.0 * (row % 2)) if team == 1 else (ws - 110.0 - 40.0 * (row % 2))
 			var me := team == 0 and i == 0
 			var nat := D.operator(list[i], map_key, history)
 			var tk := _add_tank(list[i], team, p, "Вы" if me else names[nat].pop_back(), me)
@@ -1156,7 +1177,7 @@ func _phys_init() -> void:
 		af.append_array([cls.get(tk.b_cls, 1), 1.0 if tk.role == "def" else 0.0, 1.0 if tk.is_player else 0.0,
 			D.pts(tk.type_key, year), tk.max_hp, tk.T.dmg, tk.T.reload, tk.height, tk.barrel, lane.get(tk.b_lane, 1),
 			tk.b_off.x, tk.b_off.y, tk.b_side])
-	core.ai_init({"standard": 0, "encounter": 1, "supremacy": 2}.get(mode, 0), time_limit,
+	core.ai_init({"standard": 0, "encounter": 1, "supremacy": 2, "breakthrough": 3}.get(mode, 0), time_limit,
 		PackedFloat32Array([_lane_x("hill"), _lane_x("mid"), _lane_x("town")]), af)
 	var sq := PackedInt32Array()
 	for team in 2:
@@ -1172,6 +1193,12 @@ func _phys_init() -> void:
 			rt.append(float(release.get(tk, 0.0)))
 		core.mission_set(1 if kind == "attack" else (2 if kind == "defense" else 3), 2 if kind == "attack" else (1 if kind == "defense" else -1),
 			kind == "defense", kind == "attack", rt)
+	if bt_att >= 0 and core.has_method("mission_set"):
+		# прорыв: секторы берёт только атака, по времени побеждает оборона, она же держит рубежи
+		var rt2 := PackedFloat32Array()
+		for tk: TankScript in tanks:
+			rt2.append(float(release.get(tk, 0.0)))
+		core.mission_set(1 << bt_att, 2 if bt_att == 0 else 1, bt_att == 1, bt_att == 0, rt2)
 	# снаряды и урон: броня, коробки попаданий, места модулей и экипажа
 	var df := PackedFloat32Array()
 	for tk: TankScript in tanks:
@@ -1231,6 +1258,9 @@ func _world_init() -> void:
 				ammo_list = list
 		_ammo_poll()
 	core_world = true
+	if core.has_method("rules_set"):
+		var dk: Array = [[1.6, 1.4], [1.0, 1.15], [0.8, 1.0]][difficulty]
+		core.rules_set(PackedFloat32Array([dk[0], dk[1], 1.0 if not bench else 0.0, float(bt_att), 90.0]))
 	_spawn_infantry()
 
 
@@ -1240,17 +1270,141 @@ func _spawn_infantry() -> void:
 	no_tank.team = -1
 	no_tank.callsign = "Пехота"
 	var amount := int(G.get("infantry", 2))
-	if amount <= 0 or not core.has_method("inf_init"):
+	if not core.has_method("inf_init"):
 		return
 	var M: Dictionary = D.MAPS[map_key]
 	var nats := [String(M.nations[side][0]), String(M.nations[D.foe_side(side)][0])]
-	var rows := InfantryScript.compose(nats, year, [_lane_x("hill"), _lane_x("mid"), _lane_x("town")], D.WS, amount)
+	var rows := InfantryScript.compose(nats, year, [_lane_x("hill"), _lane_x("mid"), _lane_x("town")], D.WS, amount if not bench else 0)
+	if bt_att >= 0 and amount > 0:
+		# прорыв: оборона ставит по пушке у секторов B и C
+		var w := InfantryScript.weapons(String(nats[1 - bt_att]), year)
+		for zi in [1, 2]:
+			if (w.guns as Array).is_empty():
+				break
+			var g: Dictionary = w.guns[0]
+			var back := 70.0 if bt_att == 1 else -70.0
+			rows.append_array([float(1 - bt_att), 1.0, zones[zi].pos.x + (90.0 if zi == 1 else -90.0), zones[zi].pos.y + back, 1.0, float(w.nat),
+				0.0, 0.0, 0.0, 0.0, 0.0, float(g.pen), float(g.v) * D.SHELL_SCALE, float(g.model), float(g.cal), 1.0])
 	inf = InfantryScript.new()
 	inf.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(inf)
-	if inf.setup(self, core, rows, int(G.get("shadows", 2)) > 1) <= 0:
-		inf.queue_free()
-		inf = null
+	inf.plane_of = [_plane_name(nats[0]), _plane_name(nats[1])]
+	inf.setup(self, core, rows, int(G.get("shadows", 2)) > 1)
+	_spawn_decor()
+
+
+## Мелочи окружения из готовых моделей: россыпи камней, пучки травы, мешки с песком у пушек и баз.
+## Расстановка — по зерну карты (одна и та же в каждом бою), вне построек, дорог к базам и зон.
+func _spawn_decor() -> void:
+	var level := int(G.get("decor", 2))
+	if level <= 0 or inf == null or bench:
+		return
+	var M: Dictionary = D.MAPS[map_key]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = MapGen.map_seed(map_key) + 77
+	var ws := D.WS
+	var sc: float = InfantryScript.SCALE
+	var rock_c := Color(String(M.get("rock", "78705e")))
+	var tint := Color(clampf(rock_c.r / 0.45, 0.5, 1.9), clampf(rock_c.g / 0.43, 0.5, 1.9), clampf(rock_c.b / 0.4, 0.5, 1.9))
+	if bool(M.get("winter", false)):
+		tint = tint.lerp(Color(1.7, 1.75, 1.85), 0.45)
+	var rocks := ["decor_rock_1", "decor_rock_3", "decor_rock_4", "decor_rock_6", "decor_rock_7", "decor_rock_8"]
+	var lists := {}
+	var free := func(x: float, z: float, r: float) -> bool:
+		if x < 40.0 or z < 40.0 or x > ws - 40.0 or z > ws - 40.0 or core.blocked_at(x, z, r):
+			return false
+		for zn in zones:
+			if Vector2(x, z).distance_to(zn.pos) < float(zn.r) + 20.0:
+				return false
+		return true
+	# камни группами: крупный и 2–5 мелких рядом
+	var groups := 90 if level > 1 else 45
+	for g in groups:
+		var cx := rng.randf_range(60.0, ws - 60.0)
+		var cz := rng.randf_range(60.0, ws - 60.0)
+		if not free.call(cx, cz, 14.0):
+			continue
+		for k in rng.randi_range(2, 6):
+			var x := cx + rng.randf_range(-26.0, 26.0) * (0.0 if k == 0 else 1.0)
+			var z := cz + rng.randf_range(-26.0, 26.0) * (0.0 if k == 0 else 1.0)
+			if core.blocked_at(x, z, 5.0):
+				continue
+			var nm: String = rocks[rng.randi() % rocks.size()]
+			var s := sc * (rng.randf_range(1.3, 2.4) if k == 0 else rng.randf_range(0.5, 1.2))
+			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.25, 0.25))
+			var shade := rng.randf_range(0.82, 1.08)
+			if not lists.has(nm):
+				lists[nm] = []
+			(lists[nm] as Array).append([Transform3D(basis.scaled(Vector3(s, s * rng.randf_range(0.7, 1.1), s)), Vector3(x, terra.height(x, z) - 0.12 * s, z)),
+				Color(tint.r * shade, tint.g * shade, tint.b * shade)])
+	# трава пучками (кроме пустыни и зимы)
+	if not bool(M.get("winter", false)) and String(M.get("surf", "grass")) == "grass":
+		var grass: Array = []
+		var gc := Color(String(M.get("g1", "545c38")))
+		for g in (1400 if level > 1 else 600):
+			var x := rng.randf_range(50.0, ws - 50.0)
+			var z := rng.randf_range(50.0, ws - 50.0)
+			if core.blocked_at(x, z, 4.0):
+				continue
+			var s := sc * rng.randf_range(1.2, 2.2)
+			var k := rng.randf_range(0.8, 1.2)
+			grass.append([Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s * 1.6, s, s * 1.6)), Vector3(x, terra.height(x, z) - 0.5, z)),
+				Color(gc.r * 1.5 * k, gc.g * 1.45 * k, gc.b * 1.2 * k)])
+		lists["decor_foliage_5"] = grass
+	# мешки с песком: дуга перед каждой пушкой и полукольца у баз и секторов
+	var bags: Array = []
+	var bag_c := Color(1.7, 1.75, 1.6) if not bool(M.get("winter", false)) else Color(3.0, 2.9, 2.7)
+	var arc := func(c: Vector2, yaw: float, r: float, span: float, rows: int) -> void:
+		var n := maxi(3, int(r * span / (1.0 * sc)))
+		for row in rows:
+			for i in n - row:
+				var a := yaw + span * ((float(i) + 0.5 * row) / float(n - 1) - 0.5)
+				var p := c + Vector2.from_angle(a) * r
+				if core.blocked_at(p.x, p.y, 3.0):
+					continue
+				bags.append([Transform3D(Basis(Vector3.UP, -a + rng.randf_range(-0.12, 0.12)).scaled(Vector3(sc, sc, sc)),
+					Vector3(p.x, terra.height(p.x, p.y) + row * 0.3 * sc, p.y)), bag_c * rng.randf_range(0.85, 1.05)])
+	for gs: Array in inf.gun_spots():
+		arc.call(Vector2(gs[0], gs[1]), gs[2], 3.4 * sc, 2.0, 2)
+	for zn in zones:
+		var face := -PI / 2 if zn.pos.y > ws * 0.5 else PI / 2
+		if absf(zn.pos.y - ws * 0.5) < 100.0:
+			face = PI / 2 if (bt_att == 0 or bt_att < 0 and zn.pos.x < ws * 0.5) else -PI / 2
+		for dx in [-0.75, 0.75]:
+			arc.call(zn.pos + Vector2(dx * float(zn.r), 0).rotated(face - PI / 2) + Vector2.from_angle(face) * float(zn.r) * 0.55, face, 2.6 * sc, 1.7, 2)
+	lists["decor_sandbag_0"] = bags
+	var total := 0
+	for nm in lists:
+		total += inf.scatter(nm, lists[nm], int(G.get("shadows", 2)) > 2 and nm != "decor_foliage_5")
+	decor_n = total
+
+
+func _plane_name(nation: String) -> String:
+	return "plane_ju87" if nation in ["Германия", "Италия", "Япония"] else ("plane_il2" if nation == "СССР" else "plane_p47")
+
+
+## Игрок вызывает удар по точке прицела: 0 — артиллерия, 1 — штурмовик.
+func call_strike(kind: int) -> void:
+	if not core_world or over or not player.alive or strike_cd[kind] > 0.0 or not core.has_method("strike_call"):
+		return
+	var at: Vector3 = aim_point
+	if core.strike_call(kind, 0, at.x, at.z, player.idx):
+		strike_cd[kind] = STRIKE_CD[kind]
+		strikes_used += 1
+		sfx.play2d("radio_%d" % (1 + randi() % 3), -4.0)
+
+
+## Приказ взводу (трём ближайшим своим танкам): 1 — за мной, 2 — держать позицию, 3 — в атаку, 0 — отмена.
+func give_order(kind: int) -> void:
+	if not core_world or over or not core.has_method("order_set"):
+		return
+	if kind == order_cur and kind != 3:
+		kind = 0
+	core.order_set(kind)
+	order_cur = kind if kind != 3 else 0
+	order_t = 90.0 if order_cur != 0 else 0.0
+	hud.add_feed([["Приказ взводу: ", Color("cfd3c0")], [["вольно", "за мной", "держать позицию", "в атаку"][kind], Color(D.AMBER)]])
+	sfx.play2d("radio_%d" % (1 + randi() % 3), -6.0)
 
 
 ## Кто нанёс урон: танк по номеру или «не танк» (пехота, артиллерия), если номер отрицательный.
@@ -3521,7 +3675,14 @@ func _update_world(dt: float) -> void:
 	clock += dt
 	var p := player
 	var inp := PackedFloat32Array()
-	inp.resize(17)
+	inp.resize(18)
+	inp[17] = range_set * D.UPM if realism and not autopilot else 0.0
+	for k in 2:
+		strike_cd[k] = maxf(0.0, strike_cd[k] - dt)
+	if order_t > 0.0:
+		order_t -= dt
+		if order_t <= 0.0:
+			order_cur = 0
 	var o := cam.global_position if cam else Vector3.ZERO
 	if p.alive:
 		o = _cam_origin(p)
@@ -3608,7 +3769,7 @@ func _update_world(dt: float) -> void:
 
 const FINISH_WHY := ["Все противники уничтожены", "Ваша команда уничтожена", "Время вышло", "Вы захватили базу",
 	"Противник захватил базу", "База противника захвачена", "Ваша база захвачена", "Набрано 600 очков",
-	"Противник набрал 600 очков", "Рубеж удержан", "Время на атаку вышло"]
+	"Противник набрал 600 очков", "Рубеж удержан", "Время на атаку вышло", "Все секторы взяты", "Противник прорвал оборону"]
 
 
 ## События шага из C++ по порядку: выстрелы, попадания, урон, уничтожение, деревья, тараны, ремонт,
@@ -3777,12 +3938,28 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				say("spot_tiger" if e.type_key.begins_with("tiger") else "spot", "", int(ev[q + 2]))
 			31:  # точка захвачена (превосходство)
 				var zi := int(ev[q + 1])
-				if zi >= 0 and zi < zones.size():
+				if zi >= 0 and zi < zones.size() and bt_att >= 0:
+					time_limit += ev[q + 3]
+					hud.add_feed([["Сектор %s взят: +%d с" % [zones[zi].label, int(ev[q + 3])], hud.team_color(int(ev[q + 2]))]])
+					hud.alert("СЕКТОР %s ВЗЯТ" % zones[zi].label if bt_att == 0 else "СЕКТОР %s ПОТЕРЯН" % zones[zi].label, hud.team_color(bt_att))
+					sfx.play2d("capture", -6.0)
+				elif zi >= 0 and zi < zones.size():
 					hud.add_feed([["Точка %s захвачена" % zones[zi].label, hud.team_color(int(ev[q + 2]))]])
 					sfx.play2d("capture", -6.0)
 			34:  # пехота и пулемёты: выстрел
 				if inf:
 					inf.on_shot(ev, q)
+			36:  # удар: вид, команда, x, z, через сколько секунд, курс захода
+				var sk := int(ev[q + 1])
+				var st := int(ev[q + 2])
+				var sp := Vector3(ev[q + 3], terra.height(ev[q + 3], ev[q + 4]), ev[q + 4])
+				if st == 0:
+					hud.add_feed([["Артиллерия: огонь через %d с" % int(ev[q + 5]) if sk == 0 else "Штурмовик на подходе", hud.team_color(0)]])
+					fx.emit(sp + Vector3(0, 4, 0), 14, 5.0, "smoke", 10, 40, Vector3.UP, 20, 6, 22.0, false, true, 2.5)
+				elif sp.distance_to(Vector3(player.pos.x, sp.y, player.pos.y)) < 260.0 and player.alive:
+					hud.alert("АРТНАЛЁТ!" if sk == 0 else "ВОЗДУХ!", Color("ff6a4a"))
+				if inf and sk == 1:
+					inf.add_plane(st, sp, Vector2(ev[q + 6], ev[q + 7]), ev[q + 5])
 			35:  # боец погиб
 				if inf:
 					inf.on_dead(ev, q)
@@ -4096,6 +4273,8 @@ func _brief_info() -> Dictionary:
 		"standard": "Задача: уничтожить противника или захватить его базу, не отдав свою.",
 		"encounter": "Задача: захватить нейтральную базу в центре карты или уничтожить противника.",
 		"supremacy": "Задача: держать точки A, B, C — каждая приносит очки. Победа — 600 очков или уничтожение противника.",
+		"breakthrough": ("Задача: взять секторы A, B и C по очереди. Каждый взятый сектор даёт ещё 90 секунд. Вас больше, но подходите тремя волнами."
+			if bt_att == 0 else "Задача: удержать секторы A, B, C до конца времени. Противника больше, он идёт тремя волнами; каждый взятый сектор даёт ему ещё 90 секунд."),
 	}
 	if not mission.is_empty():
 		return {"title": "%s · %s" % [String(mission.title), M.name], "sub": "%s против %s · %s" % [M[side], M[D.foe_side(side) + "_g"], M.date],
@@ -4179,6 +4358,13 @@ func _obj_destroyed(idx: int, c: Vector3) -> void:
 
 ## Строка задачи миссии над полем боя: что делать и сколько осталось (волны обороны).
 func objective() -> String:
+	if bt_att >= 0:
+		var cur := 0
+		for z in zones:
+			if z.side == bt_att:
+				cur += 1
+		var lbl: String = zones[mini(cur, zones.size() - 1)].label
+		return ("ПРОРЫВ: взять сектор %s" % lbl) if bt_att == 0 else ("ОБОРОНА: удержать сектор %s" % lbl)
 	if mission.is_empty():
 		return ""
 	var kind := String(mission.get("kind", "battle"))
@@ -4278,6 +4464,18 @@ func _show_result() -> void:
 	stats.alive = player.alive
 	stats.boom = player_death == 2  # взрыв боеукладки (кампания: машина потеряна)
 	stats.merge(rewards())
+	# пехота и пушки на счету игрока; «Реализм» — награды больше
+	stats.inf_kills = inf_kills
+	if inf_kills > 0:
+		stats.silver = int(stats.silver) + inf_kills * 40
+		stats.xp = int(stats.xp) + inf_kills * 6
+		(stats.lines as Array).append(["Пехота и расчёты (%d)" % inf_kills, inf_kills * 6, inf_kills * 40])
+	if realism:
+		stats.xp = roundi(float(stats.xp) * 1.3)
+		stats.free_xp = roundi(float(stats.free_xp) * 1.3)
+		if int(stats.silver) > 0:
+			stats.silver = roundi(float(stats.silver) * 1.3)
+		stats.realism = true
 	_ammo_poll()
 	stats.ammo_cost = ammo_cost()
 	stats.silver = int(stats.silver) - int(stats.ammo_cost)

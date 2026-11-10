@@ -82,7 +82,21 @@
 	void inf_squad_plan(int qi) {
 		Core::InfSquad &q = c->isq[qi];
 		if (q.alive <= 0) return;
-		if (q.hold || c->hold_team[q.team]) return;
+		if (q.hold) return;
+		if (c->mode == 3 && !c->zones.empty()) {
+			// прорыв: атака идёт к текущему сектору, оборона занимает его и отходит к следующему
+			int z = std::min(std::max(c->bt_cur, 0), (int)c->zones.size() - 1);
+			int key = 100 + z;
+			if (key == q.stage) return;
+			q.stage = key;
+			float back = q.team == c->bt_att ? (q.team == 0 ? 60.0f : -60.0f) : (q.team == 0 ? 90.0f : -90.0f);
+			V2 to = { clampf(c->zones[z].x + q.side * 0.6f, 60.0f, c->ws - 60.0f), clampf(c->zones[z].y + back, 60.0f, c->ws - 60.0f) };
+			q.path = c->nav_path({ q.ax, q.ay }, to, true, 6.0f);
+			if (q.path.empty()) q.path.push_back(to);
+			q.pi = 0;
+			return;
+		}
+		if (c->hold_team[q.team]) return;
 		int st = std::min(c->squads[q.team][q.lane].stage, c->max_stage());
 		if (st == q.stage && !q.path.empty()) return;
 		if (st == q.stage && q.pi >= (int)q.path.size()) return;
@@ -578,6 +592,146 @@
 		for (Core::Shell &s : c->shells) {
 			if (!s.dead || s.boom == 0) continue;
 			if (s.kind != AM_SMOKE && !c->inf.empty()) inf_blast(s.hit_pos, s.cal, s.kind == AM_HE ? std::max(s.he, 1.0f) : 0.0f, s.owner);
+			if (s.kind == AM_HE && s.boom == 1 && s.cal >= 100.0f) blast_tanks(s);
 			s.boom = 0;
+		}
+	}
+
+	// ---------- удары: артиллерия и штурмовик ----------
+	void strike_shell(const Core::Strike &k, float tx, float tz) {
+		float gh = c->height(tx, tz);
+		float fall = k.kind == 0 ? 760.0f : 380.0f, fwd = k.kind == 0 ? 150.0f : 330.0f, H = k.kind == 0 ? 520.0f : 210.0f;
+		float tf = (-fall + std::sqrt(fall * fall + 2.0f * GRAVITY * H)) / GRAVITY;
+		Core::Shell sh;
+		sh.pos = { tx - k.dx * fwd * tf, gh + H, tz - k.dz * fwd * tf };
+		sh.vel = { k.dx * fwd, -fall, k.dz * fwd };
+		sh.dist = 0.0f;
+		sh.rico = 0;
+		sh.owner = k.by;
+		sh.team = k.team;
+		sh.kind = AM_HE;
+		sh.cal = k.cal;
+		sh.he = k.kind == 0 ? 3600.0f : 15000.0f;
+		sh.dmg = k.kind == 0 ? 320.0f : 600.0f;
+		sh.pen = k.kind == 0 ? 35.0f : 70.0f;
+		int slot = c->w.shell_slot;
+		c->w.shell_slot = (slot + 1) % 64;
+		sh.slot = slot;
+		if (c->shells.size() < 512) c->shells.push_back(sh);
+		V3 dir = v3norm(sh.vel);
+		ev.add({ (float)W_INF_SHOT, 8.0f, sh.pos.x, sh.pos.y, sh.pos.z, dir.x, dir.y, dir.z, (float)slot, v3len(sh.vel), -1.0f, k.cal });
+	}
+
+	bool strike_add(int kind, int team, float x, float z, int by) {
+		if (c->strikes.size() >= 6 || !std::isfinite(x) || !std::isfinite(z)) return false;
+		Core::Strike k;
+		k.kind = kind != 0 ? 1 : 0;
+		k.team = team != 0 ? 1 : 0;
+		k.by = by;
+		k.x = clampf(x, 30.0f, c->ws - 30.0f);
+		k.z = clampf(z, 30.0f, c->ws - 30.0f);
+		k.t = k.kind == 0 ? 5.0f : 6.5f;
+		k.left = k.kind == 0 ? 8 : 4;
+		k.cal = k.kind == 0 ? 122.0f : 150.0f;
+		float ax = rnd(-0.35f, 0.35f), az = k.team == 0 ? -1.0f : 1.0f, al = std::hypot(ax, az);
+		k.dx = ax / al;
+		k.dz = az / al;
+		c->strikes.push_back(k);
+		return true;
+	}
+
+	// бот-командир: удар по скоплению врага, которое видит команда; рядом со своими не бьёт
+	bool bot_strike(int tm) {
+		int best = -1;
+		float bs = 1.4f;
+		for (int i = 0; i < n(); i++) {
+			if (!c->td[i].alive || team(i) == tm) continue;
+			if (T(i)[tm == 0 ? P_VIS0 : P_VIS1] == 0.0f) continue;
+			if (std::fabs(T(i)[P_SP]) > 35.0f) continue;
+			float sc = 1.0f;
+			bool own = false;
+			for (int j = 0; j < n(); j++) {
+				if (j == i || !c->td[j].alive) continue;
+				float d = std::hypot(T(j)[P_X] - T(i)[P_X], T(j)[P_Y] - T(i)[P_Y]);
+				if (team(j) == tm) {
+					own = own || d < 190.0f;
+				} else if (d < 150.0f) {
+					sc += 1.0f;
+				}
+			}
+			for (const Core::Soldier &s : c->inf) {
+				if (!s.alive) continue;
+				float d = std::hypot(s.x - T(i)[P_X], s.y - T(i)[P_Y]);
+				if (s.team == tm) {
+					own = own || d < 150.0f;
+				} else if (d < 120.0f && s.seen[tm] > 0.0f) {
+					sc += 0.25f;
+				}
+			}
+			if (std::fabs(T(i)[P_SP]) < 3.0f) sc += 0.5f;
+			if (!own && sc > bs) {
+				bs = sc;
+				best = i;
+			}
+		}
+		if (best < 0) return false;
+		return strike_add(randf() < 0.35f ? 1 : 0, tm, T(best)[P_X] + rnd(-25.0f, 25.0f), T(best)[P_Y] + rnd(-25.0f, 25.0f), -1);
+	}
+
+	void strikes_step() {
+		for (Core::Strike &k : c->strikes) {
+			if (!k.told) {
+				k.told = true;
+				ev.add({ (float)W_STRIKE, (float)k.kind, (float)k.team, k.x, k.z, k.t, k.dx, k.dz, (float)k.by });
+			}
+			k.t -= dt;
+			if (k.t > 0.0f || k.left <= 0) continue;
+			k.next -= dt;
+			while (k.next <= 0.0f && k.left > 0) {
+				if (k.kind == 0) {
+					float r = 80.0f * std::sqrt(randf()), a = randf() * 2.0f * PI_F;
+					strike_shell(k, k.x + std::cos(a) * r, k.z + std::sin(a) * r);
+					k.next += rnd(0.25f, 0.55f);
+				} else {
+					float off = ((float)(4 - k.left) - 1.5f) * 50.0f;
+					strike_shell(k, k.x + k.dx * off + rnd(-10.0f, 10.0f), k.z + k.dz * off + rnd(-10.0f, 10.0f));
+					k.next += 0.15f;
+				}
+				k.left--;
+			}
+		}
+		c->strikes.erase(std::remove_if(c->strikes.begin(), c->strikes.end(), [](const Core::Strike &k) { return k.left <= 0; }), c->strikes.end());
+		if (c->strike_ai && !c->w.over) {
+			for (int tm = 0; tm < 2; tm++) {
+				c->strike_t[tm] -= dt;
+				if (c->strike_t[tm] > 0.0f) continue;
+				c->strike_t[tm] = bot_strike(tm) ? rnd(100.0f, 150.0f) : 8.0f;
+			}
+		}
+	}
+
+	// близкий разрыв тяжёлого фугаса или бомбы: танку рвёт гусеницу, бывает — глушит двигатель
+	void blast_tanks(const Core::Shell &s) {
+		float R = c->upm * s.cal * 0.024f;
+		for (int i = 0; i < n(); i++) {
+			if (!c->td[i].alive || team(i) == (s.owner >= 0 ? team(s.owner) : s.team)) continue;
+			float *t = T(i);
+			float d = std::hypot(t[P_X] - s.hit_pos.x, t[P_Y] - s.hit_pos.z);
+			if (d > R + c->ds[i].W * 0.5f) continue;
+			Core::TankDyn &td = c->td[i];
+			float r = randf();
+			if (r < 0.55f) {
+				bool fresh = td.track_broken <= 0.0f;
+				if (fresh) c->w.stat[5]++;
+				td.track_broken = TRACK_REPAIR;
+				t[P_VX] *= 0.3f;
+				t[P_VY] *= 0.3f;
+				ev.add({ (float)EV_TRACK, (float)i, (float)s.owner, t[P_X], t[P_GROUND] + 3.0f, t[P_Y], fresh ? 1.0f : 0.0f });
+			} else if (r < 0.8f) {
+				int was, now;
+				hit_module(i, s.cal >= 140.0f ? MOD_ENGINE : MOD_OPTICS, 45.0f, was, now);
+				update(i, s.owner, 0);
+			}
+			if (team(i) == 1) td.lit = std::max(td.lit, 2.0f);
 		}
 	}

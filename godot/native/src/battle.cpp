@@ -115,7 +115,7 @@ const float BURN_CREW = 3.2f;  // пожар: здоровья экипажа в
 const int VIEW = 9;  // на танк: x, z, земля, жив, виден 0, виден 1, прочность, курс корпуса, курс башни
 const int DET = 50;  // подробно об игроке и наблюдаемом (поля — Battle._mirror_detail)
 const int OUT = 34;  // прицел, счёт, заслуги, итог; дальше по 5 чисел на зону
-const int IN = 17;  // ввод: ход, камера, огонь, снаряжение, автопилот, автоприцел, наблюдаемый, …
+const int IN = 18;  // ввод: ход, камера, огонь, снаряжение, автопилот, автоприцел, наблюдаемый, …
 
 inline int mstate(float v) { return v > 50.0f ? 2 : (v > 0.0f ? 1 : 0); }
 
@@ -446,6 +446,7 @@ struct Step {
 		V3 u = v3norm({ -dir.z, 0.0f, dir.x });  // dir × UP
 		V3 v = v3norm({ u.y * dir.z - u.z * dir.y, u.z * dir.x - u.x * dir.z, u.x * dir.y - u.y * dir.x });
 		float spread = std::tan(t[P_DISP]);
+		if (!d.player && team(i) == 1) spread *= c->bot_spread_k;
 		float gx = randn() * 0.45f, gy = randn() * 0.45f;
 		float gl = std::sqrt(gx * gx + gy * gy);
 		if (gl > 1.0f) {
@@ -486,7 +487,7 @@ struct Step {
 			s.slot = slot;
 			c->shells.push_back(s);
 		}
-		d.rl_max = d.reload * d.reload_k * (d.player ? 1.0f : 1.15f);
+		d.rl_max = d.reload * d.reload_k * (d.player ? 1.0f : (team(i) == 1 ? c->bot_reload_k : 1.15f));
 		d.rl = d.rl_max;
 		d.shots++;
 		d.recoil = 1.0f;
@@ -633,12 +634,24 @@ struct Step {
 			for (int i = 0; i < n(); i++) {
 				if (c->td[i].alive && in_zone(i, z)) z.n[team(i)]++;
 			}
+			if (c->mode == 3) {
+				// в прорыве сектор берёт и пехота: четыре бойца — как один танк
+				int fs[2] = { 0, 0 };
+				for (const Core::Soldier &s : c->inf) {
+					if (s.alive && s.role != IR_GUN && (s.x - z.x) * (s.x - z.x) + (s.y - z.y) * (s.y - z.y) < z.r * z.r) fs[s.team]++;
+				}
+				z.n[0] += fs[0] / 4;
+				z.n[1] += fs[1] / 4;
+			}
 			for (int side = 0; side < 2; side++) {
 				int other = 1 - side;
-				if (z.side != side && z.n[side] > 0 && z.n[other] == 0 && ((c->cap_mask >> side) & 1)) {
+				bool can = c->mode != 3 || ((int)zi == c->bt_cur && side == c->bt_att);
+				// в прорыве сектор берут и при защитниках в нём, если атакующих больше
+				bool clear = z.n[other] == 0 || (c->mode == 3 && z.n[side] > z.n[other]);
+				if (can && z.side != side && z.n[side] > 0 && clear && ((c->cap_mask >> side) & 1)) {
 					z.prog[side] = std::min(100.0f, z.prog[side] + dt * w.cap_rate * std::min(3, z.n[side]));
 					if (side == 0 && w.player >= 0 && c->td[w.player].alive && in_zone(w.player, z)) w.cap_pts += dt * w.cap_rate;
-				} else if (z.n[side] == 0) {
+				} else if (z.n[side] == 0 && !(c->mode == 3 && (int)zi == c->bt_cur && side == c->bt_att)) {
 					z.prog[side] = std::max(0.0f, z.prog[side] - dt * 3.0f);
 				}
 				if (z.prog[side] >= 100.0f) {
@@ -646,6 +659,14 @@ struct Step {
 						z.side = side;
 						z.prog[0] = z.prog[1] = 0.0f;
 						ev.add({ (float)W_ZONE, (float)zi, (float)side });
+					} else if (c->mode == 3) {
+						// прорыв: сектор взят — время на следующий; взят последний — победа атаки
+						z.side = side;
+						z.prog[0] = z.prog[1] = 0.0f;
+						c->bt_cur++;
+						c->time_limit += c->bt_bonus;
+						ev.add({ (float)W_ZONE, (float)zi, (float)side, c->bt_bonus });
+						if (c->bt_cur >= (int)c->zones.size() && !w.over) finish(side == 0 ? 1 : 2, side == 0 ? 11 : 12);
 					} else if (!w.over) {
 						if (c->mode == 1) {
 							finish(side == 0 ? 1 : 2, side == 0 ? 3 : 4);
@@ -939,6 +960,15 @@ METHOD(world_init) {
 	self->isq.clear();
 	self->mg_t.clear();
 	self->inf_kills = 0;
+	self->strikes.clear();
+	self->strike_ai = false;
+	self->strike_t[0] = 70.0f;
+	self->strike_t[1] = 85.0f;
+	self->bot_spread_k = 1.0f;
+	self->bot_reload_k = 1.15f;
+	self->bt_att = -1;
+	self->bt_cur = 0;
+	self->order = 0;
 	self->snap = P;
 	self->td.assign(n, Core::TankDyn());
 	for (int i = 0; i < n; i++) {
@@ -1117,6 +1147,13 @@ METHOD(world_step) {
 			V3 mz = muzzle_at(self, i, gdir);
 			float avk = self->td[i].am_n > 0 ? self->td[i].am[self->td[i].am_cur].vel_k : 1.0f;
 			aim_run(self, o, far, mz, v3mul(gdir, self->ts[i].shell_v * clampf(avk, 0.3f, 2.0f)), i, aim);
+			if (in[17] > 0.0f) {
+				// «Реализм»: дальность выставляет наводчик — орудие наводится в точку на линии прицела на этой дальности
+				V3 nd = v3norm(dir);
+				aim[0] = mz.x + nd.x * in[17];
+				aim[1] = mz.y + nd.y * in[17];
+				aim[2] = mz.z + nd.z * in[17];
+			}
 			if (self->ds[i].casemate && steer == 0.0f) {
 				float off = ang_diff(std::atan2(aim[2] - t[P_Y], aim[0] - t[P_X]), t[P_HULL]);
 				if (std::fabs(off) > self->ts[i].trav * 0.9f) {
@@ -1262,7 +1299,8 @@ METHOD(world_step) {
 			w.gun_limited = w.gun_limited || std::fabs(off) > T.trav + 0.01f;
 		}
 	}
-	// пехота, затем снаряды
+	// удары, пехота, затем снаряды
+	S.strikes_step();
 	S.inf_step();
 	S.shells();
 	S.zones_update();
@@ -1652,6 +1690,62 @@ METHOD(inf_init) {
 	ret_int(r, (int64_t)self->inf.size());
 }
 
+// Правила боя: [разброс ботов врага, их перезарядка, боты вызывают удары (0/1), кто атакует в прорыве (−1 — нет), секунд за сектор]
+METHOD(rules_set) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<float> f = f32(a, 0);
+	if (f.size() < 5) return;
+	self->bot_spread_k = clampf(f[0], 0.5f, 3.0f);
+	self->bot_reload_k = clampf(f[1], 0.8f, 2.0f);
+	self->strike_ai = f[2] != 0.0f;
+	self->bt_att = (int)f[3];
+	self->bt_cur = 0;
+	self->bt_bonus = f[4];
+}
+
+// Удар по точке: (вид: 0 артиллерия, 1 штурмовик; команда; x; z; кто вызвал — танк или −1) → принят ли
+METHOD(strike_call) {
+	SELF;
+	if (!need(a, 5, e)) return;
+	Step S{ self, 0.0f };
+	ret_bool(r, S.strike_add((int)a.integer(0), (int)a.integer(1), (float)a.num(2), (float)a.num(3), (int)a.integer(4)));
+}
+
+// Приказ взводу игрока (трём ближайшим своим): 0 — отмена, 1 — за мной, 2 — держать позицию, 3 — в атаку
+METHOD(order_set) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int kind = (int)a.integer(0);
+	int pl = self->w.player;
+	for (Core::BotAi &b : self->ai) b.ordered = false;
+	self->order = 0;
+	if (pl < 0 || (size_t)(pl + 1) * PHYS > self->snap.size()) return;
+	if (kind == 3) {
+		for (int ln = 0; ln < 3; ln++) self->squads[0][ln].stage = std::min(self->squads[0][ln].stage + 1, self->max_stage());
+		return;
+	}
+	if (kind != 1 && kind != 2) return;
+	const float *P0 = &self->snap[(size_t)pl * PHYS];
+	std::vector<std::pair<float, int>> near;
+	for (size_t i = 0; i < self->ai.size() && i < self->td.size(); i++) {
+		const float *t = &self->snap[i * PHYS];
+		if ((int)i == pl || !self->td[i].alive || (int)t[P_TEAM] != 0) continue;
+		near.push_back({ std::hypot(t[P_X] - P0[P_X], t[P_Y] - P0[P_Y]), (int)i });
+	}
+	std::sort(near.begin(), near.end());
+	for (size_t k = 0; k < near.size() && k < 3; k++) {
+		Core::BotAi &b = self->ai[near[k].second];
+		const float *t = &self->snap[(size_t)near[k].second * PHYS];
+		b.ordered = true;
+		b.hold_p = { t[P_X], t[P_Y] };
+		self->td[near[k].second].think_t = 0.0f;
+	}
+	self->order = kind;
+	self->order_until = self->clock + 90.0f;
+	ret_int(r, (int64_t)std::min<size_t>(near.size(), 3));
+}
+
 METHOD(inf_view) {
 	SELF;
 	std::vector<float> o(self->inf.size() * INF_VIEW + 1);
@@ -1680,6 +1774,9 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "ammo_state", ammo_state },
 		{ "inf_init", inf_init },
 		{ "inf_view", inf_view },
+		{ "rules_set", rules_set },
+		{ "strike_call", strike_call },
+		{ "order_set", order_set },
 		{ "world_init", world_init },
 		{ "world_nodes", world_nodes },
 		{ "world_step", world_step },
