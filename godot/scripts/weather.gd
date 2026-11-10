@@ -126,6 +126,8 @@ func setup(weather: String, b, level: int) -> void:
 			_snow(1500 if level >= 2 else 700)
 		"rain":
 			_snow(2200 if level >= 2 else 1000, true)
+		"ash":
+			_snow(500 if level >= 2 else 250, false, true)
 		"mist":
 			_mist(90 if level >= 2 else 40)
 		"haze":
@@ -139,7 +141,7 @@ func _process(_delta: float) -> void:
 		haze.global_position = c
 
 
-func _snow(count: int, rain := false) -> void:
+func _snow(count: int, rain := false, ash := false) -> void:
 	var box := Vector3(170.0, 110.0, 170.0)
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -165,6 +167,14 @@ func _snow(count: int, rain := false) -> void:
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	m.set_shader_parameter("box", box)
+	if ash:
+		# пепел над горящим городом: редкие тёмные хлопья, медленно кружат и почти не падают
+		m.set_shader_parameter("fall", 2.2)
+		m.set_shader_parameter("wind", Vector2(5.0, 2.0))
+		m.set_shader_parameter("size", 0.34)
+		m.set_shader_parameter("tint", Vector3(0.16, 0.14, 0.13))
+		m.set_shader_parameter("alpha_k", 0.8)
+		m.set_shader_parameter("swirl", 3.5)
 	if rain:
 		# дождь: те же частицы, но быстрые узкие вертикальные штрихи
 		m.set_shader_parameter("fall", 95.0)

@@ -229,7 +229,7 @@ struct Core {
 		int throw_at = -1;
 	};
 	struct InfSquad {
-		int team = 0, lane = 1, nat = 0, stage = -1, alive = 0, pi = 0;
+		int team = 0, lane = 1, nat = 0, stage = -1, alive = 0, pi = 0, echelon = 0;
 		bool hold = false;
 		float ax = 0, ay = 0, hx = 0, hy = 1, contact_t = 0, side = 0;
 		float atr_pen = 35, tube_pen = 100, faust_pen = 140, tube_cal = 60;

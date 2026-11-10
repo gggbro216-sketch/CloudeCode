@@ -177,6 +177,7 @@ var strike_cd := [45.0, 90.0]  # до готовности артудара и �
 const STRIKE_CD := [120.0, 180.0]
 var strikes_used := 0
 var player_hits_taken := 0
+var nats_of_battle: Array = ["СССР", "Германия"]
 var decor_n := 0  # сколько мелочей окружения поставлено
 var order_cur := 0
 var order_t := 0.0
@@ -244,6 +245,9 @@ func _prof(k: String, t0: int) -> void:
 func setup(cfg: Dictionary) -> void:
 	mode = cfg.mode
 	map_key = cfg.map
+	# сторона карты: у большой — своя; рельеф и C++ (генератор, сборка геометрии) подстраиваются
+	D.WS = float(D.MAPS[map_key].get("ws", D.WS_BASE))
+	Terrain.set_ws(D.WS)
 	G = cfg.get("gfx", {})
 	if G.is_empty():
 		G = Graphics.normalize({"hq": cfg.get("hq", true)})
@@ -279,6 +283,8 @@ func setup(cfg: Dictionary) -> void:
 	elif mode == "breakthrough":
 		bt_att = int(cfg.get("bt_att", randi() % 2))
 		time_limit = 300.0
+	if mission.is_empty() and D.WS > 3500.0:
+		time_limit *= 1.5  # большая карта: дольше ехать
 	side = D.TYPES[player_type].side
 
 
@@ -441,7 +447,12 @@ func _ready() -> void:
 	weather = WeatherScript.new()
 	weather.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # идёт за камерой
 	add_child(weather)
-	weather.setup("rain" if rain else str(D.MAPS[map_key].get("weather", "")), self, int(G.get("weather", 2)))
+	var wkind := "rain" if rain else str(D.MAPS[map_key].get("weather", ""))
+	if wkind == "" and String(D.MAPS[map_key].surf) == "urban" and int(G.get("cinema", 1)) != 0:
+		wkind = "ash"  # над горящим городом кружит пепел
+	weather.setup(wkind, self, int(G.get("weather", 2)))
+	if int(G.get("cinema", 1)) != 0 and not bench:
+		_make_film()
 	var layer := CanvasLayer.new()
 	layer.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(layer)
@@ -510,6 +521,34 @@ var sky_mat: ShaderMaterial
 var sky_drift := 0.0  # когда последний раз сдвигали облака (секунды боя)
 
 
+## Плёнка: виньетка и лёгкое зерно поверх картинки боя (под интерфейсом).
+const FILM_SHADER := """
+shader_type canvas_item;
+uniform float strength = 0.5;
+void fragment() {
+	vec2 p = (UV - 0.5) * vec2(1.0, 0.84);
+	float v = smoothstep(0.34, 0.86, length(p));
+	float n = fract(sin(dot(floor(UV * vec2(960.0, 540.0)) + floor(TIME * 24.0) * 7.13, vec2(12.9898, 78.233))) * 43758.5453);
+	COLOR = vec4(0.02, 0.016, 0.012, v * strength + max(n - 0.72, 0.0) * 0.11);
+}
+"""
+
+
+func _make_film() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 0
+	add_child(cl)
+	var r := ColorRect.new()
+	r.set_anchors_preset(Control.PRESET_FULL_RECT)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = FILM_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	r.material = m
+	cl.add_child(r)
+
+
 ## Время суток и дождь: поправки к свету карты — [верх неба, горизонт, цвет солнца, сила солнца ×, фон ×, туман, наклон солнца, облачность +].
 const TOD := {
 	"dawn": {"top": Color(0.42, 0.5, 0.68), "hor": Color(0.98, 0.72, 0.52), "sun": Color(1.0, 0.74, 0.52), "sun_k": 0.75, "amb_k": 0.85, "pitch": -13.0, "mix": 0.6},
@@ -537,6 +576,14 @@ func _make_env() -> void:
 		M.cover = minf(1.0, float(M.cover) + 0.3)
 		M.sun_e = float(M.sun_e) * 0.6
 		M.fog_far = float(M.fog_far) * 0.8
+	var cinema := int(G.get("cinema", 1)) != 0
+	if cinema:
+		# военная хроника: солнце ниже (длинные тени), небо тяжелее, дымка гуще
+		M.sun_rot = [float(M.sun_rot[0]) * 0.82, M.sun_rot[1]]
+		M.cover = minf(1.0, float(M.cover) + 0.1)
+		M.sky_top = Color(String(M.sky_top)).darkened(0.12).to_html(false)
+		M.fog = Color(String(M.fog)).lerp(Color(0.52, 0.5, 0.47), 0.3).to_html(false)
+		M.fog_far = float(M.fog_far) * 0.92
 	var sky_sh := Shader.new()
 	sky_sh.code = SKY_SHADER
 	sky_mat = ShaderMaterial.new()
@@ -562,11 +609,11 @@ func _make_env() -> void:
 	env.ambient_light_energy = M.amb
 	# плёночная тональная кривая и приглушённые цвета вместо «открыточной» яркости
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.08
+	env.tonemap_exposure = 1.03 if cinema else 1.08
 	env.tonemap_white = 6.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 0.84
-	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 0.72 if cinema else 0.84
+	env.adjustment_contrast = 1.13 if cinema else 1.06
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color(M.fog)
@@ -671,8 +718,11 @@ func _spawn() -> void:
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
 	var wk: Array = mission.get("weight", [1.0, 1.0])
+	D.TEAM_CAP = 10 if D.WS > 3500.0 else D.TEAM_MAX
+	if D.WS > 3500.0:
+		wk = [float(wk[0]) * 1.5, float(wk[1]) * 1.5]  # большая карта: машин в полтора раза больше
 	if bt_att >= 0:
-		wk = [1.7, 1.0] if bt_att == 0 else [1.0, 1.7]  # атакующих больше, они идут тремя волнами
+		wk = [float(wk[0]) * 1.7, wk[1]] if bt_att == 0 else [wk[0], float(wk[1]) * 1.7]  # атакующих больше, они идут тремя волнами
 	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)) * float(wk[0]),
 		float(hc.get(D.foe_side(side), 1.0)) * float(wk[1]))
 	var waves: Array = mission.get("waves", [])
@@ -1324,7 +1374,16 @@ func _spawn_infantry() -> void:
 		return
 	var M: Dictionary = D.MAPS[map_key]
 	var nats := [String(M.nations[side][0]), String(M.nations[D.foe_side(side)][0])]
+	nats_of_battle = nats
 	var rows := InfantryScript.compose(nats, year, [_lane_x("hill"), _lane_x("mid"), _lane_x("town")], D.WS, amount if not bench else 0)
+	if D.WS > 3500.0 and amount > 1 and not bench:
+		# большая карта: второй эшелон пехоты на каждом направлении
+		var l2 := [_lane_x("hill") + 190.0, _lane_x("mid") - 190.0, _lane_x("town") + 190.0]
+		var extra := InfantryScript.compose(nats, year, l2, D.WS, 1)
+		for q in range(0, extra.size(), 16):
+			if extra[q + 15] == 0.0:
+				extra[q + 15] = 2.0  # второй эшелон: идёт на рубеж позади первого
+		rows.append_array(extra)
 	if bt_att >= 0 and amount > 0:
 		# прорыв: оборона ставит по пушке у секторов B и C
 		var w := InfantryScript.weapons(String(nats[1 - bt_att]), year)
@@ -1368,7 +1427,8 @@ func _spawn_decor() -> void:
 				return false
 		return true
 	# камни группами: крупный и 2–5 мелких рядом
-	var groups := 90 if level > 1 else 45
+	var area_k := (ws / D.WS_BASE) * (ws / D.WS_BASE)
+	var groups := int((90 if level > 1 else 45) * area_k)
 	for g in groups:
 		var cx := rng.randf_range(60.0, ws - 60.0)
 		var cz := rng.randf_range(60.0, ws - 60.0)
@@ -1395,7 +1455,7 @@ func _spawn_decor() -> void:
 	if not bool(M.get("winter", false)) and String(M.get("surf", "grass")) == "grass":
 		var grass: Array = []
 		var gc := Color(String(M.get("g1", "545c38")))
-		for g in (1400 if level > 1 else 600):
+		for g in int((1400 if level > 1 else 600) * minf(area_k, 1.6)):
 			var x := rng.randf_range(50.0, ws - 50.0)
 			var z := rng.randf_range(50.0, ws - 50.0)
 			if core.blocked_at(x, z, 4.0):
@@ -1431,6 +1491,59 @@ func _spawn_decor() -> void:
 	for nm in lists:
 		total += inf.scatter(nm, lists[nm], int(G.get("shadows", 2)) > 2 and nm != "decor_foliage_5")
 	decor_n = total
+	if int(G.get("cinema", 1)) != 0:
+		_spawn_war(rng, level, nats_of_battle)
+
+
+## Война вокруг: дым и огонь над руинами и остовами, столбы дыма на горизонте, гарь воронок, павшие в поле
+## и у разбитой техники. Только картинка — на бой не влияет; расстановка по зерну карты.
+func _spawn_war(rng: RandomNumberGenerator, level: int, nats: Array) -> void:
+	var ws := D.WS
+	var sc: float = InfantryScript.SCALE
+	# дым и огонь: руины и остовы
+	var cands: Array = []
+	for o in obst:
+		if String(o.kind) in ["ruin", "ruin_tower", "ruin_block", "wreck_tank", "wreck_truck", "rubble"]:
+			cands.append(o)
+	var burning: Array = []
+	for i in mini(8 if level > 1 else 3, cands.size()):
+		var o = cands.pop_at(rng.randi() % cands.size())
+		var c: Vector2 = (o.r as Rect2).get_center()
+		var at := Vector3(c.x, terra.height(c.x, c.y) + minf(float(o.ht), 22.0) * 0.6, c.y)
+		fx.smoke_column(at, false)
+		if i % 2 == 0:
+			fx.emit(at, 5, 0.6, "fire", 20, 50, Vector3.UP, 20, 0, 7, true, false, 0, false)
+		burning.append(c)
+	# горизонт: тяжёлые столбы дыма за краем карты — война идёт не только здесь
+	for i in (5 if level > 1 else 2):
+		var p := Vector2(ws * 0.5, ws * 0.5) + Vector2.from_angle(rng.randf() * TAU) * ws * rng.randf_range(0.6, 0.78)
+		fx.smoke_column(Vector3(p.x, terra.height(p.x, p.y), p.y), true)
+	# гарь старых воронок
+	for i in mini(scorch_n / 2, 34):
+		var x := rng.randf_range(80.0, ws - 80.0)
+		var z := rng.randf_range(80.0, ws - 80.0)
+		if not core.blocked_at(x, z, 10.0):
+			_scorch(Vector3(x, 0, z), rng.randf_range(9.0, 20.0))
+	# павшие: у горящих руин и остовов, остальные — в поле, по двое-трое
+	if inf == null:
+		return
+	var lists := {}
+	var spots: Array = burning.duplicate()
+	for i in (9 if level > 1 else 4):
+		spots.append(Vector2(rng.randf_range(150.0, ws - 150.0), rng.randf_range(350.0, ws - 350.0)))
+	for sp: Vector2 in spots:
+		for k in rng.randi_range(1, 3):
+			var p := sp + Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(14.0, 46.0)
+			if core.blocked_at(p.x, p.y, 4.0):
+				continue
+			var w := InfantryScript.weapons(String(nats[rng.randi() % 2]), year)
+			var nm: String = String(InfantryScript.NATS[int(w.nat)]) + "_rifle"
+			if not lists.has(nm):
+				lists[nm] = []
+			(lists[nm] as Array).append([Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc, sc)), Vector3(p.x, terra.height(p.x, p.y), p.y)),
+				InfantryScript.TINT[int(w.nat)], 17 if rng.randf() < 0.5 else 19])
+	for nm in lists:
+		inf.scatter(nm, lists[nm], false)
 
 
 func _plane_name(nation: String) -> String:

@@ -11,7 +11,7 @@
 namespace {
 
 const double TAU_D = 6.283185307179586;
-const double WS = 2860.0;
+double WS = 2860.0;  // сторона карты (D.WS); у большой карты — больше, ставит map_size
 
 // Vector2 и Rect2 Godot (float), операции — как в движке
 struct V { float x = 0, y = 0; };
@@ -425,6 +425,79 @@ struct Gen {
 
 	// ---------- карты ----------
 
+	// Большая карта «Курская дуга» (сторона 4300 вместо 2860): то же поле, но шире и глубже — две деревни с
+	// хуторами, фермы, балка, высоты на флангах и у баз, больше рощ, изгородей, остовов и воронок.
+	void kursk() {
+		lanes();
+		double hx = lane_hill, tx = lane_town;
+		R mid = rect(140, 440, WS - 280, WS - 880);
+		hill(v(hx, WS * 0.4), v(hx, WS * 0.6), 560.0, 52.0, 0.3);
+		for (int i = 0; i < 2; i++) {
+			double oy = rng.range(-200, 200);
+			double yy = WS * (i == 0 ? 0.24 : 0.76);
+			hill(v(WS * 0.5 + oy, yy), v(WS * 0.5 + oy + rng.range(-260, 260), yy + rng.range(-120, 120)), 300.0, 30.0, 0.25);
+		}
+		double bx = WS * 0.5 + rng.range(-200, 200);
+		double tilt = rng.range(-160, 160);
+		hill(v(bx - tilt, WS * 0.3), v(bx + tilt, WS * 0.7), 110.0, -18.0, 0.25);
+		double r1 = rng.range(-260, 260);
+		double r2 = rng.range(-260, 260);
+		double r3 = rng.range(-180, 180);
+		std::vector<V> road = bezier(v(tx, WS + 100), v(tx + r1, WS * 0.68), v(tx + r2, WS * 0.32), v(tx + r3, -100));
+		roads.push_back({ road, 46.0 });
+		roads.push_back({ bezier(v(-100, WS * 0.6), v(WS * 0.3, WS * 0.5), v(WS * 0.62, WS * 0.7), v(WS + 100, WS * 0.56)), 34.0 });
+		roads.push_back({ bezier(v(-100, WS * 0.36), v(WS * 0.35, WS * 0.44), v(WS * 0.65, WS * 0.28), v(WS + 100, WS * 0.4)), 34.0 });
+		for (int i = 0; i < 2; i++) {
+			V vc = v(tx + rng.range(-120, 120), WS * (i == 0 ? 0.37 : 0.63) + rng.range(-120, 120));
+			village(vc, 13, 400.0, { O_HOUSE, O_HOUSE, O_RUIN }, v(19, 25), 8, P_TREE);
+		}
+		for (int f = 0; f < 3; f++) {
+			double fx = rng.range(-520, 520);
+			double fy = rng.range(-700, 700);
+			V farm = v(WS * 0.5 + fx, WS * 0.5 + fy);
+			for (int i = 0; i < 2; i++) {
+				double w = rng.range(60, 76);
+				double h = rng.range(36, 44);
+				place_off_road(w, h, O_BARN, 22.0, rect(farm - v(160, 160), v(320, 320)), 24.0);
+			}
+			add_decor(D_HAY, 5, rect(farm - v(260, 260), v(520, 520)));
+		}
+		R top = rect(v(hx - 330, WS * 0.36), v(660, WS * 0.28));
+		for (int i = 0; i < 8; i++) sandbag_nest(top);
+		for (int i = 0; i < 4; i++) place(44, 36, O_BUNKER, 11.0, top, 70.0);
+		scatter(P_TREE, 18, top, 34.0);
+		wrecks(24, 0.2, mid, 60.0);
+		for (int i = 0; i < 9; i++) sandbag_nest(mid);
+		hedgehogs(14, 90.0, mid);
+		for (int i = 0; i < 4; i++) {
+			double y = WS * (0.3 + 0.135 * i) + rng.range(-50, 50);
+			double x0 = WS * 0.3 + rng.range(-80, 80);
+			double x1 = WS * 0.7 + rng.range(-80, 80);
+			double gap = rng.range((float)(x0 + 160), (float)(x1 - 160));
+			double d1 = rng.range(-20, 20);
+			tree_line(P_TREE, v(x0, y), v(gap - 55, y + d1), 28.0);
+			double d2 = rng.range(-20, 20);
+			tree_line(P_TREE, v(gap + 55, y), v(x1, y + d2), 28.0);
+			bush_line(B_BUSH, v(x0, y), v(x1, y), 6, 44.0);
+		}
+		for (int i = 0; i < 9; i++) {
+			double ax = rng.range((float)(WS * 0.25), (float)(WS * 0.75));
+			double ay = rng.range((float)(WS * 0.2), (float)(WS * 0.7));
+			V a = v(ax, ay);
+			double bxo = rng.range(-180, 180);
+			double byo = rng.range(260, 460);
+			V b = a + v(bxo, byo);
+			tree_line(P_TREE, a, b, 30.0);
+			bush_line(B_BUSH, a, b, 3, 44.0);
+		}
+		scatter(P_TREE, 70, rect(150, 420, WS - 300, WS - 840), 30.0);
+		add_bushes(100, B_BUSH, rect(120, 330, WS - 240, WS - 660), true);
+		add_decor(D_HAY, 16, mid);
+		add_decor(D_CRATES, 10, top);
+		add_decor(D_CRATES, 8, mid);
+		poles(road, 34.0);
+		add_craters(160, mid);
+	}
 	void prokhorovka() {
 		lanes();
 		double hx = lane_hill, tx = lane_town;
@@ -1179,6 +1252,18 @@ struct Gen {
 // кронок, (dx, dz, r)*]*, деревья и заборы [x, z, r, вид, поворот, размер]*, мелочи [вид, x, z, поворот]*,
 // воронки [x, z, r]*, дороги [ширина, точек, (x, z)*]*, высоты [ax, az, bx, bz, r, h, ядро]*,
 // направления [высота, застройка, центр]]
+void mapbuild_ws(double w);
+
+// Сторона карты для генератора и сборки геометрии (обычная — 2860, большая — больше)
+METHOD(map_size) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	double w = a.num(0);
+	if (!(w >= 1500.0 && w <= 8000.0)) w = 2860.0;
+	WS = w;
+	mapbuild_ws(w);
+}
+
 METHOD(map_generate) {
 	SELF;
 	if (!need(a, 3, e)) return;
@@ -1196,6 +1281,7 @@ METHOD(map_generate) {
 		case 6: g.france(); break;
 		case 7: g.moscow(); break;
 		case 8: g.khalkhin(); break;
+		case 9: g.kursk(); break;
 		default: g.prokhorovka(); break;
 	}
 	std::vector<float> ob, bu, pr, de, ro, hi;
@@ -1260,6 +1346,7 @@ METHOD(rng_test) {
 void register_mapgen(GDExtensionClassLibraryPtr lib, const char *cls) {
 	static const MethodDef defs[] = {
 		{ "map_generate", map_generate },
+		{ "map_size", map_size },
 		{ "rng_test", rng_test },
 	};
 	register_list(lib, cls, defs, sizeof(defs) / sizeof(defs[0]));

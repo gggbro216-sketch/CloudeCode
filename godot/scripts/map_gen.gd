@@ -240,7 +240,7 @@ const OBST_KINDS := ["house", "ruin", "bunker", "sandbags", "hedgehogs", "wreck_
 const PROP_KINDS := ["tree", "fence", "palm", "bare", "apple", "spruce"]
 const BUSH_KINDS := ["bush", "fir", "shrub"]
 const DECOR_KINDS := ["hay", "crates", "barrels", "pole", "lamp"]
-const MAP_KEYS := ["prokhorovka", "alamein", "stalingrad", "normandy", "berlin", "ardennes", "france", "moscow", "khalkhin"]
+const MAP_KEYS := ["prokhorovka", "alamein", "stalingrad", "normandy", "berlin", "ardennes", "france", "moscow", "khalkhin", "kursk"]
 
 
 ## Расстановка в C++ (тот же генератор случайных чисел и те же правила): с тем же зерном карта
@@ -249,6 +249,8 @@ static func generate_native(core: Object, map_key: String, zones: Array, seed: i
 	var zf := PackedFloat32Array()
 	for z in zones:
 		zf.append_array([z.pos.x, z.pos.y, z.r])
+	if core.has_method("map_size"):
+		core.map_size(D.WS)  # сторона карты для генератора и сборки геометрии
 	var res: Array = core.map_generate(maxi(0, MAP_KEYS.find(map_key)), seed, zf)
 	var ob: PackedFloat32Array = res[0]
 	var obst: Array = []
@@ -2111,11 +2113,13 @@ void fragment() {
 
 
 static func _grass(parent: Node3D, data: Dictionary, terra, rng: RandomNumberGenerator, map_key: String, hq: bool) -> void:
+	var area_k := (D.WS / D.WS_BASE) * (D.WS / D.WS_BASE)
+	map_key = String(D.MAPS[map_key].get("like", map_key))  # большая карта выглядит как её образец
 	var dry := map_key != "prokhorovka" and map_key != "normandy" and map_key != "france"
 	# на площади в 1,7 раза больше — травы столько же на квадратный метр
 	var total: int = {"prokhorovka": 15000, "normandy": 17000, "stalingrad": 1500, "berlin": 1900, "ardennes": 1500,
 		"france": 14000, "moscow": 1500, "khalkhin": 6000}.get(map_key, 4200)
-	total = int(total * grass_k)
+	total = int(total * grass_k * minf(area_k, 1.6))
 	if total < 100:
 		return
 	var sh := Shader.new()

@@ -131,7 +131,8 @@ func scatter(nm: String, items: Array, shadows: bool) -> int:
 	for i in items.size():
 		mm.set_instance_transform(i, items[i][0])
 		mm.set_instance_color(i, items[i][1])
-		mm.set_instance_custom_data(i, Color(0, 0, 0, 0))
+		var ps := float(items[i][2]) if (items[i] as Array).size() > 2 else 0.0  # поза (у бойцов — павший)
+		mm.set_instance_custom_data(i, Color(ps, ps, 0, 0))
 	decor.append(u)
 	return items.size()
 

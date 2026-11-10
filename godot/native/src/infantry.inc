@@ -28,8 +28,8 @@
 	// место бойца в строю: на марше — колонна по два (не цепь через всё поле), на месте — редкая цепь
 	V2 inf_slot(const Core::Soldier &s, const Core::InfSquad &q) const {
 		bool march = q.pi < (int)q.path.size();
-		float lat = march ? ((s.idx & 1) ? 7.0f : -7.0f) : s.ox;
-		float back = march ? -(float)(s.idx / 2) * 14.0f - ((s.idx & 1) ? 5.0f : 0.0f) : s.oy;
+		float lat = march ? ((s.idx & 1) ? 9.0f : -9.0f) : s.ox;
+		float back = march ? -(float)(s.idx / 2) * 17.0f - ((s.idx & 1) ? 5.0f : 0.0f) : s.oy;
 		return { q.ax + (-q.hy) * lat + q.hx * back, q.ay + q.hx * lat + q.hy * back };
 	}
 
@@ -107,13 +107,13 @@
 		if (c->hold_team[q.team]) return;
 		// пехота идёт за своими танками и только от укрытия к укрытию: рубеж — это застройка или зелень у рубежа
 		// танков. Через голое поле не идёт, пока танки не ушли вперёд на два рубежа (тогда — следом за бронёй).
-		int st = std::min(c->squads[q.team][q.lane].stage, c->max_stage());
+		int st = std::max(0, std::min(c->squads[q.team][q.lane].stage, c->max_stage()) - q.echelon);
 		if (st == q.stage) return;
 		V2 to = c->stage_point(q.team, q.lane, st);
 		V2 alt = { clampf(to.x + q.side, 60.0f, c->ws - 60.0f), to.y };
 		if (!c->blocked_at(alt.x, alt.y, 8.0f)) to = alt;
 		V2 cv;
-		if (c->cover_near(to, 320.0f, cv) || c->bush_near(to, 320.0f, -1, cv)) {
+		if (c->cover_near(to, 230.0f, cv) || c->bush_near(to, 230.0f, -1, cv)) {
 			to = cv;
 		} else if (st - q.stage < 2 && st < c->max_stage()) {
 			return;
@@ -510,6 +510,17 @@
 			float sp = crawl ? 7.5f : (engaged ? 32.0f : 27.0f);
 			float step = std::min(d, sp * dt);
 			float px = s.x + dx / d * step, py = s.y + dy / d * step;
+			// не толпиться: соседи ближе трёх четвертей метра расталкивают друг друга
+			for (size_t j = 0; j < c->inf.size(); j++) {
+				const Core::Soldier &o = c->inf[j];
+				if ((int)j == k || !o.alive || o.team != s.team) continue;
+				float ox = px - o.x, oy = py - o.y, od2 = ox * ox + oy * oy;
+				if (od2 < 36.0f && od2 > 1e-4f) {
+					float od = std::sqrt(od2), push = (6.0f - od) * 0.35f;
+					px += ox / od * push;
+					py += oy / od * push;
+				}
+			}
 			c->resolve(px, py, 2.5f);
 			px = clampf(px, 20.0f, c->ws - 20.0f);
 			py = clampf(py, 20.0f, c->ws - 20.0f);

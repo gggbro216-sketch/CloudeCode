@@ -4,7 +4,8 @@ extends RefCounted
 ## и переводятся в единицы карты через UPM.
 
 const UPM := 7.5  # единиц карты в одном метре
-const WS := 2860.0  # сторона игровой зоны (~380 м)
+static var WS := 2860.0  # сторона игровой зоны (~380 м); у большой карты — её «ws» (ставит бой)
+const WS_BASE := 2860.0
 const RANGE := 1100.0  # дальность полёта снаряда
 const GRAVITY := 9.81 * UPM  # ускорение свободного падения, ед/с²
 const SHELL_SCALE := 2.2  # скорость снаряда в игре = м/с × это число (ед/с)
@@ -629,6 +630,7 @@ const SIDES := {
 }
 const TEAM_BUDGET := 44  # боевой вес команды: пять-семь машин (средний танк — 7–8)
 const TEAM_MAX := 7
+static var TEAM_CAP := 7  # предел машин в команде в этом бою (на большой карте — 10)
 
 const MODES := {
 	"standard": {"name": "Стандартный бой", "desc": "Уничтожьте врагов или захватите их базу"},
@@ -653,6 +655,15 @@ const MAPS := {
 		"brief": "Курская битва. Утром 12 июля 1943 года 5-я гвардейская танковая армия Ротмистрова контратаковала 2-й танковый корпус СС у станции Прохоровка. Сотни машин сошлись на узком поле между рекой Псёл и железной дорогой, бой шёл на коротких дистанциях: «тридцатьчетвёрки» старались подойти вплотную к «Тиграм», чьи 88-мм пушки били на километр.",
 		"sky_top": "6c829b", "sky_hor": "c6c8bf", "fog": "b6b7ab", "sun": "fff0d8", "sun_e": 1.15, "amb": 0.42,
 		"cover": 0.5, "fog_near": 520.0, "fog_far": 1900.0, "sun_rot": [-36.0, -42.0],
+		"g1": "545c38", "g2": "8b8657", "rock": "78705e", "road": "7a6a4c", "dirt": "6a5a3a", "scorch": "26221d",
+		"dust": "8a7c5c", "mini": "4a5236", "relief": 26.0, "grip": 0.85, "edge": 0.4},
+	"kursk": {"name": "Курская дуга ★", "desc": "Большая карта: поля, балка, две деревни с хуторами, высоты", "surf": "grass", "ws": 4300.0, "like": "prokhorovka",
+		"date": "июль 1943", "year": 1943, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
+		"nations": {"allies": ["СССР"], "axis": ["Германия", "Венгрия"]}, "season": "summer",
+		"roster": {"allies": ["t34_76", "kv1", "t70", "t34_57", "su122", "su152", "kv85"], "axis": ["pz3", "pz4", "stug", "panther", "tiger", "nashorn", "ferdinand", "tiger_p", "turan", "pz3j", "pz3n", "grille", "brummbar", "pz2", "stug4"]},
+		"brief": "Курская дуга, июль 1943 года. Большое поле сражения: от южного фаса дуги до Прохоровки шли самые тяжёлые танковые бои войны. Здесь просторнее, чем на других картах: две деревни с хуторами, фермы, балка посередине, высоты на флангах и у баз. Машин с каждой стороны в полтора раза больше, бой длиннее. Дистанции велики — берегите борта и не отрывайтесь от своих.",
+		"sky_top": "6c829b", "sky_hor": "c6c8bf", "fog": "b6b7ab", "sun": "fff0d8", "sun_e": 1.15, "amb": 0.42,
+		"cover": 0.5, "fog_near": 520.0, "fog_far": 2300.0, "sun_rot": [-36.0, -42.0],
 		"g1": "545c38", "g2": "8b8657", "rock": "78705e", "road": "7a6a4c", "dirt": "6a5a3a", "scorch": "26221d",
 		"dust": "8a7c5c", "mini": "4a5236", "relief": 26.0, "grip": 0.85, "edge": 0.4},
 	"alamein": {"name": "Эль-Аламейн", "desc": "Барханы и скалы Северной Африки", "surf": "sand",
@@ -1086,7 +1097,7 @@ static func maps_for(key: String, history: bool) -> Array:
 static func compose(pool: Array, first: String, budget: int, rng: RandomNumberGenerator, year: int) -> Array:
 	var team: Array = [first] if first != "" else []
 	var sum := team_pts(team, year)
-	while team.size() < TEAM_MAX:
+	while team.size() < TEAM_CAP:
 		var fit: Array = []
 		var wsum := 0.0
 		for k in pool:
@@ -1114,7 +1125,7 @@ static func compose(pool: Array, first: String, budget: int, rng: RandomNumberGe
 static func match_teams(mine: Array, theirs: Array, first: String, rng: RandomNumberGenerator, year: int, tier := 5,
 		k_mine := 1.0, k_theirs := 1.0) -> Array:
 	# у лёгких машин семь танков не набирают полного веса: бюджет — по более лёгкой стороне
-	var budget := mini(TEAM_BUDGET + maxi(0, tier - 6) * 9, int(minf(_mean_pts(mine, year), _mean_pts(theirs, year)) * TEAM_MAX))
+	var budget := mini(TEAM_BUDGET + maxi(0, tier - 6) * 9, int(minf(_mean_pts(mine, year), _mean_pts(theirs, year)) * TEAM_CAP))
 	var a_list: Array = []
 	var b_list: Array = []
 	for i in 40:

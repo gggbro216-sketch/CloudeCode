@@ -5,9 +5,15 @@ extends RefCounted
 const D = preload("res://scripts/data.gd")
 
 const ORIGIN := -700.0  # рельеф шире игровой зоны: по краям поднимаются горы
-const SIZE := 4260.0  # D.WS + 2 × 700
-const N := 213  # шаг сетки — 20 единиц
-const CELL := SIZE / N
+static var SIZE := 4260.0  # D.WS + 2 × 700 (у большой карты больше — set_ws)
+const N := 213  # шаг сетки — 20 единиц (у большой карты — 26)
+static var CELL := 4260.0 / 213.0
+
+
+## Размер рельефа под сторону карты ws.
+static func set_ws(ws: float) -> void:
+	SIZE = ws + 1400.0
+	CELL = SIZE / N
 
 var h := PackedFloat32Array()
 var mask: Image  # R — дорога, G — гарь воронок, B — пахота/грязь
@@ -120,7 +126,7 @@ func _paint_native(map_key: String, craters: Array, roads: Array, obst: Array, a
 	var cf := PackedFloat32Array()
 	for cr in craters:
 		cf.append_array([cr.x, cr.y, cr.z])
-	var md: PackedByteArray = core.paint_mask(1024, map_key == "prokhorovka" or map_key == "normandy" or map_key == "france", map_key == "berlin", rf, cf)
+	var md: PackedByteArray = core.paint_mask(1024, (String(D.MAPS[map_key].get("like", map_key)) in ["prokhorovka", "normandy", "france"]), map_key == "berlin", rf, cf)
 	mask = Image.create_from_data(1024, 1024, false, Image.FORMAT_RGBA8, md)
 	mask.generate_mipmaps()
 	mask_tex = ImageTexture.create_from_image(mask)
@@ -257,7 +263,7 @@ func _paint_mask(map_key: String, craters: Array, roads: Array) -> void:
 	mask.fill(Color(0, 0, 0, 1))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(4)
-	if map_key == "prokhorovka" or map_key == "normandy" or map_key == "france":
+	if (String(D.MAPS[map_key].get("like", map_key)) in ["prokhorovka", "normandy", "france"]):
 		# поля с бороздами
 		for f in 24:
 			var fx := int((rng.randf() * D.WS - ORIGIN) * k)

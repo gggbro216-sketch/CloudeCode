@@ -1636,7 +1636,8 @@ METHOD(inf_init) {
 			total += cnt[k];
 		}
 		int qi = (int)self->isq.size();
-		if (p[15] != 0.0f && self->inf.size() < 400) {
+		s.echelon = p[15] == 2.0f ? 1 : 0;
+		if (p[15] == 1.0f && self->inf.size() < 400) {
 			// ПТ-пушка: одна на «отделение», встаёт в ближайшие кусты или за укрытие
 			Core::Soldier o;
 			o.team = s.team;

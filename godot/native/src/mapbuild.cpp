@@ -11,7 +11,7 @@ namespace {
 
 const double PI_D = 3.141592653589793;
 const double TAU_D = 6.283185307179586;
-const double WS_D = 2860.0;  // D.WS
+double WS_D = 2860.0;  // D.WS — сторона карты, у большой карты больше (ставит map_size)
 
 inline V3 v(double x, double y, double z) { return { (float)x, (float)y, (float)z }; }
 inline V3 operator+(V3 a, V3 b) { return { a.x + b.x, a.y + b.y, a.z + b.z }; }
@@ -930,6 +930,8 @@ bool blocked(const std::vector<ObstIn> &obst, float px, float py, float m) {
 // → [постройки (группа), кусты (группа с цветом и UV2), коробки физики [центр, размер, поворот]*, дымы,
 //    сетки деревьев и заборов [вид][часть] (группы), буферы MultiMesh по видам, высоты деревьев,
 //    камешки [буфер, сколько]×16 (пустыня), сетка камешка, состояние генератора после сборки]
+void mapbuild_ws(double w) { WS_D = w; }
+
 METHOD(map_build) {
 	SELF;
 	if (!need(a, 8, e)) return;
