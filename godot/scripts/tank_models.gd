@@ -1001,6 +1001,7 @@ static func emblem_texture(kind: String) -> ImageTexture:
 					var d := (p - Vector2(64, 67)).length()
 					if d > 59.0 and d < 64.0:
 						img.set_pixel(x, y, col)
+	img.fix_alpha_edges()  # цвет знака — и в прозрачные края: иначе в мелких уровнях текстуры он чернеет (заметно на Vulkan)
 	img.generate_mipmaps()
 	var t := ImageTexture.create_from_image(img)
 	_cache[key] = t

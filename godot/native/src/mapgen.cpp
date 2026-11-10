@@ -131,6 +131,13 @@ struct Zn {
 
 struct Gen {
 	GRng rng;
+	// Плотность: карты выросли с 2860 до 4300 — объектов на большой площади кладётся во столько же раз больше
+	// (K = отношение площадей); в малых участках (ферма, завод) — ненамного. У «Курской дуги» числа свои (K = 1).
+	double K = 1.0;
+	int kn(int n, R area) const {
+		bool large = area.w * area.h > 0.2 * 2860.0 * 2860.0;
+		return (int)std::lround(n * (large ? K : std::min(K, 1.3)));
+	}
 	std::vector<Zn> zones;
 	std::vector<Obst> obst;
 	std::vector<Bush> bushes;
@@ -187,6 +194,7 @@ struct Gen {
 		return -1;
 	}
 	void add_bushes(int n, int kind, R area, bool use_props) {
+		n = kn(n, area);
 		int tries = 0, left = n;
 		size_t first = bushes.size();
 		(void)first;
@@ -244,6 +252,7 @@ struct Gen {
 		}
 	}
 	void add_craters(int n, R area) {
+		n = kn(n, area);
 		int got = 0;
 		for (int i = 0; i < n * 4; i++) {
 			if (got >= n) break;
@@ -322,6 +331,11 @@ struct Gen {
 	void village(V c, int n, double rad, const std::vector<int> &kinds, V ht, int fences, int tree, bool hamlet = true) {
 		n = n * 9 / 5;
 		fences = fences * 3 / 2;
+		if (hamlet && K > 1.0) {
+			// большая карта: деревня — это уже село, шире и многолюднее
+			n = (int)std::lround(n * 1.5);
+			rad *= 1.3;
+		}
 		int placed = 0;
 		for (int t = 0; t < n * 4; t++) {
 			if (placed >= n) break;
@@ -359,6 +373,8 @@ struct Gen {
 		if (hamlet) village(c + (v(WS * 0.5, WS * 0.5) - c) * 0.5, 5, 210.0, kinds, ht, 3, tree, false);
 	}
 	void forest(V c, V rad, int n, int tree, int n_bush, int bush) {
+		n = (int)std::lround(n * std::min(K, 1.6));
+		rad = rad * std::sqrt(std::min(K, 1.6));
 		int placed = 0;
 		for (int t = 0; t < n * 3; t++) {
 			if (placed >= n) break;
@@ -383,18 +399,21 @@ struct Gen {
 		}
 	}
 	void wrecks(int n, double truck_k, R area, double margin = 50.0) {
+		n = kn(n, area);
 		for (int i = 0; i < n; i++) {
 			bool truck = rng.randf() < truck_k;
 			place_off_road(truck ? 34 : 36, truck ? 16 : 22, truck ? O_WRECK_TRUCK : O_WRECK_TANK, 10.0, area, margin);
 		}
 	}
 	void hedgehogs(int n, double ln, R area) {
+		n = kn(n, area);
 		for (int i = 0; i < n; i++) {
 			bool hz = rng.randf() < 0.5;
 			place(hz ? ln : 12.0, hz ? 12.0 : ln, O_HEDGEHOGS, 8.0, area, 45.0, false);
 		}
 	}
 	void scatter(int kind, int n, R area, double m = 28.0) {
+		n = kn(n, area);
 		for (int i = 0; i < n; i++) {
 			double rx = rng.randf();
 			double x = area.x + rx * area.w;
@@ -405,6 +424,7 @@ struct Gen {
 		}
 	}
 	void add_decor(int kind, int n, R area) {
+		n = kn(n, area);
 		for (int i = 0; i < n; i++) {
 			double rx = rng.randf();
 			double x = area.x + rx * area.w;
@@ -424,6 +444,74 @@ struct Gen {
 	}
 
 	// ---------- карты ----------
+
+	// Переработка под большой масштаб, общая для карт: две оборонительные полосы поперёк поля (мешки, ежи, доты,
+	// воронки), опорные пункты на высотах, разбитые колонны (остовы и воронки кучно), хутора в стороне от дорог
+	// и несколько высоток. kinds — какие дома у хуторов (пусто — степь или город, хуторов нет), tree — деревья у них.
+	void war_rework(const std::vector<int> &kinds, int tree, bool city, bool bunkers) {
+		// оборонительные полосы: на трети и двух третях глубины
+		for (int b = 0; b < 2; b++) {
+			double y = WS * (b == 0 ? 0.36 : 0.64) + rng.range(-60, 60);
+			R belt = rect(WS * 0.1, y - 70.0, WS * 0.8, 140.0);
+			for (int i = 0; i < (city ? 6 : 10); i++) sandbag_nest(belt);
+			for (int i = 0; i < 7; i++) {
+				bool hz = rng.randf() < 0.75;
+				place(hz ? 90.0 : 12.0, hz ? 12.0 : 90.0, O_HEDGEHOGS, 8.0, rect(belt.x, y + (b == 0 ? -150.0 : 60.0), belt.w, 90.0), 45.0, false);
+			}
+			if (bunkers) {
+				for (int i = 0; i < 3; i++) place(44, 36, O_BUNKER, 11.0, belt, 70.0);
+			}
+			int nc = 26;
+			int got = 0;
+			for (int i = 0; i < nc * 4 && got < nc; i++) {
+				V p = v(belt.x + rng.randf() * belt.w, y + rng.range(-150, 150));
+				if (free_point(p, 14.0)) {
+					craters.push_back((float)p.x);
+					craters.push_back((float)p.y);
+					craters.push_back((float)rng.range(10.0f, 17.0f));
+					got++;
+				}
+			}
+		}
+		// разбитые колонны: остовы кучно и воронки вокруг
+		for (int i = 0; i < 4; i++) {
+			V c = v(WS * rng.range(0.2f, 0.8f), WS * rng.range(0.25f, 0.75f));
+			R a = rect(c - v(130, 130), v(260, 260));
+			for (int k = 0; k < 5; k++) {
+				bool truck = rng.randf() < 0.55;
+				place_off_road(truck ? 34 : 36, truck ? 16 : 22, truck ? O_WRECK_TRUCK : O_WRECK_TANK, 10.0, a, 26.0);
+			}
+			for (int k = 0; k < 10; k++) {
+				V p = c + v(rng.range(-150, 150), rng.range(-150, 150));
+				if (free_point(p, 12.0)) {
+					craters.push_back((float)p.x);
+					craters.push_back((float)p.y);
+					craters.push_back((float)rng.range(9.0f, 15.0f));
+				}
+			}
+		}
+		if (city) {
+			// город: завалы на улицах
+			for (int i = 0; i < 14; i++) {
+				double w = rng.range(30, 54);
+				double h = rng.range(24, 40);
+				place(w, h, O_RUBBLE, 6.0, rect(140, 440, WS - 280, WS - 880), 26.0);
+			}
+			return;
+		}
+		// высотки: рельеф на большой площади не должен быть ровным столом
+		for (int i = 0; i < 4; i++) {
+			V c = v(WS * rng.range(0.15f, 0.85f), WS * rng.range(0.22f, 0.78f));
+			hill(c, c + v(rng.range(-220, 220), rng.range(-220, 220)), rng.range(190, 300), rng.range(14, 28), 0.25);
+		}
+		// хутора в стороне от главной деревни
+		if (!kinds.empty()) {
+			for (int i = 0; i < 3; i++) {
+				V c = v(lane_hill + (WS * 0.5 - lane_hill) * rng.range(0.0f, 0.7f), WS * (0.27 + 0.23 * i) + rng.range(-80, 80));
+				village(c, 4, 230.0, kinds, v(18, 24), 3, tree, false);
+			}
+		}
+	}
 
 	// Большая карта «Курская дуга» (сторона 4300 вместо 2860): то же поле, но шире и глубже — две деревни с
 	// хуторами, фермы, балка, высоты на флангах и у баз, больше рощ, изгородей, остовов и воронок.
@@ -817,7 +905,7 @@ struct Gen {
 			bool on_hill = dist(closest_seg(hill_top, a, b), hill_top) < 300.0;
 			if (!e.outer) {
 				double rr = rng.randf();
-				bool skip = rr < 0.16;
+				bool skip = rr < (K > 1.0 ? 0.5 : 0.16);  // на большой карте поля крупнее: изгородей на площадь вдвое меньше
 				if (!skip && on_hill) skip = rng.randf() < 0.75;
 				if (skip) continue;
 			}
@@ -1272,6 +1360,8 @@ METHOD(map_generate) {
 	g.rng.seed((uint64_t)a.integer(1));
 	std::vector<float> zf = f32(a, 2);
 	for (size_t k = 0; k + 2 < zf.size(); k += 3) g.zones.push_back({ { zf[k], zf[k + 1] }, (double)zf[k + 2] });
+	// плотность по площади (у «Курской дуги» — свои числа)
+	g.K = map == 9 ? 1.0 : (WS * WS) / (2860.0 * 2860.0);
 	switch (map) {
 		case 1: g.alamein(); break;
 		case 2: g.stalingrad(); break;
@@ -1283,6 +1373,21 @@ METHOD(map_generate) {
 		case 8: g.khalkhin(); break;
 		case 9: g.kursk(); break;
 		default: g.prokhorovka(); break;
+	}
+	// переработка под большой масштаб: полосы обороны, разбитые колонны, высотки, хутора — по характеру карты
+	if (g.K > 1.0) {
+		switch (map) {
+			case 0: g.war_rework({ O_HOUSE, O_HOUSE, O_RUIN }, P_TREE, false, true); break;
+			case 1: g.war_rework({ O_ADOBE, O_ADOBE, O_RUIN }, P_PALM, false, true); break;
+			case 2: g.war_rework({}, -1, true, false); break;
+			case 3: g.war_rework({ O_HOUSE, O_HOUSE, O_RUIN }, P_APPLE, false, true); break;
+			case 4: g.war_rework({}, -1, true, false); break;
+			case 5: g.war_rework({ O_HOUSE, O_RUIN }, P_SPRUCE, false, true); break;
+			case 6: g.war_rework({ O_HOUSE, O_HOUSE, O_HOUSE, O_RUIN }, P_APPLE, false, false); break;
+			case 7: g.war_rework({ O_HOUSE, O_HOUSE, O_RUIN }, P_BARE, false, true); break;
+			case 8: g.war_rework({}, -1, false, true); break;
+			default: break;
+		}
 	}
 	std::vector<float> ob, bu, pr, de, ro, hi;
 	for (const Obst &o : g.obst) {

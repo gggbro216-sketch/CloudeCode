@@ -246,7 +246,7 @@ func setup(cfg: Dictionary) -> void:
 	mode = cfg.mode
 	map_key = cfg.map
 	# сторона карты: у большой — своя; рельеф и C++ (генератор, сборка геометрии) подстраиваются
-	D.WS = float(D.MAPS[map_key].get("ws", D.WS_BASE))
+	D.WS = float(D.MAPS[map_key].get("ws", D.WS_BIG))
 	Terrain.set_ws(D.WS)
 	G = cfg.get("gfx", {})
 	if G.is_empty():

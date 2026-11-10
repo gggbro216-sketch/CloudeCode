@@ -797,7 +797,7 @@ func _build_ui() -> void:
 	rin.add_child(mode_desc)
 	rin.add_child(UI.label("КАРТА", 12, UI.DIM))
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	rin.add_child(grid)
@@ -812,8 +812,8 @@ func _build_ui() -> void:
 		b.button_pressed = key == main.save.map
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.clip_text = true
-		b.custom_minimum_size = Vector2(0, 32)
-		b.add_theme_font_size_override("font_size", 13)
+		b.custom_minimum_size = Vector2(0, 30)
+		b.add_theme_font_size_override("font_size", 14)
 		b.pressed.connect(_select_map.bind(key))
 		grid.add_child(b)
 		map_btns[key] = b

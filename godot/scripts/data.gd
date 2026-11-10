@@ -4,8 +4,9 @@ extends RefCounted
 ## и переводятся в единицы карты через UPM.
 
 const UPM := 7.5  # единиц карты в одном метре
-static var WS := 2860.0  # сторона игровой зоны (~380 м); у большой карты — её «ws» (ставит бой)
-const WS_BASE := 2860.0
+static var WS := 4300.0  # сторона игровой зоны (~570 м): все карты — в масштабе «Курской дуги» (ставит бой по полю ws карты)
+const WS_BASE := 2860.0  # прежняя сторона: от неё считается плотность объектов
+const WS_BIG := 4300.0
 const RANGE := 1100.0  # дальность полёта снаряда
 const GRAVITY := 9.81 * UPM  # ускорение свободного падения, ед/с²
 const SHELL_SCALE := 2.2  # скорость снаряда в игре = м/с × это число (ед/с)
@@ -657,7 +658,7 @@ const MAPS := {
 		"cover": 0.5, "fog_near": 520.0, "fog_far": 1900.0, "sun_rot": [-36.0, -42.0],
 		"g1": "545c38", "g2": "8b8657", "rock": "78705e", "road": "7a6a4c", "dirt": "6a5a3a", "scorch": "26221d",
 		"dust": "8a7c5c", "mini": "4a5236", "relief": 26.0, "grip": 0.85, "edge": 0.4},
-	"kursk": {"name": "Курская дуга ★", "desc": "Большая карта: поля, балка, две деревни с хуторами, высоты", "surf": "grass", "ws": 4300.0, "like": "prokhorovka",
+	"kursk": {"name": "Курская дуга", "desc": "Поля, балка, две деревни с хуторами, высоты", "surf": "grass", "like": "prokhorovka",
 		"date": "июль 1943", "year": 1943, "allies": "СССР", "axis": "Германия", "allies_g": "СССР", "axis_g": "Германии",
 		"nations": {"allies": ["СССР"], "axis": ["Германия", "Венгрия"]}, "season": "summer",
 		"roster": {"allies": ["t34_76", "kv1", "t70", "t34_57", "su122", "su152", "kv85"], "axis": ["pz3", "pz4", "stug", "panther", "tiger", "nashorn", "ferdinand", "tiger_p", "turan", "pz3j", "pz3n", "grille", "brummbar", "pz2", "stug4"]},
