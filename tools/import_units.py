@@ -27,7 +27,7 @@ WSTRIP = 128       # полоса оружия справа от атласа т
 SOLDIERS = {
     "ger": {"src": "s_ger3", "tris": 1500, "credit": "WW2 German Wehrmacht Soldier — Tactical_Beard (CC BY 4.0)"},
     "sov": {"src": "s_sov1", "tris": 1500, "credit": "WW2 Soviet Soldier — Michael Jones (CC BY 4.0)"},
-    "usa": {"src": "s_us1", "tris": 1500, "credit": "WW2 US Army Ranger — Tactical_Beard (CC BY 4.0)"},
+    "usa": {"src": "s_us1", "tris": 1500, "grade": (0.62, (1.0, 0.95, 0.72)), "credit": "WW2 US Army Ranger — Tactical_Beard (CC BY 4.0)"},
     "ally": {"src": "s_x2", "tris": 1500, "credit": "WW2 Allied Soldier Low Poly — Zack (CC BY 4.0)"},
 }
 # оружие: длина, м; fwd/up — куда в исходной модели смотрит ствол и где у неё верх; kind — как его держат
@@ -629,6 +629,17 @@ def raster(V, F, C, ax, w, h, lo, scale):
     return img
 
 
+def grade(atlas, gamma, tint):
+    """Слишком тёмная форма: осветляет тела (гамма) и подкрашивает серую ткань; кожу и яркое не трогает."""
+    a = np.asarray(atlas).astype(np.float32) / 255.0
+    body = a[:, :BODY]
+    sat = body.max(2) - body.min(2)
+    k = np.clip(1.0 - sat * 4.0, 0.0, 1.0)[..., None]
+    lifted = body ** gamma
+    body[:] = lifted * (1.0 - k) + lifted * np.array(tint, np.float32) * k
+    return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
+
+
 def bake_unit(name, sol, wpn, preview):
     V, UV, F, W, J = sol["V"], sol["UV"], sol["F"], sol["W"], sol["J"]
     N = sol["N"]
@@ -708,6 +719,8 @@ def main():
                 credits.append(cfg["credit"])
         for u, wn in units:
             bake_unit(u, sol, wp.get(wn), preview)
+        if "grade" in SOLDIERS[sname]:
+            atlas = grade(atlas, *SOLDIERS[sname]["grade"])
         atlas.save(os.path.join(OUT, sname + ".png"), optimize=True)
     if not args:
         with open(os.path.join(OUT, "CREDITS.txt"), "w", encoding="utf-8") as f:

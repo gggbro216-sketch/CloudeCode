@@ -96,7 +96,14 @@ enum WorldEv {
 	W_ZONE,  // зона, чья теперь
 	W_FINISH,  // итог (1 победа, 2 поражение, 3 ничья), причина
 	W_SWAP,  // танк, место, откуда пересел: член экипажа занял место выбывшего
+	W_INF_SHOT,  // вид (роль бойца; 5 — пулемёт танка; 6 — граната), откуда xyz, направление xyz, место трассера (−1 — пуля), скорость или дальность, кто
+	W_INF_DEAD,  // боец, кто (танк или −1), причина (0 пуля, 1 осколки, 2 гусеницы), x, y, z, команда
+	W_STRIKE,  // вид (0 артудар, 1 штурмовик), команда, x, z, через сколько секунд, курс захода x, z
 };
+
+enum { IR_RIFLE, IR_SMG, IR_ATR, IR_TUBE, IR_FAUST, IR_CREW };
+enum { IS_STAND, IS_RUN, IS_AIM, IS_KNEEL, IS_PRONE, IS_CRAWL, IS_DEAD_B, IS_DEAD_F, IS_THROW, IS_CROUCH };
+const int INF_VIEW = 9;  // на бойца: x, высота, z, курс, поза, фаза, команда, роль + 8 × нация, признаки (1 жив, 2 виден игроку, 4 стрелял только что)
 
 enum { CONS_REPAIR, CONS_MEDKIT, CONS_EXT };
 enum { CREW_COMMANDER, CREW_GUNNER, CREW_LOADER, CREW_DRIVER, CREW_RADIO, CREW_N };
@@ -207,7 +214,7 @@ struct Step {
 		float u1 = std::max(1e-7f, c->randf()), u2 = c->randf();
 		return std::sqrt(-2.0f * std::log(u1)) * std::cos(2.0f * PI_F * u2);
 	}
-	int team(int i) { return (int)T(i)[P_TEAM]; }
+	int team(int i) { return i < 0 ? -1 : (int)T(i)[P_TEAM]; }
 	V2 pos(int i) { return { T(i)[P_X], T(i)[P_Y] }; }
 	V3 center(int i) { return { T(i)[P_X], T(i)[P_GROUND] + c->ts[i].hh * 0.6f, T(i)[P_Y] }; }
 	V3 top(int i) { return { T(i)[P_X], T(i)[P_GROUND] + c->ai[i].height - 2.0f, T(i)[P_Y] }; }
@@ -690,9 +697,12 @@ struct Step {
 			if (kind == EV_MISS) w.stat[3]++;
 			forward(e);
 		}
+		inf_shell_blasts();
 	}
 
 	V3 cam_pos = { 0, 0, 0 };
+
+#include "infantry.inc"
 
 	void forward(const float *e) {
 		size_t k = ev.v.size();
@@ -925,6 +935,10 @@ METHOD(world_init) {
 		return;
 	}
 	api.load();
+	self->inf.clear();
+	self->isq.clear();
+	self->mg_t.clear();
+	self->inf_kills = 0;
 	self->snap = P;
 	self->td.assign(n, Core::TankDyn());
 	for (int i = 0; i < n; i++) {
@@ -1248,7 +1262,8 @@ METHOD(world_step) {
 			w.gun_limited = w.gun_limited || std::fabs(off) > T.trav + 0.01f;
 		}
 	}
-	// снаряды
+	// пехота, затем снаряды
+	S.inf_step();
 	S.shells();
 	S.zones_update();
 	if (!w.over) {
@@ -1547,11 +1562,98 @@ METHOD(ammo_state) {
 	ret_f32(r, o.data(), (int64_t)o.size());
 }
 
+// Пехота: отделения строками по 16 чисел — команда, направление, x, z, держит рубеж, нация, стрелков,
+// автоматчиков, ПТ-ружей, гранатомётов, «фаустов», пробитие ружья, гранатомёта, «фауста», калибр гранатомёта, запас.
+METHOD(inf_init) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<float> f = f32(a, 0);
+	self->inf.clear();
+	self->isq.clear();
+	self->mg_t.clear();
+	self->inf_kills = 0;
+	self->inf_t = 0.0f;
+	for (size_t q = 0; q + 16 <= f.size(); q += 16) {
+		const float *p = &f[q];
+		Core::InfSquad s;
+		s.team = p[0] != 0.0f ? 1 : 0;
+		s.lane = (int)clampf(p[1], 0.0f, 2.0f);
+		s.ax = p[2];
+		s.ay = p[3];
+		s.hold = p[4] != 0.0f;
+		s.nat = (int)p[5];
+		s.hx = 0.0f;
+		s.hy = s.team == 0 ? -1.0f : 1.0f;
+		s.side = (self->isq.size() % 2 == 0 ? 1.0f : -1.0f) * (90.0f + 30.0f * (float)(self->isq.size() % 3));
+		s.atr_pen = p[11];
+		s.tube_pen = p[12];
+		s.faust_pen = p[13];
+		s.tube_cal = p[14];
+		int cnt[5];
+		int total = 0;
+		for (int k = 0; k < 5; k++) {
+			cnt[k] = (int)clampf(p[6 + k], 0.0f, 12.0f);
+			total += cnt[k];
+		}
+		if (total <= 0 || self->inf.size() + (size_t)total > 400) continue;
+		int qi = (int)self->isq.size();
+		int j = 0;
+		for (int role = 0; role < 5; role++) {
+			for (int m = 0; m < cnt[role]; m++, j++) {
+				Core::Soldier o;
+				o.team = s.team;
+				o.squad = qi;
+				o.role = role;
+				o.ammo = role == IR_TUBE ? 5 : (role == IR_FAUST ? 2 : 0);
+				float lat = ((float)j - (float)(total - 1) * 0.5f) * 15.0f;
+				o.ox = lat + (self->randf() - 0.5f) * 6.0f;
+				o.oy = -std::fabs(lat) * 0.35f + (self->randf() - 0.5f) * 8.0f;
+				o.x = s.ax + (-s.hy) * o.ox + s.hx * o.oy;
+				o.y = s.ay + s.hx * o.ox + s.hy * o.oy;
+				self->resolve(o.x, o.y, 2.5f);
+				o.gh = self->height(o.x, o.y);
+				o.yaw = std::atan2(s.hy, s.hx);
+				o.think_t = self->randf() * 0.6f;
+				o.rl = self->randf() * 2.0f;
+				o.anim = self->randf();
+				o.state = s.hold ? IS_CROUCH : IS_STAND;
+				self->inf.push_back(o);
+			}
+		}
+		s.alive = total;
+		self->isq.push_back(s);
+	}
+	ret_int(r, (int64_t)self->inf.size());
+}
+
+METHOD(inf_view) {
+	SELF;
+	std::vector<float> o(self->inf.size() * INF_VIEW + 1);
+	for (size_t k = 0; k < self->inf.size(); k++) {
+		const Core::Soldier &s = self->inf[k];
+		float *v = &o[k * INF_VIEW];
+		v[0] = s.x;
+		v[1] = s.gh;
+		v[2] = s.y;
+		v[3] = s.yaw;
+		v[4] = (float)s.state;
+		v[5] = s.alive ? s.anim : s.dead_t;
+		v[6] = (float)s.team;
+		int nat = (s.squad >= 0 && (size_t)s.squad < self->isq.size()) ? self->isq[s.squad].nat : 0;
+		v[7] = (float)(s.role + 8 * nat);
+		v[8] = (float)((s.alive ? 1 : 0) | ((s.team == 0 || s.seen[0] > 0.0f) ? 2 : 0) | (s.fired_t < 0.15f ? 4 : 0) | (s.sup > 0.45f ? 8 : 0));
+	}
+	o[self->inf.size() * INF_VIEW] = (float)self->inf_kills;
+	ret_f32(r, o.data(), (int64_t)o.size());
+}
+
 void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 	static const MethodDef defs[] = {
 		{ "ammo_set", ammo_set },
 		{ "ammo_pick", ammo_pick },
 		{ "ammo_state", ammo_state },
+		{ "inf_init", inf_init },
+		{ "inf_view", inf_view },
 		{ "world_init", world_init },
 		{ "world_nodes", world_nodes },
 		{ "world_step", world_step },

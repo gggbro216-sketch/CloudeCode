@@ -3459,7 +3459,7 @@ void resolve_hit(Core *c, Core::Shell &s, float *st, EvOut &ev) {
 	V3 hp = s.hit_pos, v = s.hit_v, dir = v3norm(v);
 	s.dead = true;
 	int team = (int)c->snap[(size_t)i * PHYS + P_TEAM];
-	int by_team = by >= 0 && (size_t)(by + 1) * PHYS <= c->snap.size() ? (int)c->snap[(size_t)by * PHYS + P_TEAM] : -1;
+	int by_team = by >= 0 && (size_t)(by + 1) * PHYS <= c->snap.size() ? (int)c->snap[(size_t)by * PHYS + P_TEAM] : s.team;
 	if (st[ST_ALIVE] == 0.0f || team == by_team) {
 		ev.add({ (float)EV_SPARK, (float)s.slot, hp.x, hp.y, hp.z });
 		return;
@@ -3658,10 +3658,13 @@ void shells_run(Core *self, float dt, V3 cam, int player, EvOut &ev) {
 			s.hit_n = th.n_local;
 			s.hit_pos = v3add(p0, v3mul(seg, th.t));
 			s.hit_v = v;
+			s.boom = 2;
 			ev.add({ (float)EV_HIT, (float)k, (float)th.tank });
 		} else if (wh) {
 			s.dead = true;
 			V3 hp = v3add(p0, v3mul(seg, tw));
+			s.hit_pos = hp;
+			s.boom = 1;
 			ev.add({ (float)EV_WORLD, (float)s.slot, hp.x, hp.y, hp.z, ground ? 1.0f : 0.0f });
 			// постройка: фугас ломает, болванка почти нет; рухнула — событие
 			if (!ground && hobj >= 0 && s.kind != AM_SMOKE && self->obj_damage(hobj, 0.5f * s.he + 0.6f * s.cal)) {

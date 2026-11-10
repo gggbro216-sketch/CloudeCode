@@ -627,6 +627,11 @@ func _draw_minimap() -> void:
 			Gfx.arc(cv, tp, 6.0, 0, TAU, 16, Color.WHITE, 2.0)
 		else:
 			Gfx.circle(cv, tp, 4.5, c)
+	if battle.inf:
+		var dots: PackedFloat32Array = battle.inf.dots()
+		for q in range(0, dots.size(), 3):
+			var dp := o + Vector2(dots[q], dots[q + 1]) * k
+			cv.draw_rect(Rect2(dp.x - 1.5, dp.y - 1.5, 3.0, 3.0), team_color(int(dots[q + 2])))
 	# рамка четырьмя заливными прямоугольниками: draw_rect(…, false, w) заводит новый буфер и VAO на каждый вызов
 	var lc := Color(UI.LINE)
 	cv.draw_rect(Rect2(o.x - 1.0, o.y - 1.0, sz + 2.0, 2.0), lc)

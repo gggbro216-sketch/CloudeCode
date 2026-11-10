@@ -204,12 +204,36 @@ struct Core {
 		float he = 0.0f;  // ВВ в снаряде, г (0 — сплошная болванка)
 		int kind = 0;  // AM_*: основной, подкалиберный, фугасный, кумулятивный, дымовой
 		int owner, rico, slot;
+		int team = -1;  // чей снаряд, если стрелял не танк (owner < 0): пехота, артиллерия, авиация
+		int boom = 0;  // на этом шаге разорвался: 1 — о землю или постройку, 2 — о танк (точка — hit_pos)
 		bool whiz = false, dead = false;
 		// попадание в танк на этом шаге (разбирает shell_hit)
 		int hit_tank = -1, hit_part = 0;
 		V3 hit_pos, hit_n, hit_v;
 	};
 	std::vector<Shell> shells;
+	// ---- пехота: бойцы отделений, считаются упрощённо (без брони и модулей), рисует infantry.gd ----
+	struct Soldier {
+		float x = 0, y = 0, gh = 0, yaw = 0;
+		int team = 0, squad = 0, role = 0, state = 0, ammo = 0, tgt_s = -1, tgt_t = -1;
+		bool alive = true, has_cover = false;
+		float rl = 0, sup = 0, anim = 0, ox = 0, oy = 0, cx = 0, cy = 0, think_t = 0, still_t = 0, aim_t = 0;
+		float gren_cd = 0, fired_t = 9, dead_t = 0, throw_t = 0;
+		float seen[2] = { 0, 0 };
+		int throw_at = -1;
+	};
+	struct InfSquad {
+		int team = 0, lane = 1, nat = 0, stage = -1, alive = 0, pi = 0;
+		bool hold = false;
+		float ax = 0, ay = 0, hx = 0, hy = 1, contact_t = 0, side = 0;
+		float atr_pen = 35, tube_pen = 100, faust_pen = 140, tube_cal = 60;
+		std::vector<V2> path;
+	};
+	std::vector<Soldier> inf;
+	std::vector<InfSquad> isq;
+	std::vector<float> mg_t;  // по танку: до следующей очереди пулемёта по пехоте
+	float inf_t = 0.0f;
+	int inf_kills = 0;  // бойцов противника на счету игрока
 	// дымовые завесы: шар, до какого времени снарядов (shell_clock) стоит; закрывают прямую видимость
 	struct Smoke {
 		V3 p;

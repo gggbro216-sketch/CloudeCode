@@ -25,6 +25,7 @@ const TexLib = preload("res://scripts/textures.gd")
 const Emitter = preload("res://scripts/emitter.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const WeatherScript = preload("res://scripts/weather.gd")
+const InfantryScript = preload("res://scripts/infantry.gd")
 
 const TRK := 4000  # отрезков следов гусениц одновременно (при настройке «Следы: много»)
 const SCORCH := 160  # пятен от разрывов
@@ -165,6 +166,10 @@ var trk_mmi: MultiMeshInstance3D
 var trk_n := TRK  # сколько отрезков следов держит MultiMesh (по настройке «Следы»)
 var scorch_n := SCORCH
 var G := {}  # настройки графики (Graphics, save.gfx)
+var cam_hook := Callable()
+var inf_kills := 0  # бойцов противника на счету игрока
+var inf: Node3D = null  # пехота (infantry.gd); null — её нет в этом бою
+var no_tank: TankScript = null  # «стрелок» для событий, где урон нанёс не танк (пехота, артиллерия)
 var trk_i := 0
 var scorch_mm: MultiMesh
 var scorch_i := 0
@@ -1226,6 +1231,31 @@ func _world_init() -> void:
 				ammo_list = list
 		_ammo_poll()
 	core_world = true
+	_spawn_infantry()
+
+
+## Пехота: по отделению на направление каждой стороне (состав — по нации и году карты).
+func _spawn_infantry() -> void:
+	no_tank = TankScript.new()
+	no_tank.team = -1
+	no_tank.callsign = "Пехота"
+	var amount := int(G.get("infantry", 2))
+	if amount <= 0 or not core.has_method("inf_init"):
+		return
+	var M: Dictionary = D.MAPS[map_key]
+	var nats := [String(M.nations[side][0]), String(M.nations[D.foe_side(side)][0])]
+	var rows := InfantryScript.compose(nats, year, [_lane_x("hill"), _lane_x("mid"), _lane_x("town")], D.WS, amount)
+	inf = InfantryScript.new()
+	inf.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	add_child(inf)
+	if inf.setup(self, core, rows, int(G.get("shadows", 2)) > 1) <= 0:
+		inf.queue_free()
+		inf = null
+
+
+## Кто нанёс урон: танк по номеру или «не танк» (пехота, артиллерия), если номер отрицательный.
+func _by(v: float) -> TankScript:
+	return tanks[int(v)] if v >= 0.0 and int(v) < tanks.size() else no_tank
 
 
 ## Начальный пакет физики (как в _phys_native) — с ним C++ начинает бой.
@@ -1821,7 +1851,7 @@ func _shell_events(ev: PackedFloat32Array, dt: float) -> void:
 ## Рикошет (5), непробитие (7), пробитие (8): искры, звук, надписи, след на броне, статистика.
 func _shell_tank_event(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void:
 	var tk: TankScript = tanks[int(ev[q + 2])]
-	var by: TankScript = tanks[int(ev[q + 3])]
+	var by: TankScript = _by(ev[q + 3])
 	var hp := Vector3(ev[q + 4], ev[q + 5], ev[q + 6])
 	var dir := Vector3(ev[q + 7], ev[q + 8], ev[q + 9])
 	var cal: float = ev[q + 10]
@@ -2672,6 +2702,9 @@ func _apply_route(b: TankScript, path: PackedVector2Array, to: Vector2, safe: bo
 
 
 func _exit_tree() -> void:
+	if no_tank and is_instance_valid(no_tank):
+		no_tank.free()
+		no_tank = null
 	if nav_thread and nav_thread.is_started():
 		nav_mx.lock()
 		nav_quit = true
@@ -3528,6 +3561,8 @@ func _update_world(dt: float) -> void:
 	if res.size() < 5:
 		return
 	t0 = Time.get_ticks_usec()
+	if inf:
+		inf.step()
 	_world_events(res[0], dt)
 	_world_mirror(res[1], res[2], res[3], res[4])
 	_prof("события и сводки", t0)
@@ -3604,7 +3639,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 			6:  # гусеница сбита (если только что)
 				if ev[q + 6] != 0.0:
 					var tk: TankScript = tanks[int(ev[q + 1])]
-					_popup(tk, "ГУСЕНИЦА СБИТА", Color("ffd37a"), tanks[int(ev[q + 2])])
+					_popup(tk, "ГУСЕНИЦА СБИТА", Color("ffd37a"), _by(ev[q + 2]))
 					sfx.play3d("track_break", Vector3(ev[q + 3], ev[q + 4], ev[q + 5]))
 					if tk.is_player:
 						hud.alert("ГУСЕНИЦА СБИТА", Color(D.AMBER))
@@ -3619,7 +3654,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					var tk: TankScript = tanks[int(ev[q + 1])]
 					var name: String = TankScript.MODS[int(ev[q + 3])]
 					tk.mod_hp[name] = 0.0 if now == 0 else (30.0 if now == 1 else 100.0)
-					_module_fx(tk, tanks[int(ev[q + 2])], name, now)
+					_module_fx(tk, _by(ev[q + 2]), name, now)
 			11:  # член экипажа ранен (ev[5] = 0) или выбыл (1)
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var role: String = TankScript.CREW[int(ev[q + 3])]
@@ -3630,7 +3665,7 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					tk.crew_ok[role] = false
 				if tk.is_player:
 					hud.alert(CREW_MSG[role] if out else TankScript.NAMES[role] + " РАНЕН", Color("ff6a4a") if out else Color("ffb36a"))
-				var by: TankScript = tanks[int(ev[q + 2])]
+				var by: TankScript = _by(ev[q + 2])
 				if by.is_player:
 					_popup(tk, TankScript.NAMES[role] + (" ✕" if out else " РАНЕН"), Color("ff6a4a") if out else Color("ffb38a"), by)
 			12:  # пожар
@@ -3641,12 +3676,12 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				if tk.fire_fx == null:
 					tk.fire_fx = fx.deck_fire(tk.hull_node, Vector3(-float(tk.T.L) * 0.35, tk.hh + 1.0, 0))
 				tk.fire_fx.emitting = true
-				_popup(tk, "ПОЖАР", Color("ff9a4a"), tanks[int(ev[q + 2])])
+				_popup(tk, "ПОЖАР", Color("ff9a4a"), _by(ev[q + 2]))
 				if tk.is_player:
 					hud.alert("ПОЖАР!", Color("ff9a4a"))
 			14:  # урон пробития: надписи о боеукладке и экипаже
 				var tk: TankScript = tanks[int(ev[q + 1])]
-				var by: TankScript = tanks[int(ev[q + 2])]
+				var by: TankScript = _by(ev[q + 2])
 				if ev[q + 4] != 0.0:
 					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
@@ -3743,6 +3778,14 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				if zi >= 0 and zi < zones.size():
 					hud.add_feed([["Точка %s захвачена" % zones[zi].label, hud.team_color(int(ev[q + 2]))]])
 					sfx.play2d("capture", -6.0)
+			34:  # пехота и пулемёты: выстрел
+				if inf:
+					inf.on_shot(ev, q)
+			35:  # боец погиб
+				if inf:
+					inf.on_dead(ev, q)
+				if int(ev[q + 2]) == player.idx and int(ev[q + 7]) == 1:
+					inf_kills += 1
 			32:  # конец боя
 				var rs := int(ev[q + 1])
 				var why := int(ev[q + 2])
@@ -4289,10 +4332,14 @@ func _sync(dt: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var fov := 74.0 if vs.x < vs.y else 56.0
 	cam.fov = fov / 3.5 if sniper else fov
+	if cam_hook.is_valid():
+		cam_hook.call()  # свободная камера (снимки, повтор)
 	if core_world:
 		# видимость, ход гусениц и звук моторов ставит C++
 		var frac_w := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
 		core.world_frame(frac_w, cam.global_position, w.idx if sniper else -1, paused)
+		if inf:
+			inf.frame(frac_w, dt)
 	else:
 		for tk: TankScript in tanks:
 			tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
