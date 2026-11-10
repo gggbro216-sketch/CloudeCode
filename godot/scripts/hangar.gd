@@ -87,6 +87,7 @@ var map_desc: Label
 var qual_btn: Button
 var hangar_sun: DirectionalLight3D
 var diff_btn: Button
+var tod_btn: Button
 var real_btn: Button
 var hist_btn: Button
 var go_btn: Button
@@ -828,6 +829,15 @@ func _build_ui() -> void:
 		main.persist()
 		_refresh())
 	rv.add_child(real_btn)
+	tod_btn = Button.new()
+	tod_btn.add_theme_font_size_override("font_size", 15)
+	tod_btn.custom_minimum_size = Vector2(0, 36)
+	tod_btn.pressed.connect(func():
+		var order := ["random", "day", "dawn", "dusk", "night"]
+		main.save.tod = order[(order.find(String(main.save.get("tod", "random"))) + 1) % order.size()]
+		main.persist()
+		_refresh())
+	rv.add_child(tod_btn)
 	rv.add_child(_spacer(true))
 	go_btn = Button.new()
 	go_btn.text = "В БОЙ"
@@ -1164,6 +1174,7 @@ func _refresh() -> void:
 		(map_btns[m] as Button).modulate.a = 1.0 if ok else 0.45
 	hist_btn.text = "Составы: исторические" if hist else "Составы: свободные"
 	diff_btn.text = "Противник: " + ["новички", "обычный", "ветераны"][clampi(int(main.save.get("difficulty", 1)), 0, 2)]
+	tod_btn.text = "Время суток: " + {"random": "случайное", "day": "день", "dawn": "рассвет", "dusk": "сумерки", "night": "ночь"}.get(String(main.save.get("tod", "random")), "случайное")
 	real_btn.text = "Реализм: вкл (награды ×1,3)" if bool(main.save.get("realism", false)) else "Реализм: выкл"
 	var can := _available(key)
 	go_btn.disabled = not can

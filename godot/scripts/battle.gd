@@ -167,13 +167,16 @@ var trk_n := TRK  # сколько отрезков следов держит Mu
 var scorch_n := SCORCH
 var G := {}  # настройки графики (Graphics, save.gfx)
 var cam_hook := Callable()
+var tod := "day"  # время суток: day, dawn, dusk, night
+var rain := false
 var difficulty := 1  # 0 — лёгкий противник, 1 — обычный, 2 — опытный
 var realism := false  # без меток и подсказок, дальность выставляет игрок
-var range_set := 600.0  # «Реализм»: выставленная дальность, м
+var range_set := 300.0  # «Реализм»: выставленная дальность, м (до 600)
 var bt_att := -1  # «Прорыв»: какая команда атакует (−1 — другой режим)
 var strike_cd := [45.0, 90.0]  # до готовности артудара и штурмовика, с
 const STRIKE_CD := [120.0, 180.0]
 var strikes_used := 0
+var player_hits_taken := 0
 var decor_n := 0  # сколько мелочей окружения поставлено
 var order_cur := 0
 var order_t := 0.0
@@ -258,6 +261,19 @@ func setup(cfg: Dictionary) -> void:
 	mission = cfg.get("mission", {})
 	difficulty = clampi(int(cfg.get("difficulty", 1)), 0, 2)
 	realism = bool(cfg.get("realism", false))
+	var tsel := String(cfg.get("tod", "random"))
+	if tsel == "random":
+		var tr := randf()
+		tod = "day" if tr < 0.52 else ("dawn" if tr < 0.68 else ("dusk" if tr < 0.84 else "night"))
+	elif tsel in ["day", "dawn", "dusk", "night"]:
+		tod = tsel
+	var MW: Dictionary = D.MAPS[map_key]
+	rain = bool(cfg.get("rain", randf() < 0.25)) and not bool(MW.get("winter", false)) and String(MW.surf) in ["grass", "urban"]
+	if bool(cfg.get("bench", false)):
+		tod = "day"
+		rain = false
+	if cfg.get("realism_test") != null:
+		realism = bool(cfg.realism_test)
 	if not mission.is_empty():
 		time_limit = float(mission.get("time", D.TIME_LIMIT))
 	elif mode == "breakthrough":
@@ -331,6 +347,11 @@ func _ready() -> void:
 	soft_base = clampf(2.0 * (1.0 - float(M0.grip)), 0.0, 0.8)
 	mu_base = {"grass": 0.78, "sand": 0.62, "snow": 0.5, "urban": 0.85}.get(surf, 0.75)
 	road_mu = 0.5 if surf == "snow" else 0.9
+	if rain:
+		# дождь: грунт раскисает — вязче и скользче
+		mu_base *= 0.85
+		road_mu *= 0.9
+		soft_base = minf(0.8, soft_base + 0.15)
 	year = D.MAPS[map_key].year
 	zones = MapGen.make_bt_zones(bt_att, MapGen.map_seed(map_key) % 2 == 0) if bt_att >= 0 else MapGen.make_zones(mode)
 	# карта постоянная: зерно карты и зоны всех режимов (раскладка не зависит от режима)
@@ -420,7 +441,7 @@ func _ready() -> void:
 	weather = WeatherScript.new()
 	weather.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # идёт за камерой
 	add_child(weather)
-	weather.setup(str(D.MAPS[map_key].get("weather", "")), self, int(G.get("weather", 2)))
+	weather.setup("rain" if rain else str(D.MAPS[map_key].get("weather", "")), self, int(G.get("weather", 2)))
 	var layer := CanvasLayer.new()
 	layer.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(layer)
@@ -430,6 +451,8 @@ func _ready() -> void:
 	var M: Dictionary = D.MAPS[map_key]
 	hud.add_feed([["%s · %s" % [String(mission.title) if not mission.is_empty() else D.MODES[mode].name, M.name], Color(D.AMBER)]])
 	hud.add_feed([["%s: %s против %s" % [M.date, M[side], M[D.foe_side(side) + "_g"]], Color("cfd3c0")]])
+	if tod != "day" or rain:
+		hud.add_feed([[{"day": "День", "dawn": "Рассвет", "dusk": "Сумерки", "night": "Ночь: обзор хуже"}[tod] + (" · дождь, грунт раскис" if rain else ""), Color("cfd3c0")]])
 	hud.show_brief(_brief_info())
 	for tk: TankScript in tanks:
 		_suspend(tk, 1.0)
@@ -487,8 +510,33 @@ var sky_mat: ShaderMaterial
 var sky_drift := 0.0  # когда последний раз сдвигали облака (секунды боя)
 
 
+## Время суток и дождь: поправки к свету карты — [верх неба, горизонт, цвет солнца, сила солнца ×, фон ×, туман, наклон солнца, облачность +].
+const TOD := {
+	"dawn": {"top": Color(0.42, 0.5, 0.68), "hor": Color(0.98, 0.72, 0.52), "sun": Color(1.0, 0.74, 0.52), "sun_k": 0.75, "amb_k": 0.85, "pitch": -13.0, "mix": 0.6},
+	"dusk": {"top": Color(0.2, 0.22, 0.38), "hor": Color(0.86, 0.45, 0.3), "sun": Color(1.0, 0.56, 0.36), "sun_k": 0.6, "amb_k": 0.7, "pitch": -9.0, "mix": 0.7},
+	"night": {"top": Color(0.015, 0.02, 0.05), "hor": Color(0.06, 0.08, 0.13), "sun": Color(0.55, 0.66, 0.95), "sun_k": 0.24, "amb_k": 0.42, "pitch": -50.0, "mix": 0.93},
+}
+
+
 func _make_env() -> void:
-	var M: Dictionary = D.MAPS[map_key]
+	var M: Dictionary = D.MAPS[map_key].duplicate()
+	if TOD.has(tod):
+		var t: Dictionary = TOD[tod]
+		var mix: float = t.mix
+		M.sky_top = Color(String(M.sky_top)).lerp(t.top, mix).to_html(false)
+		M.sky_hor = Color(String(M.sky_hor)).lerp(t.hor, mix).to_html(false)
+		M.fog = Color(String(M.fog)).lerp(t.hor, mix).to_html(false)
+		M.sun = Color(String(M.sun)).lerp(t.sun, 0.85).to_html(false)
+		M.sun_e = float(M.sun_e) * float(t.sun_k)
+		M.amb = float(M.amb) * float(t.amb_k)
+		M.sun_rot = [float(t.pitch), M.sun_rot[1]]
+	if rain:
+		M.sky_top = Color(String(M.sky_top)).lerp(Color(0.38, 0.4, 0.43), 0.6).to_html(false)
+		M.sky_hor = Color(String(M.sky_hor)).lerp(Color(0.55, 0.57, 0.6), 0.6).to_html(false)
+		M.fog = Color(String(M.fog)).lerp(Color(0.5, 0.52, 0.55), 0.6).to_html(false)
+		M.cover = minf(1.0, float(M.cover) + 0.3)
+		M.sun_e = float(M.sun_e) * 0.6
+		M.fog_far = float(M.fog_far) * 0.8
 	var sky_sh := Shader.new()
 	sky_sh.code = SKY_SHADER
 	sky_mat = ShaderMaterial.new()
@@ -624,13 +672,13 @@ func _spawn() -> void:
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
 	var wk: Array = mission.get("weight", [1.0, 1.0])
 	if bt_att >= 0:
-		wk = [1.8, 1.0] if bt_att == 0 else [1.0, 1.8]  # атакующих больше, они идут тремя волнами
+		wk = [1.7, 1.0] if bt_att == 0 else [1.0, 1.7]  # атакующих больше, они идут тремя волнами
 	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)) * float(wk[0]),
 		float(hc.get(D.foe_side(side), 1.0)) * float(wk[1]))
 	var waves: Array = mission.get("waves", [])
 	var wave_team := 1
 	if bt_att >= 0:
-		waves = [0.0, 25.0, 50.0]
+		waves = [0.0, 20.0]  # две волны: вторая подходит через 20 с
 		wave_team = bt_att
 	var keep: Array = [player_type]
 	for t in teams:
@@ -1230,9 +1278,11 @@ func _world_init() -> void:
 	core.zones_set(zf)
 	var P := _world_pack()
 	var st := PackedFloat32Array()
+	# ночью и в сумерках видно хуже, в дождь — тоже
+	var spot_k: float = float({"night": 0.6, "dawn": 0.88, "dusk": 0.82}.get(tod, 1.0)) * (0.88 if rain else 1.0)
 	for tk: TankScript in tanks:
 		var T := tk.T
-		st.append_array([float(T.spot), float(T.reload), float(T.dmg), float(T.speed), float(T.tspd), float(T.W), tk.max_hp,
+		st.append_array([float(T.spot) * spot_k, float(T.reload), float(T.dmg), float(T.speed), float(T.tspd), float(T.W), tk.max_hp,
 			1.0 if tk.is_player else 0.0, 1.0 if tk.cons.has("repair") else 0.0, 1.0 if tk.cons.has("medkit") else 0.0,
 			1.0 if tk.cons.has("ext") else 0.0, float(D.crew_n(tk.type_key)), D.shell_he(T)])
 	var k := PackedFloat32Array([D.CAP_RATE, D.SUP_GOAL, D.CONSUMABLES.repair.cd, D.CONSUMABLES.medkit.cd, D.CONSUMABLES.ext.cd])
@@ -3676,7 +3726,8 @@ func _update_world(dt: float) -> void:
 	var p := player
 	var inp := PackedFloat32Array()
 	inp.resize(18)
-	inp[17] = range_set * D.UPM if realism and not autopilot else 0.0
+	# дальность прицела — в «баллистических» метрах: время полёта как у настоящего снаряда (ед = м × SHELL_SCALE)
+	inp[17] = range_set * D.SHELL_SCALE if realism and not autopilot else 0.0
 	for k in 2:
 		strike_cd[k] = maxf(0.0, strike_cd[k] - dt)
 	if order_t > 0.0:
@@ -3979,6 +4030,8 @@ func _world_hit_fx(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void
 	var dir := Vector3(ev[q + 7], ev[q + 8], ev[q + 9])
 	var cal: float = ev[q + 10]
 	tk.hits_taken += 1
+	if tk.is_player:
+		player_hits_taken += 1
 	fx.hit_sparks(hp)
 	if xray_on and (by.is_player or tk.is_player):
 		hud.xray.begin(tk, by, hp, dir, 0 if kind == 5 else (1 if kind == 7 else 2), cal)
@@ -4273,8 +4326,8 @@ func _brief_info() -> Dictionary:
 		"standard": "Задача: уничтожить противника или захватить его базу, не отдав свою.",
 		"encounter": "Задача: захватить нейтральную базу в центре карты или уничтожить противника.",
 		"supremacy": "Задача: держать точки A, B, C — каждая приносит очки. Победа — 600 очков или уничтожение противника.",
-		"breakthrough": ("Задача: взять секторы A, B и C по очереди. Каждый взятый сектор даёт ещё 90 секунд. Вас больше, но подходите тремя волнами."
-			if bt_att == 0 else "Задача: удержать секторы A, B, C до конца времени. Противника больше, он идёт тремя волнами; каждый взятый сектор даёт ему ещё 90 секунд."),
+		"breakthrough": ("Задача: взять секторы A, B и C по очереди. Каждый взятый сектор даёт ещё 90 секунд. Вас больше, вторая волна подходит следом."
+			if bt_att == 0 else "Задача: удержать секторы A, B, C до конца времени. Противника больше, он идёт двумя волнами; каждый взятый сектор даёт ему ещё 90 секунд."),
 	}
 	if not mission.is_empty():
 		return {"title": "%s · %s" % [String(mission.title), M.name], "sub": "%s против %s · %s" % [M[side], M[D.foe_side(side) + "_g"], M.date],
@@ -4476,6 +4529,30 @@ func _show_result() -> void:
 		if int(stats.silver) > 0:
 			stats.silver = roundi(float(stats.silver) * 1.3)
 		stats.realism = true
+	# медали боя: каждая — +100 серебра
+	var medals: Array = []
+	if kills >= 4:
+		medals.append(["Воин", "уничтожено 4 танка и больше"])
+	if shots >= 6 and hits * 100 >= shots * 80:
+		medals.append(["Снайпер", "точность 80 % и выше"])
+	if blocked >= 500.0:
+		medals.append(["Стальная стена", "броня выдержала тяжёлый обстрел"])
+	if spotted_n >= 4:
+		medals.append(["Разведчик", "первым обнаружено 4 врага и больше"])
+	if inf_kills >= 6:
+		medals.append(["Гроза пехоты", "выбито 6 бойцов и расчётов"])
+	if strikes_used >= 2 and result == "win":
+		medals.append(["Корректировщик", "победа с двумя вызванными ударами"])
+	if bt_att == 0 and result == "win":
+		medals.append(["Прорыв", "взяты все секторы"])
+	if bt_att == 1 and result == "win":
+		medals.append(["Несгибаемый", "оборона секторов выстояла"])
+	if result == "win" and player.alive and kills >= 2 and player_hits_taken == 0:
+		medals.append(["Невидимка", "победа без единого попадания по вам"])
+	stats.medals = medals
+	if not medals.is_empty():
+		stats.silver = int(stats.silver) + 100 * medals.size()
+		(stats.lines as Array).append(["Медали (%d)" % medals.size(), 0, 100 * medals.size()])
 	_ammo_poll()
 	stats.ammo_cost = ammo_cost()
 	stats.silver = int(stats.silver) - int(stats.ammo_cost)

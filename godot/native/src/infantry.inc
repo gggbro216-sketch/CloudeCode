@@ -529,16 +529,23 @@
 		if (!d.alive || !d.gun_crew) return;
 		float *t = T(i);
 		V3 eye = top(i);
-		int best = -1;
-		float bd = 1e9f, bp = 0.0f;
+		int best = -1, soft = -1;
+		float bd = 1e9f, bp = 0.0f, sd = 1e9f;
 		for (size_t j = 0; j < c->inf.size(); j++) {
 			Core::Soldier &o = c->inf[j];
 			if (!o.alive || o.team == team(i)) continue;
 			float dx = o.x - t[P_X], dy = o.y - t[P_Y], dist = std::hypot(dx, dy);
-			if (dist > inf_vis_range(o) * 0.9f || dist > 620.0f) continue;
+			if (dist > inf_vis_range(o) * 0.9f || dist > (o.role == IR_GUN ? 800.0f : 620.0f)) continue;
 			V3 tp = { o.x, inf_chest(o), o.y };
 			if (!c->los(eye, tp) || c->smoke_blocks(eye, tp)) continue;
 			o.seen[team(i)] = 1.6f;
+			// цель для орудия: пушка важнее пехоты, из пехоты — ближайшая
+			float sk = dist - (o.role == IR_GUN ? 2000.0f : 0.0f);
+			if (sk < sd) {
+				sd = sk;
+				soft = (int)j;
+			}
+			if (dist > 620.0f) continue;
 			float br = std::atan2(dy, dx);
 			float p = 0.0f;
 			if (std::fabs(ang_diff(br, t[P_TUR])) < 0.32f) {
@@ -553,6 +560,11 @@
 				best = (int)j;
 				bp = p;
 			}
+		}
+		if (soft >= 0 && (size_t)i < c->ai.size()) {
+			const Core::Soldier &so = c->inf[soft];
+			c->ai[i].soft = { so.x, so.gh + 2.0f, so.y };
+			c->ai[i].soft_t = c->clock;
 		}
 		if (best < 0) return;
 		Core::Soldier &o = c->inf[best];

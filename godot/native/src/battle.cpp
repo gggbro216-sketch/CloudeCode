@@ -458,6 +458,7 @@ struct Step {
 		dir = v3norm(v3add(dir, v3add(v3mul(u, gx), v3mul(v, gy))));
 		// снаряд: у игрока — выбранный, у бота — по цели
 		if (!d.player && d.am_n > 1) d.am_cur = ammo_bot_pick(c, i);
+		if ((size_t)i < c->ai.size()) c->ai[i].cover_shot = false;
 		Core::TankDyn::Ammo am;
 		am.pen = DS.pen;
 		am.dmg = d.dmg;

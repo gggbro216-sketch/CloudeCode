@@ -153,7 +153,9 @@ struct Core {
 		float side = 1.0f, back_t = 0.0f, spot_t = 0.0f, pts = 5.0f, max_hp = 1.0f, dmg = 100.0f, reload = 3.0f, height = 20.0f, barrel = 30.0f;
 		float release_t = 0.0f;
 		bool ordered = false, cover_shot = false;  // под приказом игрока; стреляет по укрытию цели
-		V2 hold_p = { 0, 0 };  // резерв волны: до этого времени стоит на месте
+		V2 hold_p = { 0, 0 };
+		V3 soft = { 0, 0, 0 };  // пехота или пушка в прицеле: по ней бьют фугасом, когда нет танковой цели
+		float soft_t = -1e9f;  // резерв волны: до этого времени стоит на месте
 	};
 	std::vector<BotAi> ai;
 	bool ai_on = false;

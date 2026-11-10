@@ -16,6 +16,11 @@ uniform vec3 box = vec3(170.0, 110.0, 170.0);
 uniform float fall = 9.0;
 uniform vec2 wind = vec2(4.0, 1.5);
 uniform float size = 0.42;
+uniform float narrow = 1.0;
+uniform float stretch = 1.0;
+uniform vec3 tint = vec3(0.93, 0.95, 1.0);
+uniform float alpha_k = 0.9;
+uniform float swirl = 1.2;
 varying float fade;
 
 void vertex() {
@@ -23,22 +28,23 @@ void vertex() {
 	vec3 base = VERTEX;
 	vec3 p = base + vec3(wind.x, -fall, wind.y) * TIME;
 	// кружение
-	p.x += sin(TIME * 1.1 + base.y * 0.7) * 1.2;
-	p.z += cos(TIME * 0.9 + base.x * 0.5) * 1.2;
+	p.x += sin(TIME * 1.1 + base.y * 0.7) * swirl;
+	p.z += cos(TIME * 0.9 + base.x * 0.5) * swirl;
 	p = mod(p - cam + box * 0.5, box) - box * 0.5 + cam;
 	vec2 corner = UV * 2.0 - 1.0;
 	vec3 right = INV_VIEW_MATRIX[0].xyz;
 	vec3 up = INV_VIEW_MATRIX[1].xyz;
 	float d = length(p - cam);
-	p += (right * corner.x + up * corner.y) * size * (1.0 + d * 0.012);
+	vec3 upv = stretch > 1.5 ? vec3(0.0, 1.0, 0.0) : up;
+	p += (right * corner.x * narrow + upv * corner.y * stretch) * size * (1.0 + d * 0.012);
 	fade = (1.0 - smoothstep(box.x * 0.32, box.x * 0.5, d)) * smoothstep(5.0, 14.0, d);
 	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(p, 1.0);
 }
 
 void fragment() {
 	vec2 c = UV * 2.0 - 1.0;
-	ALBEDO = vec3(0.93, 0.95, 1.0);
-	ALPHA = (1.0 - smoothstep(0.25, 1.0, length(c))) * fade * 0.9;
+	ALBEDO = tint;
+	ALPHA = (1.0 - smoothstep(0.25, 1.0, length(c))) * fade * alpha_k;
 }
 """
 
@@ -118,6 +124,8 @@ func setup(weather: String, b, level: int) -> void:
 	match kind:
 		"snow":
 			_snow(1500 if level >= 2 else 700)
+		"rain":
+			_snow(2200 if level >= 2 else 1000, true)
 		"mist":
 			_mist(90 if level >= 2 else 40)
 		"haze":
@@ -131,7 +139,7 @@ func _process(_delta: float) -> void:
 		haze.global_position = c
 
 
-func _snow(count: int) -> void:
+func _snow(count: int, rain := false) -> void:
 	var box := Vector3(170.0, 110.0, 170.0)
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
@@ -157,6 +165,16 @@ func _snow(count: int) -> void:
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	m.set_shader_parameter("box", box)
+	if rain:
+		# дождь: те же частицы, но быстрые узкие вертикальные штрихи
+		m.set_shader_parameter("fall", 95.0)
+		m.set_shader_parameter("wind", Vector2(9.0, 3.0))
+		m.set_shader_parameter("size", 0.5)
+		m.set_shader_parameter("narrow", 0.05)
+		m.set_shader_parameter("stretch", 3.2)
+		m.set_shader_parameter("tint", Vector3(0.72, 0.76, 0.82))
+		m.set_shader_parameter("alpha_k", 0.26)
+		m.set_shader_parameter("swirl", 0.0)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = m

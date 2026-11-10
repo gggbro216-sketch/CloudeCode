@@ -1597,6 +1597,20 @@ static void bot_control(Core *self, std::vector<float> &P, int n, int i, float d
 				t[P_FIRE] = 1.0f;
 			}
 		}
+	} else if ((size_t)i < self->ai.size() && self->ai[i].soft_t > self->clock - 1.2f) {
+		// танков в прицеле нет, но видна пехота или пушка — по ней из орудия (фугасом, если есть)
+		Core::BotAi &SA = self->ai[i];
+		t[P_AX] = SA.soft.x;
+		t[P_AY] = SA.soft.y;
+		t[P_AZ] = SA.soft.z;
+		aim_tank(T, t, dt);
+		t[P_AIM] = 0.0f;
+		float d = dist2(pos, { SA.soft.x, SA.soft.z });
+		bool aligned = std::fabs(ang_diff(std::atan2(SA.soft.z - pos.y, SA.soft.x - pos.x), t[P_TUR])) < 0.03f && std::fabs(t[P_GUN_PITCH] - t[P_GUN_TARGET]) < 0.02f;
+		if (t[P_RL] <= 0.0f && aligned && d > 80.0f && d < RANGE * 0.7f && t[P_HOLD] == 0.0f && t[P_CAN_FIRE] != 0.0f) {
+			SA.cover_shot = true;
+			t[P_FIRE] = 1.0f;
+		}
 	} else {
 		// башня — туда, где последний раз видели врага, иначе по ходу
 		V2 look;
@@ -2068,6 +2082,12 @@ int ammo_bot_pick(Core *c, int i) {
 	if (i < 0 || (size_t)i >= c->td.size() || (size_t)i >= c->ai.size()) return 0;
 	Core::TankDyn &d = c->td[i];
 	if (d.am_n <= 1) return 0;
+	if (c->ai[i].cover_shot) {
+		for (int j = 1; j < d.am_n; j++) {
+			if (d.am[j].kind == AM_HE && d.am[j].left != 0) return j;
+		}
+		return 0;
+	}
 	int tg = c->ai[i].tg;
 	if (tg < 0 || (size_t)tg >= c->ts.size() || (size_t)(tg + 1) * PHYS > c->snap.size() || (size_t)(i + 1) * PHYS > c->snap.size()) return 0;
 	const float *G = &c->snap[(size_t)tg * PHYS];
@@ -2443,8 +2463,10 @@ V2 Core::plan(int i) {
 			A.zone = z;
 			return zp(z, 0.4f);
 		}
+		// оборона в глубину: треть машин заранее стоит у следующего сектора
+		int zd = (i % 3 == 2 && z + 1 < (int)zones.size()) ? z + 1 : z;
 		float back = my == 0 ? 1.0f : -1.0f;
-		return { zones[z].x + off.x * 1.3f, zones[z].y + off.y * 0.5f + back * 160.0f };
+		return { zones[zd].x + off.x * 1.3f, zones[zd].y + off.y * 0.5f + back * 160.0f };
 	}
 	if (mode == 0 && zones.size() >= 2) {
 		int own = zones[0].side == my ? 0 : 1, foe = own == 0 ? 1 : 0;

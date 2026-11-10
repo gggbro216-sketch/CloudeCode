@@ -181,7 +181,7 @@ func _input(event: InputEvent) -> void:
 			return
 		for rr: Array in range_r:
 			if (rr[0] as Rect2).grow(6.0).has_point(p):
-				battle.range_set = clampf(battle.range_set + float(rr[1]), 100.0, 2000.0)
+				battle.range_set = clampf(battle.range_set + float(rr[1]), 50.0, 600.0)
 				return
 		if auto_rect.grow(10.0).has_point(p) and not battle.realism:
 			auto_aim = not auto_aim
@@ -238,9 +238,9 @@ func _input(event: InputEvent) -> void:
 				KEY_C:
 					battle.give_order(3)
 				KEY_BRACKETLEFT:
-					battle.range_set = clampf(battle.range_set - 100.0, 100.0, 2000.0)
+					battle.range_set = clampf(battle.range_set - 50.0, 50.0, 600.0)
 				KEY_BRACKETRIGHT:
-					battle.range_set = clampf(battle.range_set + 100.0, 100.0, 2000.0)
+					battle.range_set = clampf(battle.range_set + 50.0, 50.0, 600.0)
 		var keys := {KEY_1: "repair", KEY_2: "medkit", KEY_3: "ext"}
 		if k.pressed and not k.echo and keys.has(k.keycode):
 			battle.use_cons(keys[k.keycode])
@@ -329,8 +329,8 @@ func _process(delta: float) -> void:
 			oy += 58.0
 		if battle.realism:
 			auto_aim = false
-			range_r.append([Rect2(auto_rect.position.x - 4.0, auto_rect.position.y, 56.0, 44.0), -100.0])
-			range_r.append([Rect2(auto_rect.position.x + 68.0, auto_rect.position.y, 56.0, 44.0), 100.0])
+			range_r.append([Rect2(auto_rect.position.x - 4.0, auto_rect.position.y, 56.0, 44.0), -50.0])
+			range_r.append([Rect2(auto_rect.position.x + 68.0, auto_rect.position.y, 56.0, 44.0), 50.0])
 	for f in feed:
 		f.t -= delta
 	feed = feed.filter(func(x): return x.t > 0)
@@ -507,17 +507,17 @@ func _draw_reticle(c: Vector2, r: float) -> void:
 		for k in range(1, 5):
 			for sg in [-1.0, 1.0]:
 				cv.draw_line(c + Vector2(sg * k * 22.0, -4.0 - (k % 2) * 4.0), c + Vector2(sg * k * 22.0, 4.0 + (k % 2) * 4.0), ink, 1.5)
-	# шкала дальности справа: деления через 200 м, указатель — выставленная дальность
+	# шкала дальности справа: деления через 50 м, цифры — сотни метров, указатель — выставленная дальность
 	var x := c.x + r * 0.62
 	var top := c.y - r * 0.55
 	var hgt := r * 1.1
 	cv.draw_line(Vector2(x, top), Vector2(x, top + hgt), ink, 1.5)
-	for m in range(0, 2001, 200):
-		var y2 := top + hgt * float(m) / 2000.0
-		cv.draw_line(Vector2(x - (8.0 if m % 400 == 0 else 4.0), y2), Vector2(x, y2), ink, 1.5)
-		if m % 400 == 0:
+	for m in range(0, 601, 50):
+		var y2 := top + hgt * float(m) / 600.0
+		cv.draw_line(Vector2(x - (8.0 if m % 100 == 0 else 4.0), y2), Vector2(x, y2), ink, 1.5)
+		if m % 200 == 0:
 			_text(Vector2(x - 26.0, y2 + 5.0), str(m / 100), 12, ink, true, 0)
-	var yr := top + hgt * float(battle.range_set) / 2000.0
+	var yr := top + hgt * float(battle.range_set) / 600.0
 	Gfx.polygon(cv, PackedVector2Array([Vector2(x + 2, yr), Vector2(x + 14, yr - 6), Vector2(x + 14, yr + 6)]), ink)
 
 
@@ -1248,6 +1248,17 @@ func show_result(st: Dictionary) -> void:
 		col.add_child(UI.label(String(item[0]).to_upper(), 12, UI.DIM))
 		pc.add_child(col)
 		res_stats.add_child(pc)
+	# медали боя (в скобках — сколько раз получена всего)
+	var mds: Array = st.get("medals", [])
+	if not mds.is_empty():
+		var names: Array = []
+		for md: Array in mds:
+			names.append("★ %s ×%d" % [md[0], int(st.get("medal_totals", {}).get(md[0], 1))])
+		var pm := PanelContainer.new()
+		var lm := UI.label("  ".join(names), 15, D.AMBER)
+		lm.tooltip_text = "; ".join(mds.map(func(x): return "%s — %s" % [x[0], x[1]]))
+		pm.add_child(lm)
+		res_stats.add_child(pm)
 	# за что сколько опыта и серебра
 	for c in res_table.get_children():
 		c.queue_free()
