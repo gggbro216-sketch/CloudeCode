@@ -244,6 +244,28 @@ struct Core {
 		bool told = false;
 	};
 	std::vector<Strike> strikes;
+	// ---- авиация: самолёт — полноценная сущность с моделью полёта и рулями. Рули (c_pitch, c_roll, c_thr, огонь,
+	// сброс) ставит ИИ звена либо игрок (air_input) — задел под пилотируемый полёт.
+	struct Plane {
+		V3 p = { 0, 0, 0 }, v = { 0, 0, 0 }, hold = { 0, 0, 0 };
+		float yaw = 0, pitch = 0, roll = 0, speed = 420, hp = 100;
+		float c_pitch = 0, c_roll = 0, c_thr = 1;  // рули: −1…1, газ 0…1
+		bool c_fire = false, c_bomb = false, player = false, alive = true, gone = false, firing = false, dive = false, ext = false;
+		int team = 0, flight = 0, slot = 0, by = -1, state = 0, tgt = -1, bombs = 2, rounds = 60;
+		float t = 0, think_t = 0, gun_t = 0, bomb_cd = 0, aa_t = 0, leave_t = 0, burst = 0;
+	};
+	struct AirWeapon {
+		float cal = 23, pen = 25, dmg = 22, rof = 9, hp = 110, bomb_cal = 150;  // пушка, прочность, калибр бомбы
+		int rounds = 70, bombs = 4;
+	};
+	struct AirReq {
+		int team, by;
+		float x, z;
+	};
+	std::vector<Plane> planes;
+	std::vector<AirReq> air_req;
+	AirWeapon air_w[2];
+	int air_flights = 0;
 	bool strike_ai = false;
 	float strike_t[2] = { 70.0f, 85.0f };
 	// сложность: разброс и перезарядка ботов противника

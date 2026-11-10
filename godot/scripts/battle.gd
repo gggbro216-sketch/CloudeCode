@@ -1399,6 +1399,11 @@ func _spawn_infantry() -> void:
 	add_child(inf)
 	inf.plane_of = [_plane_name(nats[0]), _plane_name(nats[1])]
 	inf.setup(self, core, rows, int(G.get("shadows", 2)) > 1)
+	if core.has_method("air_setup"):
+		var aw := PackedFloat32Array()
+		for nt in nats:
+			aw.append_array(InfantryScript.air_weapon(String(nt), year))
+		core.air_setup(aw)
 	_spawn_decor()
 
 
@@ -1554,7 +1559,8 @@ func _plane_name(nation: String) -> String:
 func call_strike(kind: int) -> void:
 	if not core_world or over or not player.alive or strike_cd[kind] > 0.0 or not core.has_method("strike_call"):
 		return
-	var at: Vector3 = aim_point
+	# артиллерия бьёт по точке прицела; штурмовики идут в сектор вызвавшего и держатся над его танком
+	var at: Vector3 = aim_point if kind == 0 else Vector3(player.pos.x, 0.0, player.pos.y)
 	if core.strike_call(kind, 0, at.x, at.z, player.idx):
 		strike_cd[kind] = STRIKE_CD[kind]
 		strikes_used += 1
@@ -4121,12 +4127,34 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var st := int(ev[q + 2])
 				var sp := Vector3(ev[q + 3], terra.height(ev[q + 3], ev[q + 4]), ev[q + 4])
 				if st == 0:
-					hud.add_feed([["Артиллерия: огонь через %d с" % int(ev[q + 5]) if sk == 0 else "Штурмовик на подходе", hud.team_color(0)]])
-					fx.emit(sp + Vector3(0, 4, 0), 14, 5.0, "smoke", 10, 40, Vector3.UP, 20, 6, 22.0, false, true, 2.5)
-				elif sp.distance_to(Vector3(player.pos.x, sp.y, player.pos.y)) < 260.0 and player.alive:
-					hud.alert("АРТНАЛЁТ!" if sk == 0 else "ВОЗДУХ!", Color("ff6a4a"))
-				if inf and sk == 1:
-					inf.add_plane(st, sp, Vector2(ev[q + 6], ev[q + 7]), ev[q + 5])
+					hud.add_feed([["Артиллерия: огонь через %d с" % int(ev[q + 5]) if sk == 0 else "Звено штурмовиков вызвано: подлёт %d с" % int(ev[q + 5]), hud.team_color(0)]])
+					if sk == 0:
+						fx.emit(sp + Vector3(0, 4, 0), 14, 5.0, "smoke", 10, 40, Vector3.UP, 20, 6, 22.0, false, true, 2.5)
+				elif sp.distance_to(Vector3(player.pos.x, sp.y, player.pos.y)) < (260.0 if sk == 0 else 700.0) and player.alive:
+					hud.alert("АРТНАЛЁТ!" if sk == 0 else "ВОЗДУХ! ШТУРМОВИКИ ПРОТИВНИКА", Color("ff6a4a"))
+			37:  # авиация: 0 звено над сектором, 1 разбился, 2 сбит, 3 разрыв зенитного снаряда, 4 звено уходит
+				var ak := int(ev[q + 1])
+				var at2 := Vector3(ev[q + 3], ev[q + 4], ev[q + 5])
+				var tc: Color = hud.team_color(int(ev[q + 2]))
+				match ak:
+					0:
+						hud.add_feed([["Штурмовики над сектором" if int(ev[q + 2]) == 0 else "Штурмовики противника над полем боя", tc]])
+						sfx.play2d("radio_%d" % (1 + randi() % 3), -6.0)
+					1:
+						fx.explosion(at2)
+						fx.smoke_column(at2, false)
+						_scorch(at2, 22.0)
+						sfx.play3d("explosion", at2)
+					2:
+						hud.add_feed([["Штурмовик сбит", tc]])
+						fx.explosion(at2)
+						sfx.play3d("explosion", at2, -4.0)
+					3:
+						fx.emit(at2, 8, 1.6, "dark", 10, 40, Vector3.UP, 180, 1, 14.0, false, true, 2.0)
+						fx.flash(at2, Color(1, 0.8, 0.5), 3.0, 80.0)
+					4:
+						if int(ev[q + 2]) == 0:
+							hud.add_feed([["Штурмовики уходят на аэродром", tc]])
 			35:  # боец погиб
 				if inf:
 					inf.on_dead(ev, q)

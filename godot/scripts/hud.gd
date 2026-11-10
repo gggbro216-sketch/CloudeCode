@@ -729,6 +729,13 @@ func _draw_minimap() -> void:
 		else:
 			Gfx.circle(cv, tp, 4.5, c)
 	if battle.inf:
+		# самолёты — стрелками по курсу
+		var ad: PackedFloat32Array = battle.inf.air_dots()
+		for q in range(0, ad.size(), 4):
+			var ap := o + Vector2(clampf(ad[q], 0.0, D.WS), clampf(ad[q + 1], 0.0, D.WS)) * k
+			var fw := Vector2.from_angle(ad[q + 3])
+			var sd := fw.orthogonal()
+			Gfx.polygon(cv, PackedVector2Array([ap + fw * 7.0, ap - fw * 4.0 + sd * 4.5, ap - fw * 4.0 - sd * 4.5]), team_color(int(ad[q + 2])).lightened(0.25))
 		var dots: PackedFloat32Array = battle.inf.dots()
 		for q in range(0, dots.size(), 3):
 			var dp := o + Vector2(dots[q], dots[q + 1]) * k

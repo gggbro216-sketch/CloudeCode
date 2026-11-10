@@ -74,10 +74,14 @@ var tracer_mm: MultiMesh
 var snd_t := 0.0
 var snd_n := 0
 var plane_of := ["plane_il2", "plane_ju87"]  # самолёт каждой команды
-var planes: Array = []
+var planes: Array = []  # (прежний пролёт по сценарию; теперь самолёты считает C++ — air)
+var air := PackedFloat32Array()  # самолёты из C++: по 12 чисел (см. air_view)
+var air_prev := PackedFloat32Array()
+var air_snd := {}  # номер самолёта → когда последний раз звучал мотор
+var air_clock := 0.0
 var decor: Array = []
 const PLANE_V := 520.0  # скорость пролёта, ед/с
-var stat := {"shots": [0, 0, 0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
+var stat := {"shots": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
 
 
 ## rows — отделения для C++ (по 16 чисел, см. compose). Возвращает число бойцов.
@@ -135,6 +139,29 @@ func scatter(nm: String, items: Array, shadows: bool) -> int:
 		mm.set_instance_custom_data(i, Color(ps, ps, 0, 0))
 	decor.append(u)
 	return items.size()
+
+
+## Самолёты для миникарты: [x, z, команда, курс].
+func air_dots() -> PackedFloat32Array:
+	var o := PackedFloat32Array()
+	for a in range(0, air.size(), 12):
+		if (int(air[a + 7]) & 1) != 0:
+			o.append_array([air[a], air[a + 2], air[a + 6], air[a + 3]])
+	return o
+
+
+## Вооружение штурмовика по нации и году: [калибр пушки, пробитие, урон, выстрелов/с, снарядов, бомб, калибр бомбы, прочность].
+static func air_weapon(nation: String, year: int) -> Array:
+	match nation:
+		"СССР":
+			return [23.0, 26.0, 24.0, 9.0, 80.0, 4.0, 150.0, 150.0]  # Ил-2: ВЯ-23, ФАБ-100, бронекорпус
+		"Германия", "Венгрия":
+			if year >= 1943:
+				return [37.0, 95.0, 70.0, 2.6, 24.0, 1.0, 200.0, 95.0]  # Ju 87 G: две 37-мм BK 3,7
+			return [20.0, 20.0, 16.0, 10.0, 60.0, 3.0, 200.0, 95.0]  # Ju 87 D: MG 151/20, SC 250
+		"США", "Великобритания", "Франция":
+			return [12.7, 20.0, 10.0, 18.0, 220.0, 2.0, 180.0, 115.0]  # P-47: восемь 12,7-мм, две бомбы
+	return [20.0, 20.0, 16.0, 8.0, 60.0, 2.0, 150.0, 90.0]
 
 
 ## Где стоят пушки: [x, z, курс, команда] — вокруг них battle ставит мешки с песком.
@@ -295,6 +322,11 @@ func _make_tracers() -> void:
 
 ## После шага логики: новая сводка из C++.
 func step() -> void:
+	if core and core.has_method("air_view"):
+		air_prev = air
+		air = core.air_view()
+		if air_prev.size() != air.size():
+			air_prev = air
 	if count <= 0:
 		return
 	prev = view
@@ -308,24 +340,31 @@ func frame(frac: float, dt: float) -> void:
 	for nm in units:
 		(units[nm].list as Array).clear()
 		(units[nm].extra as Array).clear()
-	# самолёты: заход с пологим пикированием на цель и уход с набором
-	var pi := 0
-	while pi < planes.size():
-		var pl: Dictionary = planes[pi]
-		pl.t += dt
-		if pl.t > 7.0:
-			planes.remove_at(pi)
+	# самолёты: положение и углы из C++ (между шагами — плавно), дым у сбитых, звук моторов
+	air_clock += dt
+	for a in range(0, air.size(), 12):
+		var fl := int(air[a + 7])
+		if (fl & 1) == 0:
 			continue
-		var along: float = float(pl.t) * PLANE_V
-		var h := 190.0 + 0.00018 * along * along
-		var pp: Vector3 = pl.target + pl.dir * along + Vector3(0, minf(h, 520.0), 0)
-		var climb := atan(0.00036 * along) * 0.8
-		var pb := Basis.looking_at(-(pl.dir as Vector3), Vector3.UP) * Basis(Vector3.RIGHT, -climb)
-		(units[pl.unit].extra as Array).append([pp, pb.scaled(Vector3(SCALE, SCALE, SCALE)), 0, 0])
-		if not pl.snd and pl.t > -3.0:
-			pl.snd = true
-			battle.sfx.play3d("plane", pp, 6.0)
-		pi += 1
+		var nm: String = plane_of[clampi(int(air[a + 6]), 0, 1)]
+		if not units.has(nm):
+			continue
+		var pp := Vector3(lerpf(air_prev[a], air[a], frac), lerpf(air_prev[a + 1], air[a + 1], frac), lerpf(air_prev[a + 2], air[a + 2], frac))
+		var yaw := lerp_angle(air_prev[a + 3], air[a + 3], frac)
+		var pitch := lerpf(air_prev[a + 4], air[a + 4], frac)
+		var roll := lerp_angle(air_prev[a + 5], air[a + 5], frac)
+		var fwd := Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))
+		var pb := Basis.looking_at(-fwd, Vector3.UP) * Basis(Vector3(0, 0, 1), roll)
+		(units[nm].extra as Array).append([pp, pb.scaled(Vector3(SCALE, SCALE, SCALE)), 0, 0])
+		var id := a / 12
+		var near: bool = pp.distance_squared_to(battle.cam.global_position) < 1800.0 * 1800.0
+		if near and air_clock - float(air_snd.get(id, -99.0)) > 11.0:
+			air_snd[id] = air_clock
+			battle.sfx.play3d("plane", pp, 4.0)
+		if (fl & 2) != 0 and near and randf() < dt * 14.0:
+			battle.fx.emit(pp, 2, 2.2, "dark", 5, 20, Vector3.UP, 60, 2, 16.0, false, true, 1.0)
+		if (fl & 4) != 0 and near and randf() < dt * 10.0:
+			battle.fx.emit(pp + fwd * 14.0, 2, 0.06, "fire", 20, 80, fwd, 12, 0, 3.0, true, false, 5)
 	for k in count:
 		var q := k * VIEW
 		var fl := int(view[q + 8])
@@ -467,7 +506,7 @@ func frame(frac: float, dt: float) -> void:
 ## Выстрел: вид (роль бойца, 5 — пулемёт танка, 6 — граната), откуда, направление, место трассера, скорость/дальность.
 func on_shot(ev: PackedFloat32Array, q: int) -> void:
 	var kind := int(ev[q + 1])
-	stat.shots[clampi(kind, 0, 8)] += 1
+	stat.shots[clampi(kind, 0, 9)] += 1
 	var at := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
 	var dir := Vector3(ev[q + 5], ev[q + 6], ev[q + 7])
 	var slot := int(ev[q + 8])
@@ -476,6 +515,13 @@ func on_shot(ev: PackedFloat32Array, q: int) -> void:
 		battle.fx.impact(at, true)
 		battle.fx.flash(at, Color(1, 0.7, 0.4), 4.0, 60.0)
 		battle.sfx.play3d("grenade", at)
+		return
+	if kind == 9:
+		# очередь авиапушки: настоящие снаряды — трассеры как у танков
+		battle._slot_visual(slot, at, dir * ev[q + 9], 1e9)
+		if snd_n < 3:
+			snd_n += 1
+			battle.sfx.play3d("mg", at, 5.0, 0.8)
 		return
 	if kind == 8:
 		# снаряд артиллерии или бомба

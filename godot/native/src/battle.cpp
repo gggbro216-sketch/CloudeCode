@@ -99,6 +99,7 @@ enum WorldEv {
 	W_INF_SHOT,  // вид (роль бойца; 5 — пулемёт танка; 6 — граната), откуда xyz, направление xyz, место трассера (−1 — пуля), скорость или дальность, кто
 	W_INF_DEAD,  // боец, кто (танк или −1), причина (0 пуля, 1 осколки, 2 гусеницы), x, y, z, команда
 	W_STRIKE,  // вид (0 артудар, 1 штурмовик), команда, x, z, через сколько секунд, курс захода x, z
+	W_AIR,  // что (0 звено над сектором, 1 самолёт разбился, 2 сбит — падает, 3 разрыв зенитного снаряда, 4 звено уходит), команда, x, y, z
 };
 
 enum { IR_RIFLE, IR_SMG, IR_ATR, IR_TUBE, IR_FAUST, IR_CREW, IR_GUN };
@@ -725,6 +726,7 @@ struct Step {
 	V3 cam_pos = { 0, 0, 0 };
 
 #include "infantry.inc"
+#include "air.inc"
 
 	void forward(const float *e) {
 		size_t k = ev.v.size();
@@ -962,6 +964,9 @@ METHOD(world_init) {
 	self->mg_t.clear();
 	self->inf_kills = 0;
 	self->strikes.clear();
+	self->planes.clear();
+	self->air_req.clear();
+	self->air_flights = 0;
 	self->strike_ai = false;
 	self->strike_t[0] = 70.0f;
 	self->strike_t[1] = 85.0f;
@@ -1303,6 +1308,7 @@ METHOD(world_step) {
 	}
 	// удары, пехота, затем снаряды
 	S.strikes_step();
+	S.air_step();
 	S.inf_step();
 	S.shells();
 	S.zones_update();
@@ -1750,6 +1756,70 @@ METHOD(order_set) {
 	ret_int(r, (int64_t)std::min<size_t>(near.size(), 3));
 }
 
+// Вооружение штурмовиков сторон: по 8 чисел на команду — калибр пушки, пробитие, урон, выстрелов в секунду,
+// снарядов, бомб, калибр бомбы, прочность самолёта.
+METHOD(air_setup) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<float> f = f32(a, 0);
+	for (int tm = 0; tm < 2 && (size_t)(tm + 1) * 8 <= f.size(); tm++) {
+		const float *p = &f[(size_t)tm * 8];
+		Core::AirWeapon &w = self->air_w[tm];
+		w.cal = p[0];
+		w.pen = p[1];
+		w.dmg = p[2];
+		w.rof = clampf(p[3], 0.5f, 30.0f);
+		w.rounds = (int)p[4];
+		w.bombs = (int)p[5];
+		w.bomb_cal = p[6];
+		w.hp = clampf(p[7], 30.0f, 400.0f);
+	}
+}
+
+// Самолёты для показа и интерфейса: по 12 чисел — x, y, z, курс, тангаж, крен, команда, признаки
+// (1 жив, 2 падает, 4 стреляет, 8 управляется игроком), прочность, скорость, бомб, снарядов.
+METHOD(air_view) {
+	SELF;
+	std::vector<float> o(self->planes.size() * 12);
+	for (size_t k = 0; k < self->planes.size(); k++) {
+		const Core::Plane &p = self->planes[k];
+		float *v = &o[k * 12];
+		v[0] = p.p.x;
+		v[1] = p.p.y;
+		v[2] = p.p.z;
+		v[3] = p.yaw;
+		v[4] = p.pitch;
+		v[5] = p.roll;
+		v[6] = (float)p.team;
+		v[7] = (float)((p.alive ? 1 : 0) | (p.state == 5 ? 2 : 0) | (p.firing ? 4 : 0) | (p.player ? 8 : 0));
+		v[8] = p.hp;
+		v[9] = p.speed;
+		v[10] = (float)p.bombs;
+		v[11] = (float)p.rounds;
+	}
+	ret_f32(r, o.data(), (int64_t)o.size());
+}
+
+// Рули самолёта от игрока (задел под пилотируемый полёт): (номер, тангаж −1…1, крен −1…1, газ 0…1, огонь, сброс).
+// Пока рули ставит игрок, ИИ этим самолётом не управляет; номер −1 — вернуть все самолёты ИИ.
+METHOD(air_input) {
+	SELF;
+	if (!need(a, 6, e)) return;
+	int i = (int)a.integer(0);
+	if (i < 0) {
+		for (Core::Plane &p : self->planes) p.player = false;
+		return;
+	}
+	if ((size_t)i >= self->planes.size()) return;
+	Core::Plane &p = self->planes[i];
+	p.player = true;
+	p.c_pitch = clampf((float)a.num(1), -1.0f, 1.0f);
+	p.c_roll = clampf((float)a.num(2), -1.0f, 1.0f);
+	p.c_thr = clampf((float)a.num(3), 0.0f, 1.0f);
+	p.c_fire = a.boolean(4);
+	p.c_bomb = a.boolean(5);
+}
+
 METHOD(inf_view) {
 	SELF;
 	std::vector<float> o(self->inf.size() * INF_VIEW + 1);
@@ -1778,6 +1848,9 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "ammo_state", ammo_state },
 		{ "inf_init", inf_init },
 		{ "inf_view", inf_view },
+		{ "air_setup", air_setup },
+		{ "air_view", air_view },
+		{ "air_input", air_input },
 		{ "rules_set", rules_set },
 		{ "strike_call", strike_call },
 		{ "order_set", order_set },

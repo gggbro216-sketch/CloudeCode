@@ -685,7 +685,16 @@
 	}
 
 	bool strike_add(int kind, int team, float x, float z, int by) {
-		if (c->strikes.size() >= 6 || !std::isfinite(x) || !std::isfinite(z)) return false;
+		if (!std::isfinite(x) || !std::isfinite(z)) return false;
+		if (kind != 0) {
+			// штурмовики: заявка на звено, оно придёт на следующем шаге (не больше двух звеньев стороны в воздухе)
+			int up = 0;
+			for (const Core::Plane &p : c->planes) up += (p.alive && p.team == (team != 0 ? 1 : 0)) ? 1 : 0;
+			if (up >= 6 || c->air_req.size() >= 4) return false;
+			c->air_req.push_back({ team != 0 ? 1 : 0, by, clampf(x, 30.0f, c->ws - 30.0f), clampf(z, 30.0f, c->ws - 30.0f) });
+			return true;
+		}
+		if (c->strikes.size() >= 6) return false;
 		Core::Strike k;
 		k.kind = kind != 0 ? 1 : 0;
 		k.team = team != 0 ? 1 : 0;
