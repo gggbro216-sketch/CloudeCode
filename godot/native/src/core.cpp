@@ -2575,6 +2575,24 @@ bool Core::think(int i, V2 &route_to, bool &route_safe) {
 	A.hold = false;
 	A.adv = !danger || covered(bp);
 	if (A.cls == CLS_LT && spotted && clock > A.back_t + 4.0f && foe_near(i, 750.0f)) A.back_t = clock + 7.0f + 4.0f * randf();
+	// сам за себя: машина почти выбита или не может стрелять — под огнём не стоит, отходит за укрытие на рубеж назад
+	{
+		const TankDyn *D = (size_t)i < td.size() ? &td[i] : nullptr;
+		bool no_gun = D && (D->mod[MOD_GUN] <= 0.0f || !D->gun_crew);
+		if ((B[P_HP] < 0.25f || no_gun) && danger && !A.ordered && B[P_IMMOBILE] == 0.0f && !(mode == 3 && team == bt_att)) {
+			V2 back = stage_point(team, A.lane, std::max(squads[team][A.lane].stage - 1, 0));
+			back = { back.x + A.off.x, back.y + A.off.y };
+			V2 cv;
+			if (cover_near(back, 220.0f, cv)) back = cv;
+			if (dist2(bp, back) > 45.0f) {
+				A.goal = back;
+				route_to = back;
+				route_safe = true;
+				A.act = ACT_ROUTE;
+				return true;
+			}
+		}
+	}
 	if (G) {
 		const TankStatic &GT = ts[nt];
 		V3 cen = { G[P_X], G[P_GROUND] + GT.hh * 0.6f, G[P_Y] };
@@ -2659,6 +2677,37 @@ bool Core::think(int i, V2 &route_to, bool &route_safe) {
 		}
 	}
 	if (!G) A.los = false;
+	// группой: своей цели нет, а товарищ по направлению ведёт бой — идти к нему и встать сбоку от его линии огня
+	if (!G && !A.ordered && A.cls != CLS_PT && clock >= A.release_t && !(mode == 3)) {
+		int nn_ = (int)(snap.size() / PHYS);
+		int mate = -1;
+		float md = 750.0f;
+		for (int j = 0; j < nn_ && j < (int)ai.size(); j++) {
+			const float *J = snap_at(this, j);
+			if (j == i || J[P_ALIVE] == 0.0f || (int)J[P_TEAM] != team || !ai[j].los || ai[j].tg < 0 || ai[j].tg >= nn_) continue;
+			float dj = dist2(bp, pos_of(J));
+			if (dj > 130.0f && dj < md && (ai[j].lane == A.lane || dj < 420.0f)) {
+				md = dj;
+				mate = j;
+			}
+		}
+		if (mate >= 0) {
+			V2 ap = pos_of(snap_at(this, mate)), ep = pos_of(snap_at(this, ai[mate].tg));
+			float ex = ep.x - ap.x, ey = ep.y - ap.y, el = std::sqrt(ex * ex + ey * ey);
+			if (el > 1.0f) {
+				ex /= el;
+				ey /= el;
+				V2 sup = { ap.x - ey * A.side * 115.0f - ex * 25.0f, ap.y + ex * A.side * 115.0f - ey * 25.0f };
+				if (!blocked_at(sup.x, sup.y, 16.0f) && dist2(bp, sup) > 40.0f) {
+					A.goal = sup;
+					route_to = sup;
+					route_safe = danger;
+					A.act = ACT_ROUTE;
+					return true;
+				}
+			}
+		}
+	}
 	// без цели: план группы; под огнём на открытом месте — сначала в ближайшее укрытие
 	V2 goal = plan(i);
 	A.goal = goal;

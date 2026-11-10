@@ -1379,8 +1379,12 @@ func _spawn_decor() -> void:
 			var z := cz + rng.randf_range(-26.0, 26.0) * (0.0 if k == 0 else 1.0)
 			if core.blocked_at(x, z, 5.0):
 				continue
-			var nm: String = rocks[rng.randi() % rocks.size()]
-			var s := sc * (rng.randf_range(1.3, 2.4) if k == 0 else rng.randf_range(0.5, 1.2))
+			# крупный — только валун (не «столб»), мелочь — любые
+			var nm: String = ["decor_rock_3", "decor_rock_4", "decor_rock_7"][rng.randi() % 3]
+			var s := sc * (rng.randf_range(2.4, 3.4) if k == 0 else rng.randf_range(0.8, 1.8))
+			if k == 0 and rng.randf() < 0.5:
+				nm = "decor_rock_8"
+				s = sc * rng.randf_range(1.0, 1.5)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.25, 0.25))
 			var shade := rng.randf_range(0.82, 1.08)
 			if not lists.has(nm):
@@ -2043,7 +2047,6 @@ func _shell_events(ev: PackedFloat32Array, dt: float) -> void:
 				var dmg: float = ev[q + 3]
 				if ev[q + 4] != 0.0:
 					stat.ammo += 1
-					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 					dmg = tk.hp + 1.0
 				_damage(tk, dmg, by, "")
@@ -3872,7 +3875,8 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var role: String = TankScript.CREW[int(ev[q + 3])]
 				var out := ev[q + 5] != 0.0
 				hud.xray.note_crew(tk, role, out)
-				_cry(tk, "die" if out else "wound")
+				if tk.alive:
+					_cry(tk, "die" if out else "wound")
 				if out:
 					tk.crew_ok[role] = false
 				if tk.is_player:
@@ -3895,7 +3899,6 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 				var tk: TankScript = tanks[int(ev[q + 1])]
 				var by: TankScript = _by(ev[q + 2])
 				if ev[q + 4] != 0.0:
-					_cry(tk, "boom")
 					_popup(tk, "БОЕУКЛАДКА", Color("ff6a4a"), by)
 			17:  # дымовая завеса: место, радиус, секунд
 				fx.smoke_screen(Vector3(ev[q + 1], ev[q + 2], ev[q + 3]), ev[q + 4], ev[q + 5])
@@ -4032,6 +4035,9 @@ func _world_hit_fx(kind: int, ev: PackedFloat32Array, q: int, dt: float) -> void
 	tk.hits_taken += 1
 	if tk.is_player:
 		player_hits_taken += 1
+		# экипаж вскрикивает от удара: пробитие — крик боли, без пробития — короткий возглас (не каждый раз)
+		if tk.alive and (kind == 8 or randf() < 0.6):
+			_cry(tk, "pen" if kind == 8 else "hit")
 	fx.hit_sparks(hp)
 	if xray_on and (by.is_player or tk.is_player):
 		hud.xray.begin(tk, by, hp, dir, 0 if kind == 5 else (1 if kind == 7 else 2), cal)

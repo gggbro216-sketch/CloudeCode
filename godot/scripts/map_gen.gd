@@ -349,7 +349,10 @@ static func _result(obst: Array, bushes: Array, props: Array, decor: Array, crat
 
 ## Деревня: дома (kinds — из чего выбирать) вокруг центра, заборы вокруг дворов, деревья в садах.
 static func _village(rng: RandomNumberGenerator, obst: Array, props: Array, zones: Array, roads: Array, c: Vector2, n: int,
-		rad: float, kinds: Array, ht: Vector2, fences: int, tree: String) -> void:
+		rad: float, kinds: Array, ht: Vector2, fences: int, tree: String, hamlet := true) -> void:
+	# как в C++ (mapgen.cpp): домов почти вдвое больше и хутор на полпути к центру карты
+	n = n * 9 / 5
+	fences = fences * 3 / 2
 	var placed := 0
 	for t in n * 4:
 		if placed >= n:
@@ -376,6 +379,8 @@ static func _village(rng: RandomNumberGenerator, obst: Array, props: Array, zone
 			var p := c + Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(30, rad * 1.1)
 			if _free_point(p, obst, zones, props, 22.0) and _road_dist(p, roads) > 12.0:
 				_prop(props, tree, p, rng)
+	if hamlet:
+		_village(rng, obst, props, zones, roads, c + (Vector2(D.WS * 0.5, D.WS * 0.5) - c) * 0.5, 5, 210.0, kinds, ht, 3, tree, false)
 
 
 ## Лес: деревья в эллипсе (гуще к середине) и подлесок, в котором прячутся танки.
@@ -717,7 +722,7 @@ static func _normandy(rng: RandomNumberGenerator, zones: Array) -> Dictionary:
 	# деревня с церковью у перекрёстка
 	_place_off_road(rng, obst, zones, roads, 40, 84, "church", 34.0, Rect2(cross - Vector2(170, 170), Vector2(340, 340)), 30.0)
 	var village := Rect2(cross - Vector2(340, 330), Vector2(680, 660))
-	for i in 13:
+	for i in 22:
 		var w := rng.randf_range(44, 66)
 		var h := rng.randf_range(34, 48)
 		_place_off_road(rng, obst, zones, roads, w, h, "house" if rng.randf() < 0.6 else "ruin", rng.randf_range(18, 24), village, 26.0)

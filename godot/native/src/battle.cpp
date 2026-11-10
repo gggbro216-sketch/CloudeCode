@@ -1217,7 +1217,8 @@ METHOD(world_step) {
 			t[P_BOT] = 1.0f;
 			int tg = self->ai[i].tg;
 			t[P_RL] = d.rl;
-			t[P_CAN_FIRE] = tg >= 0 && tg < n && self->td[tg].alive && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew ? 1.0f : 0.0f;
+			bool soft_tg = (size_t)i < self->ai.size() && self->ai[i].soft_t > self->clock - 1.2f;  // пехота или пушка в прицеле
+			t[P_CAN_FIRE] = ((tg >= 0 && tg < n && self->td[tg].alive) || soft_tg) && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew ? 1.0f : 0.0f;
 		}
 		// дым подбитого — только у видимых и не слишком далёких
 		float dx = t[P_X] - S.T(w.watch)[P_X], dy = t[P_Y] - S.T(w.watch)[P_Y];
@@ -1669,7 +1670,8 @@ METHOD(inf_init) {
 				o.team = s.team;
 				o.squad = qi;
 				o.role = role;
-				o.ammo = role == IR_TUBE ? 5 : (role == IR_FAUST ? 2 : 0);
+				o.idx = j;
+				o.ammo = role == IR_TUBE ? 3 : (role == IR_FAUST ? 1 : 0);
 				float lat = ((float)j - (float)(total - 1) * 0.5f) * 15.0f;
 				o.ox = lat + (self->randf() - 0.5f) * 6.0f;
 				o.oy = -std::fabs(lat) * 0.35f + (self->randf() - 0.5f) * 8.0f;

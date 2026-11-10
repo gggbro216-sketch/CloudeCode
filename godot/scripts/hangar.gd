@@ -683,6 +683,7 @@ func _build_ui() -> void:
 	qual_btn = _small_btn(head, "", _show_gfx)
 	_update_qual()
 	_small_btn(head, "АВТОРЫ", _show_credits)
+	_small_btn(head, "СТАТИСТИКА", _show_stats)
 
 	var body := HBoxContainer.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -764,27 +765,42 @@ func _build_ui() -> void:
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 6)
 	right.add_child(rv)
-	rv.add_child(UI.label("РЕЖИМ", 12, UI.DIM))
+	# всё, кроме кнопки «В БОЙ», — в прокрутке: кнопка всегда на экране, каким бы низким он ни был
+	var rsc := ScrollContainer.new()
+	rsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rv.add_child(rsc)
+	var rin := VBoxContainer.new()
+	rin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rin.add_theme_constant_override("separation", 5)
+	rsc.add_child(rin)
+	rin.add_child(UI.label("РЕЖИМ", 12, UI.DIM))
 	var mg := ButtonGroup.new()
+	var mgrid := GridContainer.new()
+	mgrid.columns = 2
+	mgrid.add_theme_constant_override("h_separation", 6)
+	mgrid.add_theme_constant_override("v_separation", 6)
+	rin.add_child(mgrid)
 	for key in D.MODES:
 		var b := Button.new()
 		b.text = D.MODES[key].name
 		b.toggle_mode = true
 		b.button_group = mg
 		b.button_pressed = key == main.save.mode
-		b.custom_minimum_size = Vector2(0, 36)
-		b.add_theme_font_size_override("font_size", 17)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 34)
+		b.add_theme_font_size_override("font_size", 15)
 		b.pressed.connect(_select_mode.bind(key))
-		rv.add_child(b)
+		mgrid.add_child(b)
 	mode_desc = UI.label("", 12, UI.DIM)
 	mode_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rv.add_child(mode_desc)
-	rv.add_child(UI.label("КАРТА", 12, UI.DIM))
+	rin.add_child(mode_desc)
+	rin.add_child(UI.label("КАРТА", 12, UI.DIM))
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
-	rv.add_child(grid)
+	rin.add_child(grid)
 	var pg := ButtonGroup.new()
 	var map_keys: Array = D.MAPS.keys()
 	map_keys.append("random")
@@ -795,50 +811,63 @@ func _build_ui() -> void:
 		b.button_group = pg
 		b.button_pressed = key == main.save.map
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 36)
-		b.add_theme_font_size_override("font_size", 16)
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(0, 32)
+		b.add_theme_font_size_override("font_size", 13)
 		b.pressed.connect(_select_map.bind(key))
 		grid.add_child(b)
 		map_btns[key] = b
 	map_desc = UI.label("", 12, UI.DIM)
 	map_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	map_desc.custom_minimum_size = Vector2(270, 0)
-	rv.add_child(map_desc)
+	rin.add_child(map_desc)
+	var ogrid := GridContainer.new()
+	ogrid.columns = 2
+	ogrid.add_theme_constant_override("h_separation", 6)
+	ogrid.add_theme_constant_override("v_separation", 6)
+	rin.add_child(ogrid)
 	hist_btn = Button.new()
-	hist_btn.add_theme_font_size_override("font_size", 15)
-	hist_btn.custom_minimum_size = Vector2(0, 36)
+	hist_btn.add_theme_font_size_override("font_size", 13)
+	hist_btn.custom_minimum_size = Vector2(0, 32)
 	hist_btn.pressed.connect(func():
 		main.save.history = not main.save.history
 		main.persist()
 		_refresh())
-	rv.add_child(hist_btn)
+	hist_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hist_btn.clip_text = true
+	ogrid.add_child(hist_btn)
 	# сложность противника и режим «Реализм»
 	diff_btn = Button.new()
-	diff_btn.add_theme_font_size_override("font_size", 15)
-	diff_btn.custom_minimum_size = Vector2(0, 36)
+	diff_btn.add_theme_font_size_override("font_size", 13)
+	diff_btn.custom_minimum_size = Vector2(0, 32)
 	diff_btn.pressed.connect(func():
 		main.save.difficulty = (int(main.save.get("difficulty", 1)) + 1) % 3
 		main.persist()
 		_refresh())
-	rv.add_child(diff_btn)
+	diff_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	diff_btn.clip_text = true
+	ogrid.add_child(diff_btn)
 	real_btn = Button.new()
-	real_btn.add_theme_font_size_override("font_size", 15)
-	real_btn.custom_minimum_size = Vector2(0, 36)
+	real_btn.add_theme_font_size_override("font_size", 13)
+	real_btn.custom_minimum_size = Vector2(0, 32)
 	real_btn.pressed.connect(func():
 		main.save.realism = not bool(main.save.get("realism", false))
 		main.persist()
 		_refresh())
-	rv.add_child(real_btn)
+	real_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	real_btn.clip_text = true
+	ogrid.add_child(real_btn)
 	tod_btn = Button.new()
-	tod_btn.add_theme_font_size_override("font_size", 15)
-	tod_btn.custom_minimum_size = Vector2(0, 36)
+	tod_btn.add_theme_font_size_override("font_size", 13)
+	tod_btn.custom_minimum_size = Vector2(0, 32)
 	tod_btn.pressed.connect(func():
 		var order := ["random", "day", "dawn", "dusk", "night"]
 		main.save.tod = order[(order.find(String(main.save.get("tod", "random"))) + 1) % order.size()]
 		main.persist()
 		_refresh())
-	rv.add_child(tod_btn)
-	rv.add_child(_spacer(true))
+	tod_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tod_btn.clip_text = true
+	ogrid.add_child(tod_btn)
 	go_btn = Button.new()
 	go_btn.text = "В БОЙ"
 	go_btn.custom_minimum_size = Vector2(0, 62)
@@ -1172,10 +1201,10 @@ func _refresh() -> void:
 	for m in map_btns:
 		var ok: bool = m == "random" or not hist or D.MAPS[m].roster[T.side].has(key)
 		(map_btns[m] as Button).modulate.a = 1.0 if ok else 0.45
-	hist_btn.text = "Составы: исторические" if hist else "Составы: свободные"
-	diff_btn.text = "Противник: " + ["новички", "обычный", "ветераны"][clampi(int(main.save.get("difficulty", 1)), 0, 2)]
-	tod_btn.text = "Время суток: " + {"random": "случайное", "day": "день", "dawn": "рассвет", "dusk": "сумерки", "night": "ночь"}.get(String(main.save.get("tod", "random")), "случайное")
-	real_btn.text = "Реализм: вкл (награды ×1,3)" if bool(main.save.get("realism", false)) else "Реализм: выкл"
+	hist_btn.text = "Составы: история" if hist else "Составы: любые"
+	diff_btn.text = "Враг: " + ["новички", "обычный", "ветераны"][clampi(int(main.save.get("difficulty", 1)), 0, 2)]
+	tod_btn.text = "Время: " + {"random": "случайное", "day": "день", "dawn": "рассвет", "dusk": "сумерки", "night": "ночь"}.get(String(main.save.get("tod", "random")), "случайное")
+	real_btn.text = "Реализм: вкл ×1,3" if bool(main.save.get("realism", false)) else "Реализм: выкл"
 	var can := _available(key)
 	go_btn.disabled = not can
 	go_btn.text = "В БОЙ" if can else "НЕ ВОЕВАЛ ЗДЕСЬ"
@@ -1314,6 +1343,39 @@ func _show_credits() -> void:
 		if f:
 			txt += f.get_as_text() + "\n"
 	var l := UI.label(txt, 13)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(l)
+
+
+## Статистика игрока: бои, победы, медали и лучшие машины.
+func _show_stats() -> void:
+	var v := _modal("СТАТИСТИКА")
+	_close_btn(v.get_node("Head"))
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var s: Dictionary = main.save
+	var n := int(s.get("battles", 0))
+	var txt := "Боёв: %d    Побед: %d (%d%%)    Уничтожено танков: %d    Лучший урон за бой: %d\n" % [n, int(s.get("wins", 0)),
+		roundi(100.0 * float(s.get("wins", 0)) / maxf(1.0, float(n))), int(s.get("kills", 0)), int(s.get("best_dmg", 0))]
+	txt += "Пехоты и расчётов выбито: %d\n\nМЕДАЛИ\n" % int(s.get("inf_kills", 0))
+	var md: Dictionary = s.get("medals", {})
+	if md.is_empty():
+		txt += "Пока нет. Медали дают за 4 уничтоженных танка, точность от 80 %, разведку, бой с пехотой, прорыв и оборону секторов.\n"
+	for k in md:
+		txt += "★ %s — %d\n" % [k, int(md[k])]
+	txt += "\nМАШИНЫ (бои / победы / урон)\n"
+	var rows: Array = []
+	var tst: Dictionary = s.get("tstats", {})
+	for k in tst:
+		rows.append([int(tst[k].get("battles", 0)), String(k)])
+	rows.sort_custom(func(a, b): return a[0] > b[0])
+	for r: Array in rows.slice(0, 12):
+		var t: Dictionary = tst[r[1]]
+		txt += "%s — %d / %d / %d\n" % [String(D.TYPES[r[1]].name) if D.TYPES.has(r[1]) else String(r[1]), int(t.get("battles", 0)), int(t.get("wins", 0)), int(t.get("dmg", 0))]
+	var l := UI.label(txt, 15)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.add_child(l)

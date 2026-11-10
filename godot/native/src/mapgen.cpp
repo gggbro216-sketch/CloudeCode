@@ -317,7 +317,11 @@ struct Gen {
 		}
 		return -1;
 	}
-	void village(V c, int n, double rad, const std::vector<int> &kinds, V ht, int fences, int tree) {
+	// Деревня: домов почти вдвое больше прежнего, плюс хутор на полпути к центру карты — застройка есть
+	// не только на «городском» направлении, пехоте и танкам есть где укрыться.
+	void village(V c, int n, double rad, const std::vector<int> &kinds, V ht, int fences, int tree, bool hamlet = true) {
+		n = n * 9 / 5;
+		fences = fences * 3 / 2;
 		int placed = 0;
 		for (int t = 0; t < n * 4; t++) {
 			if (placed >= n) break;
@@ -352,6 +356,7 @@ struct Gen {
 				if (free_point(p, 22.0) && road_dist(p) > 12.0) prop(tree, p);
 			}
 		}
+		if (hamlet) village(c + (v(WS * 0.5, WS * 0.5) - c) * 0.5, 5, 210.0, kinds, ht, 3, tree, false);
 	}
 	void forest(V c, V rad, int n, int tree, int n_bush, int bush) {
 		int placed = 0;
@@ -675,7 +680,7 @@ struct Gen {
 		roads.push_back({ road2, 30.0 });
 		place_off_road(40, 84, O_CHURCH, 34.0, rect(cross - v(170, 170), v(340, 340)), 30.0);
 		R village_r = rect(cross - v(340, 330), v(680, 660));
-		for (int i = 0; i < 13; i++) {
+		for (int i = 0; i < 22; i++) {
 			double w = rng.range(44, 66);
 			double h = rng.range(34, 48);
 			int kind = rng.randf() < 0.6 ? O_HOUSE : O_RUIN;

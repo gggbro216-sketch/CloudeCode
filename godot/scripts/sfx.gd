@@ -30,7 +30,7 @@ var crew_cache := {}  # «de_wound_3» → поток (грузим по мер�
 var crew_last := {}  # танк (instance id) → время последнего крика, чтобы не орали без перерыва
 var crew_clock := 0.0
 var crew_on := true
-const CREW_N := {"wound": 6, "die": 6, "fire": 4, "boom": 3}
+const CREW_N := {"wound": 6, "die": 6, "fire": 4, "boom": 3, "hit": 10, "pen": 15}  # hit и pen — вскрики без слов, общие для всех экипажей
 
 
 func _ready() -> void:
@@ -125,14 +125,17 @@ func play2d(id: String, vol := 0.0) -> void:
 ## Крик экипажа: Ось — по-немецки, Союзники — по-английски. kind: wound (ранен), die (выбыл),
 ## fire (горим), boom (взрыв боеукладки). own — свой танк игрока: звук «в голове», громче.
 func crew(axis: bool, kind: String, key: int, at: Vector3, own: bool) -> void:
-	if muted or not crew_on:
+	# слышно только свой экипаж: чужой танк за сотню метров не перекричит бой
+	if muted or not crew_on or not own:
+		return
+	if (kind == "hit" or kind == "pen") and crew_last.has(key) and crew_clock - float(crew_last[key]) < 0.9:
 		return
 	if (kind == "wound" or kind == "fire") and crew_last.has(key) and crew_clock - float(crew_last[key]) < (3.0 if kind == "fire" else 1.4):
 		return
 	if crew_last.size() > 96:
 		crew_last.clear()
 	crew_last[key] = crew_clock
-	var id := "%s_%s_%d" % ["de" if axis else "en", kind, randi() % int(CREW_N[kind]) + 1]
+	var id := "%s_%s_%d" % ["any" if (kind == "hit" or kind == "pen") else ("de" if axis else "en"), kind, randi() % int(CREW_N[kind]) + 1]
 	if not crew_cache.has(id):
 		var path := DIR + "crew/crew_" + id + ".ogg"
 		crew_cache[id] = load(path) if ResourceLoader.exists(path) else null
@@ -143,7 +146,7 @@ func crew(axis: bool, kind: String, key: int, at: Vector3, own: bool) -> void:
 		var p: AudioStreamPlayer = pool2d[next2d]
 		next2d = (next2d + 1) % pool2d.size()
 		p.stream = st
-		p.volume_db = 1.0
+		p.volume_db = -4.0 if kind == "hit" else 1.0
 		p.pitch_scale = randf_range(0.96, 1.06)
 		p.play()
 		return

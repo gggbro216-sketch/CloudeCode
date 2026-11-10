@@ -556,12 +556,16 @@ static func compose(nats: Array, year: int, lanes: Array, ws: float, amount: int
 			var smgs := (2 if amount > 1 else 1) if w.smg else 0
 			if not w.smg:
 				rifles += 1
+			# у кого нет гранатомётов — берут числом: второе ПТ-ружьё и ещё двое стрелков на отделение
+			if not w.tube and not w.faust:
+				n_at += 1
+				rifles += 2
 			rows.append_array([float(team), float(ln), x, y, 0.0, float(w.nat), float(rifles), float(smgs),
 				float(n_at) if (w.atr and not w.tube) else (1.0 if w.atr and ln == 1 else 0.0),
-				float(n_at) if w.tube else 0.0, (1.0 if ln != 1 else 2.0) if w.faust else 0.0,
+				float(n_at) if w.tube else 0.0, (1.0 if ln == 1 else 0.0) if w.faust else 0.0,
 				float(w.atr_pen), float(w.tube_pen), float(w.faust_pen), float(w.tube_cal), 0.0])
 		# ПТ-пушки: у своего рубежа на флангах (и в центре — тяжёлая, если есть)
-		var guns: Array = w.guns
+		var guns: Array = (w.guns as Array).slice(0, 2)  # поровну: по две пушки на сторону
 		for gi in guns.size():
 			if amount == 1 and gi > 0:
 				break
@@ -596,8 +600,9 @@ static func weapons(nation: String, year: int) -> Dictionary:
 				w.guns = [light, {"model": 0, "cal": 50.0, "pen": 75.0, "v": 820.0}]
 			else:
 				w.guns = [medium, {"model": 0, "cal": 50.0, "pen": 75.0, "v": 820.0}]
-			if year >= 1941:
-				w.guns.append({"model": 2, "cal": 88.0, "pen": 150.0, "v": 820.0})
+			# 88-мм зенитка встаёт вместо второй пушки в части боёв (чётный год карты)
+			if year >= 1941 and year % 2 == 0:
+				w.guns[1] = {"model": 2, "cal": 88.0, "pen": 150.0, "v": 820.0}
 		"СССР":
 			w.nat = 1
 			w.smg = true

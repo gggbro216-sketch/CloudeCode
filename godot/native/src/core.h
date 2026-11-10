@@ -220,7 +220,9 @@ struct Core {
 	struct Soldier {
 		float x = 0, y = 0, gh = 0, yaw = 0;
 		int team = 0, squad = 0, role = 0, state = 0, ammo = 0, tgt_s = -1, tgt_t = -1;
-		bool alive = true, has_cover = false;
+		bool alive = true, has_cover = false, mv_cover = false;  // mv_cover — на марше держится укрытия (mx, my)
+		float mx = 0, my = 0;
+		int idx = 0;  // место в отделении
 		float rl = 0, sup = 0, anim = 0, ox = 0, oy = 0, cx = 0, cy = 0, think_t = 0, still_t = 0, aim_t = 0;
 		float gren_cd = 0, fired_t = 9, dead_t = 0, throw_t = 0;
 		float seen[2] = { 0, 0 };

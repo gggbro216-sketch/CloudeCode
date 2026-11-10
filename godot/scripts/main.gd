@@ -640,6 +640,7 @@ func _on_ended(st: Dictionary) -> void:
 	for md: Array in st.get("medals", []):
 		mt[md[0]] = int(mt.get(md[0], 0)) + 1
 	save.medals = mt
+	save.inf_kills = int(save.get("inf_kills", 0)) + int(st.get("inf_kills", 0))
 	st.medal_totals = mt.duplicate()
 	save.battles += 1
 	if st.result == "win":

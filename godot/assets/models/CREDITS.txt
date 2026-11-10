@@ -24,7 +24,7 @@ Pechacek — «Jagdpanzer 38(t) Hetzer», CC-BY 4.0, https://sketchfab.com/3d-mo
 heska075 — «Nashorn ("8,8 cm Pak 43 L/71")», CC-BY 4.0, https://sketchfab.com/3d-models/nashorn-88-cm-pak-43-l71-2cb24f763c284b49949e3ec4bdb10f57
 Z3nsiter — «Ferdinand Tank Destroyer», CC-BY 4.0, https://sketchfab.com/3d-models/ferdinand-tank-destroyer-bf632385735f40138651fc22128c550e
 Den44 — «Jagdtiger Tank Destroyer», CC-BY 4.0, https://sketchfab.com/3d-models/jagdtiger-tank-destroyer-ffc00d5e92854b6d903b1801dba38367
-iedalton — «Stuart Tank», CC-BY 4.0, https://sketchfab.com/3d-models/stuart-tank-812605c25a424162a54549faf7a39587
+李延权 — «M3 Stuart Light Tank», CC-BY 4.0, https://sketchfab.com/3d-models/m3-stuart-light-tank-9f84dedd68a146acb9c037605076e47b
 kubasovmaks999 — «M3 Lee», CC-BY 4.0, https://sketchfab.com/3d-models/m3-lee-268c6a0ef3e3492f93f9c2a3213a0a6f
 D_U — «low-poly Churchill Mk. VII», CC-BY 4.0, https://sketchfab.com/3d-models/low-poly-churchill-mk-vii-ac032b8154f941a99914ba8679109064
 barking_dogo — «Cruiser Tank A34 Comet 1», CC-BY 4.0, https://sketchfab.com/3d-models/cruiser-tank-a34-comet-1-f30f1655bba04489b33c079f50e62716
@@ -67,7 +67,7 @@ FlashPoint — «tank_T_60», CC-BY 4.0, https://sketchfab.com/3d-models/tank-t-
 barking_dogo — «M4A2 Sherman», CC-BY 4.0, https://sketchfab.com/3d-models/m4a2-sherman-b1fe6a97c7fb454f9ba3e4570568f892
 Stafford — «Tank Pz Kpfw III Ausf B ( 1937 )», CC-BY 4.0, https://sketchfab.com/3d-models/tank-pz-kpfw-iii-ausf-b-1937-2df9576c69d64bba9aff1d585dca9a29
 snrnsrk5 — «Type 97 Chi-Ha», CC-BY 4.0, https://sketchfab.com/3d-models/type-97-chi-ha-d3568f32ec4440848e243e4b893a8ba6
-RedC130 — «French army Hotchkiss H.38 light tank», CC-BY 4.0, https://sketchfab.com/3d-models/french-army-hotchkiss-h38-light-tank-045013113c7844f38230fa51955f32de
+theonrad — «Hotchkiss H35», CC-BY 4.0, https://sketchfab.com/3d-models/hotchkiss-h35-73afa40b84964ac687b4fc3029bd0e14
 vlassoffee — «T-26_UE», CC-BY 4.0, https://sketchfab.com/3d-models/t-26-ue-23409ef7654c41b3a8db0705687be79a
 Jesper Landin — «Type 95 Ha-Go», CC-BY 4.0, https://sketchfab.com/3d-models/type-95-ha-go-9ebd80d2ea12441dae8e41ad695d939d
 Bakalym — «Panzerjager I», CC-BY 4.0, https://sketchfab.com/3d-models/panzerjager-i-c0366c48b8f24dce9b21ffa94daaed38

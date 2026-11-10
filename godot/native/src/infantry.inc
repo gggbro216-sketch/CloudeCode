@@ -25,6 +25,14 @@
 		return k;
 	}
 
+	// место бойца в строю: на марше — колонна по два (не цепь через всё поле), на месте — редкая цепь
+	V2 inf_slot(const Core::Soldier &s, const Core::InfSquad &q) const {
+		bool march = q.pi < (int)q.path.size();
+		float lat = march ? ((s.idx & 1) ? 7.0f : -7.0f) : s.ox;
+		float back = march ? -(float)(s.idx / 2) * 14.0f - ((s.idx & 1) ? 5.0f : 0.0f) : s.oy;
+		return { q.ax + (-q.hy) * lat + q.hx * back, q.ay + q.hx * lat + q.hy * back };
+	}
+
 	void inf_kill(int k, int by, int cause) {
 		Core::Soldier &s = c->inf[k];
 		if (!s.alive) return;
@@ -97,13 +105,20 @@
 			return;
 		}
 		if (c->hold_team[q.team]) return;
+		// пехота идёт за своими танками и только от укрытия к укрытию: рубеж — это застройка или зелень у рубежа
+		// танков. Через голое поле не идёт, пока танки не ушли вперёд на два рубежа (тогда — следом за бронёй).
 		int st = std::min(c->squads[q.team][q.lane].stage, c->max_stage());
-		if (st == q.stage && !q.path.empty()) return;
-		if (st == q.stage && q.pi >= (int)q.path.size()) return;
-		q.stage = st;
+		if (st == q.stage) return;
 		V2 to = c->stage_point(q.team, q.lane, st);
 		V2 alt = { clampf(to.x + q.side, 60.0f, c->ws - 60.0f), to.y };
 		if (!c->blocked_at(alt.x, alt.y, 8.0f)) to = alt;
+		V2 cv;
+		if (c->cover_near(to, 320.0f, cv) || c->bush_near(to, 320.0f, -1, cv)) {
+			to = cv;
+		} else if (st - q.stage < 2 && st < c->max_stage()) {
+			return;
+		}
+		q.stage = st;
 		V2 from = { q.ax, q.ay };
 		q.path = c->nav_path(from, to, true, 6.0f);
 		if (q.path.empty()) q.path.push_back(to);
@@ -307,10 +322,20 @@
 		}
 		// укрытие на время боя
 		bool engaged = q.contact_t > 0.0f || s.sup > 0.2f;
+		if (!engaged) {
+			// на марше: своё место в строю сдвигается к ближайшей стене, изгороди или кусту
+			V2 slot = inf_slot(s, q);
+			V2 out;
+			s.mv_cover = c->cover_near(slot, 48.0f, out) || c->bush_near(slot, 48.0f, -1, out);
+			if (s.mv_cover) {
+				s.mx = out.x + (float)((k * 7) % 5 - 2) * 3.5f;
+				s.my = out.y + (float)((k * 3) % 5 - 2) * 3.5f;
+			}
+		}
 		if (engaged && !s.has_cover) {
 			V2 out;
 			V2 p = { s.x, s.y };
-			if (c->cover_near(p, 75.0f, out) || c->bush_near(p, 75.0f, -1, out)) {
+			if (c->cover_near(p, 110.0f, out) || c->bush_near(p, 110.0f, -1, out)) {
 				s.cx = out.x + rnd(-6.0f, 6.0f);
 				s.cy = out.y + rnd(-6.0f, 6.0f);
 			} else {
@@ -468,13 +493,19 @@
 		if (engaged) {
 			tx = s.has_cover ? s.cx : s.x;
 			ty = s.has_cover ? s.cy : s.y;
+		} else if (s.mv_cover) {
+			tx = s.mx;
+			ty = s.my;
 		} else {
-			tx = q.ax + (-q.hy) * s.ox + q.hx * s.oy;
-			ty = q.ay + q.hx * s.ox + q.hy * s.oy;
+			V2 sl = inf_slot(s, q);
+			tx = sl.x;
+			ty = sl.y;
 		}
 		float dx = tx - s.x, dy = ty - s.y, d = std::hypot(dx, dy);
 		bool pinned = s.sup > 0.75f;
-		if (d > (s.still_t > 0.0f ? 9.0f : 3.0f) && !pinned) {
+		// перебежки: половина отделения бежит, вторая прикрывает с колена; меняются каждые 3,5 с
+		bool cover_turn = !engaged && d < 120.0f && (((k + (int)(c->clock / 3.5f)) & 1) != 0);
+		if (d > (s.still_t > 0.0f ? 9.0f : 3.0f) && !pinned && !cover_turn) {
 			bool crawl = s.sup > 0.45f;
 			float sp = crawl ? 7.5f : (engaged ? 32.0f : 27.0f);
 			float step = std::min(d, sp * dt);
@@ -509,7 +540,15 @@
 				if (s.role == IR_TUBE || s.role == IR_FAUST) low = s.sup > 0.5f;
 				s.state = low ? IS_PRONE : IS_KNEEL;
 			} else {
-				s.state = (q.hold || c->hold_team[s.team]) ? IS_CROUCH : IS_STAND;
+				// не в бою: кто прикрывает перебежку — с колена; встали в чистом поле — залегли; в укрытии — с колена
+				bool open = !c->in_bush(s.x, s.y) && !c->covered({ s.x, s.y });
+				if (d > 9.0f) {
+					s.state = IS_CROUCH;
+				} else if (open && s.still_t > 1.5f) {
+					s.state = IS_PRONE;
+				} else {
+					s.state = (q.hold || c->hold_team[s.team] || s.still_t > 1.0f) ? IS_CROUCH : IS_STAND;
+				}
 			}
 			if (s.still_t > 0.5f && s.rl <= 0.0f && s.sup < 0.85f) {
 				if (s.tgt_t >= 0 && c->td[s.tgt_t].alive) {
