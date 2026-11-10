@@ -10,14 +10,16 @@
 	// с какого расстояния бойца видно
 	float inf_vis_range(const Core::Soldier &s) const {
 		float r = inf_low(s) ? 290.0f : (s.state == IS_KNEEL || s.state == IS_CROUCH ? 440.0f : 640.0f);
+		if (s.role == IR_GUN) r = 470.0f;
 		if (c->in_bush(s.x, s.y)) r *= 0.55f;
-		if (s.fired_t < 2.0f) r = std::max(r, 560.0f);
+		if (s.fired_t < 2.0f) r = std::max(r, s.role == IR_GUN ? 900.0f : 560.0f);
 		return r;
 	}
 
 	// насколько трудно попасть (поза, укрытие)
 	float inf_cover_k(const Core::Soldier &s) const {
 		float k = inf_low(s) ? 0.42f : (s.state == IS_KNEEL || s.state == IS_CROUCH ? 0.7f : (s.state == IS_RUN ? 0.8f : 1.0f));
+		if (s.role == IR_GUN) k = 0.55f;  // расчёт за щитом
 		if (s.has_cover && s.still_t > 0.3f) k *= 0.6f;
 		if (c->in_bush(s.x, s.y)) k *= 0.75f;
 		return k;
@@ -26,6 +28,13 @@
 	void inf_kill(int k, int by, int cause) {
 		Core::Soldier &s = c->inf[k];
 		if (!s.alive) return;
+		if (s.role == IR_GUN && cause != 2) {
+			// пушка: выбывает расчёт по одному (осколки — сразу двое), орудие замолкает без людей
+			s.ammo -= cause == 1 ? 2 : 1;
+			s.sup = std::min(1.0f, s.sup + 0.5f);
+			if (s.ammo > 0) return;
+			s.ammo = 0;
+		}
 		s.alive = false;
 		s.state = (cause == 2 || randf() < 0.5f) ? IS_DEAD_F : IS_DEAD_B;
 		s.dead_t = 0.0f;
@@ -300,10 +309,107 @@
 		}
 	}
 
+	// ПТ-пушка: стоит на месте, расчёт разворачивает её на цель и бьёт бронебойным
+	void inf_gun(int k) {
+		Core::Soldier &s = c->inf[k];
+		const Core::InfSquad &q = c->isq[s.squad];
+		s.rl = std::max(0.0f, s.rl - dt);
+		s.sup = std::max(0.0f, s.sup - dt * 0.2f);
+		s.fired_t += dt;
+		s.seen[0] = std::max(0.0f, s.seen[0] - dt);
+		s.seen[1] = std::max(0.0f, s.seen[1] - dt);
+		s.think_t -= dt;
+		V3 eye = { s.x, s.gh + 9.0f, s.y };
+		if (s.think_t <= 0.0f) {
+			s.think_t = rnd(0.4f, 0.6f);
+			float bd = 1e9f;
+			s.tgt_t = -1;
+			for (int i = 0; i < n(); i++) {
+				if (!c->td[i].alive || team(i) == s.team) continue;
+				float d = std::hypot(T(i)[P_X] - s.x, T(i)[P_Y] - s.y);
+				if (d > 1000.0f) continue;
+				// засада: издалека бьёт только по тем, кого уже видят свои, вблизи — по всем
+				bool known = d < 520.0f || T(i)[s.team == 0 ? P_VIS0 : P_VIS1] != 0.0f;
+				if (!known) continue;
+				V3 tc = center(i);
+				if (!c->los(eye, tc) || c->smoke_blocks(eye, tc)) continue;
+				if (d < 480.0f) c->td[i].lit = std::max(c->td[i].lit, 1.2f);
+				// из двух целей — та, что ближе к направлению ствола
+				float score = d + std::fabs(ang_diff(std::atan2(T(i)[P_Y] - s.y, T(i)[P_X] - s.x), s.yaw)) * 200.0f;
+				if (score < bd) {
+					bd = score;
+					s.tgt_t = i;
+				}
+			}
+		}
+		s.state = IS_STAND;
+		if (s.tgt_t < 0 || !c->td[s.tgt_t].alive) {
+			s.aim_t = 0.0f;
+			return;
+		}
+		int ti = s.tgt_t;
+		float v0 = std::max(600.0f, q.tube_pen);
+		V3 mz = { s.x + std::cos(s.yaw) * 16.0f, s.gh + 8.5f, s.y + std::sin(s.yaw) * 16.0f };
+		V3 tp = center(ti);
+		float tf = std::hypot(tp.x - mz.x, tp.z - mz.z) / v0;
+		tp.x += T(ti)[P_VX] * tf;
+		tp.z += T(ti)[P_VY] * tf;
+		float face = std::atan2(tp.z - s.y, tp.x - s.x);
+		s.yaw = turn_toward(s.yaw, face, 0.5f * dt * (1.0f - 0.5f * s.sup));
+		if (std::fabs(ang_diff(face, s.yaw)) > 0.02f) {
+			s.aim_t = 0.0f;
+			return;
+		}
+		s.aim_t += dt;
+		if (s.rl > 0.0f || s.aim_t < 0.8f || s.sup > 0.8f) return;
+		float dxz = std::max(1.0f, std::hypot(tp.x - mz.x, tp.z - mz.z)), dy = tp.y - mz.y;
+		float g = GRAVITY, v2 = v0 * v0;
+		float disc = v2 * v2 - g * (g * dxz * dxz + 2.0f * dy * v2);
+		float th = disc > 0.0f ? std::atan((v2 - std::sqrt(disc)) / (g * dxz)) : 0.3f;
+		float sig = 0.004f * (1.0f + s.sup * 2.0f);
+		float yaw = std::atan2(tp.z - mz.z, tp.x - mz.x) + randn() * sig;
+		th += randn() * sig;
+		V3 dir = { std::cos(th) * std::cos(yaw), std::sin(th), std::cos(th) * std::sin(yaw) };
+		int slot = c->w.shell_slot;
+		c->w.shell_slot = (slot + 1) % 64;
+		Core::Shell sh;
+		sh.pos = mz;
+		sh.vel = v3mul(dir, v0);
+		sh.dist = 0.0f;
+		sh.rico = 0;
+		sh.owner = -1;
+		sh.team = s.team;
+		sh.slot = slot;
+		sh.kind = AM_AP;
+		sh.cal = q.tube_cal;
+		sh.pen = q.atr_pen;
+		sh.dmg = q.tube_cal * 1.7f;
+		sh.he = q.tube_cal > 70.0f ? 60.0f : 0.0f;
+		if (c->shells.size() < 512) c->shells.push_back(sh);
+		float crew_k = s.ammo >= 3 ? 1.0f : (s.ammo == 2 ? 1.4f : 2.2f);
+		s.rl = (q.tube_cal > 70.0f ? rnd(5.5f, 7.0f) : rnd(3.5f, 4.8f)) * crew_k;
+		s.fired_t = 0.0f;
+		s.aim_t = 0.3f;
+		ev.add({ (float)W_INF_SHOT, 7.0f, mz.x, mz.y, mz.z, dir.x, dir.y, dir.z, (float)slot, v0, (float)k, q.tube_cal });
+	}
+
 	void inf_soldier(int k) {
 		Core::Soldier &s = c->inf[k];
 		if (!s.alive) {
 			s.dead_t += dt;
+			return;
+		}
+		if (s.role == IR_GUN) {
+			// давят только чужие танки
+			for (int i = 0; i < n(); i++) {
+				const float *t = T(i);
+				if (!c->td[i].alive || team(i) == s.team || std::fabs(t[P_SP]) < 10.0f) continue;
+				if (std::hypot(s.x - t[P_X], s.y - t[P_Y]) < c->ds[i].W * 0.5f + 6.0f) {
+					inf_kill(k, i, 2);
+					return;
+				}
+			}
+			inf_gun(k);
 			return;
 		}
 		Core::InfSquad &q = c->isq[s.squad];

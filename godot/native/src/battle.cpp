@@ -101,7 +101,7 @@ enum WorldEv {
 	W_STRIKE,  // вид (0 артудар, 1 штурмовик), команда, x, z, через сколько секунд, курс захода x, z
 };
 
-enum { IR_RIFLE, IR_SMG, IR_ATR, IR_TUBE, IR_FAUST, IR_CREW };
+enum { IR_RIFLE, IR_SMG, IR_ATR, IR_TUBE, IR_FAUST, IR_CREW, IR_GUN };
 enum { IS_STAND, IS_RUN, IS_AIM, IS_KNEEL, IS_PRONE, IS_CRAWL, IS_DEAD_B, IS_DEAD_F, IS_THROW, IS_CROUCH };
 const int INF_VIEW = 9;  // на бойца: x, высота, z, курс, поза, фаза, команда, роль + 8 × нация, признаки (1 жив, 2 виден игроку, 4 стрелял только что)
 
@@ -1595,8 +1595,34 @@ METHOD(inf_init) {
 			cnt[k] = (int)clampf(p[6 + k], 0.0f, 12.0f);
 			total += cnt[k];
 		}
-		if (total <= 0 || self->inf.size() + (size_t)total > 400) continue;
 		int qi = (int)self->isq.size();
+		if (p[15] != 0.0f && self->inf.size() < 400) {
+			// ПТ-пушка: одна на «отделение», встаёт в ближайшие кусты или за укрытие
+			Core::Soldier o;
+			o.team = s.team;
+			o.squad = qi;
+			o.role = IR_GUN;
+			o.ammo = 3;
+			o.x = s.ax;
+			o.y = s.ay;
+			V2 out;
+			if (self->bush_near({ s.ax, s.ay }, 130.0f, -1, out) || self->cover_near({ s.ax, s.ay }, 130.0f, out)) {
+				o.x = out.x;
+				o.y = out.y;
+			}
+			self->resolve(o.x, o.y, 8.0f);
+			o.gh = self->height(o.x, o.y);
+			o.yaw = std::atan2(s.hy, s.hx);
+			o.think_t = self->randf() * 0.6f;
+			o.rl = 2.0f + self->randf() * 2.0f;
+			self->inf.push_back(o);
+			s.hold = true;
+			s.alive = 1;
+			s.nat = (int)p[5] + 64 * (int)clampf(p[13], 0.0f, 3.0f);
+			self->isq.push_back(s);
+			continue;
+		}
+		if (total <= 0 || self->inf.size() + (size_t)total > 400) continue;
 		int j = 0;
 		for (int role = 0; role < 5; role++) {
 			for (int m = 0; m < cnt[role]; m++, j++) {
@@ -1637,7 +1663,7 @@ METHOD(inf_view) {
 		v[2] = s.y;
 		v[3] = s.yaw;
 		v[4] = (float)s.state;
-		v[5] = s.alive ? s.anim : s.dead_t;
+		v[5] = s.role == IR_GUN ? (float)s.ammo : (s.alive ? s.anim : s.dead_t);
 		v[6] = (float)s.team;
 		int nat = (s.squad >= 0 && (size_t)s.squad < self->isq.size()) ? self->isq[s.squad].nat : 0;
 		v[7] = (float)(s.role + 8 * nat);

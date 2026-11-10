@@ -6,8 +6,15 @@ extends Node3D
 const D = preload("res://scripts/data.gd")
 const DIR := "res://assets/units/"
 const NATS := ["ger", "sov", "usa", "ally", "ally", "ally"]  # 4 — Япония, 5 — Италия: модель союзника в своём цвете
-const TINT := [Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color(1.05, 0.98, 0.72), Color(0.82, 0.92, 0.86)]
-const ROLES := ["rifle", "smg", "atr", "tube", "faust", "crew"]
+const TINT := [Color.WHITE, Color(0.78, 0.8, 0.72), Color.WHITE, Color.WHITE, Color(1.05, 0.98, 0.72), Color(0.82, 0.92, 0.86)]
+const ROLES := ["rifle", "smg", "atr", "tube", "faust", "crew", "gun"]
+const GUNS := ["m3", "pak40", "flak88"]  # модели пушек: лёгкая (37–47 мм), средняя (75–76 мм), 88-мм зенитка
+# окраска пушек по нации (модель лёгкой — оливковая, средней — серая)
+const GUN_TINT := [
+	[Color(0.8, 0.84, 0.9), Color(0.85, 1.0, 0.7), Color.WHITE, Color(0.95, 0.95, 0.8), Color(1.05, 0.95, 0.65), Color(1.0, 0.95, 0.75)],
+	[Color.WHITE, Color(0.62, 0.85, 0.45), Color(0.75, 0.82, 0.5), Color(0.8, 0.85, 0.55), Color(0.9, 0.85, 0.5), Color(0.9, 0.85, 0.6)],
+	[Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE]]
+const CREW_AT := [Vector3(-0.85, 0, -1.1), Vector3(0.85, 0, -1.3), Vector3(0.1, 0, -2.6)]  # места расчёта у пушки, м
 const VIEW := 9
 const SCALE := 8.0  # метры модели → единицы карты (чуть крупнее 7,5, чтобы бойцов было видно)
 # позы в запечённых файлах
@@ -66,7 +73,7 @@ var tracers: Array = []
 var tracer_mm: MultiMesh
 var snd_t := 0.0
 var snd_n := 0
-var stat := {"shots": [0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
+var stat := {"shots": [0, 0, 0, 0, 0, 0, 0, 0], "dead": [0, 0, 0]}  # выстрелов по видам, потерь по причинам
 
 
 ## rows — отделения для C++ (по 16 чисел, см. compose). Возвращает число бойцов.
@@ -92,7 +99,10 @@ func setup(b, c, rows: PackedFloat32Array, shadows: bool) -> int:
 	# какие виды бойцов нужны
 	var need := {}
 	for k in count:
-		need[_unit_name(int(view[k * VIEW + 7]))] = true
+		var code := int(view[k * VIEW + 7])
+		need[_unit_name(code)] = true
+		if code % 8 == 6:
+			need[_crew_name(code)] = true
 	for nm in need:
 		var u := _load_unit(nm, shadows)
 		if not u.is_empty():
@@ -101,8 +111,14 @@ func setup(b, c, rows: PackedFloat32Array, shadows: bool) -> int:
 	return count
 
 
+func _crew_name(code: int) -> String:
+	return String(NATS[clampi((code / 8) % 64, 0, NATS.size() - 1)]) + "_crew"
+
+
 func _unit_name(code: int) -> String:
-	var nat: String = NATS[clampi(code / 8, 0, NATS.size() - 1)]
+	if code % 8 == 6:
+		return "gun_" + String(GUNS[clampi(code / 512, 0, GUNS.size() - 1)])
+	var nat: String = NATS[clampi((code / 8) % 64, 0, NATS.size() - 1)]
 	var role: String = ROLES[clampi(code % 8, 0, ROLES.size() - 1)]
 	var nm := nat + "_" + role
 	if not FileAccess.file_exists(DIR + nm + ".bin"):
@@ -195,7 +211,7 @@ func _load_unit(nm: String, shadows: bool) -> Dictionary:
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	mat.set_shader_parameter("vat", ImageTexture.create_from_image(img))
-	mat.set_shader_parameter("tex", _atlas(nm.get_slice("_", 0)))
+	mat.set_shader_parameter("tex", _atlas(nm if ResourceLoader.exists(DIR + nm + ".png") else nm.get_slice("_", 0)))
 	mat.set_shader_parameter("poses", np)
 	mesh.surface_set_material(0, mat)
 	var mm := MultiMesh.new()
@@ -210,7 +226,7 @@ func _load_unit(nm: String, shadows: bool) -> Dictionary:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(mi)
-	return {"mm": mm, "np": np, "list": []}
+	return {"mm": mm, "np": np, "list": [], "extra": []}
 
 
 func _make_tracers() -> void:
@@ -249,20 +265,39 @@ func frame(frac: float, dt: float) -> void:
 		return
 	for nm in units:
 		(units[nm].list as Array).clear()
+		(units[nm].extra as Array).clear()
 	for k in count:
 		var q := k * VIEW
 		var fl := int(view[q + 8])
 		if (fl & 1) == 0 or (fl & 2) != 0:  # павшие остаются лежать, живых врагов видно только засвеченных
-			var nm := _unit_name(int(view[q + 7]))
+			var code := int(view[q + 7])
+			var nm := _unit_name(code)
 			if units.has(nm):
 				(units[nm].list as Array).append(k)
+			if code % 8 == 6 and units.has(_crew_name(code)):
+				# расчёт пушки: кто в строю — у орудия, выбывшие лежат рядом
+				var left := int(view[q + 5]) if (fl & 1) != 0 else 0
+				var gb := Basis(Vector3.UP, PI * 0.5 - view[q + 3])
+				for ci in 3:
+					var cp: Vector3 = Vector3(view[q], view[q + 1], view[q + 2]) + gb * (CREW_AT[ci] * SCALE)
+					var pose := (P_CROUCH if ci != 2 else P_KNEEL) if ci < left else (P_DEAD_B if ci % 2 == 0 else P_DEAD_F)
+					(units[_crew_name(code)].extra as Array).append([cp, view[q + 3] + (0.0 if ci < left else 1.3 * ci), pose, clampi((code / 8) % 64, 0, TINT.size() - 1)])
 	for nm in units:
 		var u: Dictionary = units[nm]
 		var list: Array = u.list
 		var mm: MultiMesh = u.mm
-		if mm.instance_count < list.size():
-			mm.instance_count = maxi(list.size(), mini(count, mm.instance_count + 16))
-		mm.visible_instance_count = list.size()
+		var extra: Array = u.extra
+		var total := list.size() + extra.size()
+		if mm.instance_count < total:
+			mm.instance_count = total + 8
+		mm.visible_instance_count = total
+		var single: bool = int(u.np) <= 1
+		for j in extra.size():
+			var e: Array = extra[j]
+			var eb := Basis(Vector3.UP, PI * 0.5 - float(e[1])).scaled(Vector3(SCALE, SCALE, SCALE))
+			mm.set_instance_transform(list.size() + j, Transform3D(eb, e[0]))
+			mm.set_instance_color(list.size() + j, TINT[int(e[3])])
+			mm.set_instance_custom_data(list.size() + j, Color(float(e[2]), float(e[2]), 0.0, 0.0))
 		for j in list.size():
 			var k: int = list[j]
 			var q := k * VIEW
@@ -270,6 +305,16 @@ func frame(frac: float, dt: float) -> void:
 			var y := lerpf(prev[q + 1], view[q + 1], frac)
 			var z := lerpf(prev[q + 2], view[q + 2], frac)
 			var yaw := lerp_angle(prev[q + 3], view[q + 3], frac)
+			if single:
+				# пушка: одна поза, окраска по нации; подбитая — завалена набок
+				var code := int(view[q + 7])
+				var gb := Basis(Vector3.UP, PI * 0.5 - yaw)
+				if (int(view[q + 8]) & 1) == 0:
+					gb = gb * Basis(Vector3.FORWARD, 0.22)
+				mm.set_instance_transform(j, Transform3D(gb.scaled(Vector3(SCALE, SCALE, SCALE)), Vector3(x, y, z)))
+				mm.set_instance_color(j, GUN_TINT[clampi(code / 512, 0, 2)][clampi((code / 8) % 64, 0, 5)])
+				mm.set_instance_custom_data(j, Color(0.0, 0.0, 0.0, 0.0))
+				continue
 			var st := int(view[q + 4])
 			var ph := view[q + 5]
 			var a := P_STAND
@@ -336,7 +381,7 @@ func frame(frac: float, dt: float) -> void:
 				pose_t[k] = 1.0
 			var basis := Basis(Vector3.UP, PI * 0.5 - yaw).scaled(Vector3(SCALE, SCALE, SCALE))
 			mm.set_instance_transform(j, Transform3D(basis, Vector3(x, y, z)))
-			mm.set_instance_color(j, TINT[clampi(int(view[q + 7]) / 8, 0, TINT.size() - 1)])
+			mm.set_instance_color(j, TINT[clampi((int(view[q + 7]) / 8) % 64, 0, TINT.size() - 1)])
 			mm.set_instance_custom_data(j, Color(float(a), float(b), bl, 0.0))
 	# трассы пуль
 	var n := 0
@@ -362,7 +407,7 @@ func frame(frac: float, dt: float) -> void:
 ## Выстрел: вид (роль бойца, 5 — пулемёт танка, 6 — граната), откуда, направление, место трассера, скорость/дальность.
 func on_shot(ev: PackedFloat32Array, q: int) -> void:
 	var kind := int(ev[q + 1])
-	stat.shots[clampi(kind, 0, 6)] += 1
+	stat.shots[clampi(kind, 0, 7)] += 1
 	var at := Vector3(ev[q + 2], ev[q + 3], ev[q + 4])
 	var dir := Vector3(ev[q + 5], ev[q + 6], ev[q + 7])
 	var slot := int(ev[q + 8])
@@ -371,6 +416,13 @@ func on_shot(ev: PackedFloat32Array, q: int) -> void:
 		battle.fx.impact(at, true)
 		battle.fx.flash(at, Color(1, 0.7, 0.4), 4.0, 60.0)
 		battle.sfx.play3d("grenade", at)
+		return
+	if kind == 7:
+		# ПТ-пушка
+		battle._slot_visual(slot, at, dir * ev[q + 9], 1e9)
+		battle.fx.muzzle(at, dir, ev[q + 11])
+		battle.fx.shot_dust(at - dir * 12.0 - Vector3(0, 6, 0))
+		battle.sfx.gun(ev[q + 11], at)
 		return
 	if slot >= 0:
 		# ПТ-ружьё, гранатомёт, «фауст»: настоящий снаряд — трассер как у танков
@@ -442,13 +494,26 @@ static func compose(nats: Array, year: int, lanes: Array, ws: float, amount: int
 				float(n_at) if (w.atr and not w.tube) else (1.0 if w.atr and ln == 1 else 0.0),
 				float(n_at) if w.tube else 0.0, (1.0 if ln != 1 else 2.0) if w.faust else 0.0,
 				float(w.atr_pen), float(w.tube_pen), float(w.faust_pen), float(w.tube_cal), 0.0])
+		# ПТ-пушки: у своего рубежа на флангах (и в центре — тяжёлая, если есть)
+		var guns: Array = w.guns
+		for gi in guns.size():
+			if amount == 1 and gi > 0:
+				break
+			var g: Dictionary = guns[gi]
+			var ln: int = [0, 2, 1][gi % 3]
+			var gy := (ws - 300.0 - (ws - 600.0) * 0.2) if team == 0 else (300.0 + (ws - 600.0) * 0.2)
+			rows.append_array([float(team), float(ln), float(lanes[ln]) + (-55.0 if gi % 2 == 0 else 55.0), gy, 1.0, float(w.nat),
+				0.0, 0.0, 0.0, 0.0, 0.0, float(g.pen), float(g.v) * D.SHELL_SCALE, float(g.model), float(g.cal), 1.0])
 	return rows
 
 
 ## Противотанковое оружие пехоты по нации и году: что было в войсках.
 static func weapons(nation: String, year: int) -> Dictionary:
 	var w := {"nat": 3, "smg": false, "atr": false, "tube": false, "faust": false, "atr_pen": 25.0, "tube_pen": 90.0,
-		"faust_pen": 140.0, "tube_cal": 60.0}
+		"faust_pen": 140.0, "tube_cal": 60.0, "guns": []}
+	# пушки: model 0 — лёгкая, 1 — средняя, 2 — 88-мм; пробитие на 500 м, начальная скорость м/с
+	var light := {"model": 0, "cal": 37.0, "pen": 48.0, "v": 760.0}
+	var medium := {"model": 1, "cal": 75.0, "pen": 120.0, "v": 790.0}
 	match nation:
 		"Германия":
 			w.nat = 0
@@ -460,23 +525,37 @@ static func weapons(nation: String, year: int) -> Dictionary:
 			w.tube_cal = 88.0
 			w.faust = year >= 1943
 			w.faust_pen = 200.0 if year >= 1944 else 140.0
+			# PaK 36 → PaK 38 (в той же лёгкой модели) → PaK 40; с 1941-го в обороне бывает и 88-мм зенитка
+			if year <= 1941:
+				w.guns = [light, {"model": 0, "cal": 50.0, "pen": 75.0, "v": 820.0}]
+			else:
+				w.guns = [medium, {"model": 0, "cal": 50.0, "pen": 75.0, "v": 820.0}]
+			if year >= 1941:
+				w.guns.append({"model": 2, "cal": 88.0, "pen": 150.0, "v": 820.0})
 		"СССР":
 			w.nat = 1
 			w.smg = true
 			w.atr = year >= 1941  # ПТРД / ПТРС
 			w.atr_pen = 40.0
+			# 45-мм 53-К / М-42, с 1942-го — 76-мм ЗиС-3
+			var g45 := {"model": 0, "cal": 45.0, "pen": 50.0 if year < 1943 else 65.0, "v": 760.0}
+			w.guns = [g45, g45] if year < 1942 else [{"model": 1, "cal": 76.0, "pen": 82.0, "v": 680.0}, g45]
 		"США":
 			w.nat = 2
 			w.tube = year >= 1942  # базука
 			w.tube_pen = 100.0 if year >= 1944 else 80.0
+			# 37-мм M3, с 1943-го — 57-мм M1
+			w.guns = [light, light] if year < 1943 else [{"model": 0, "cal": 57.0, "pen": 95.0, "v": 850.0}, light]
 		"Япония":
 			w.nat = 4
 			w.atr = true  # Тип 97
 			w.atr_pen = 30.0
+			w.guns = [{"model": 0, "cal": 37.0, "pen": 35.0, "v": 700.0}, {"model": 0, "cal": 47.0, "pen": 60.0, "v": 830.0}]
 		"Италия":
 			w.nat = 5
 			w.atr = true  # «Золотурн»
 			w.atr_pen = 35.0
+			w.guns = [{"model": 0, "cal": 47.0, "pen": 43.0, "v": 630.0}, {"model": 0, "cal": 47.0, "pen": 43.0, "v": 630.0}]
 		_:
 			w.nat = 3
 			w.atr = year <= 1942  # «Бойс»
@@ -484,4 +563,6 @@ static func weapons(nation: String, year: int) -> Dictionary:
 			w.tube = year >= 1943  # PIAT
 			w.tube_pen = 100.0
 			w.tube_cal = 83.0
+			# 2-фунтовая, с 1942-го — 6-фунтовая
+			w.guns = [light, light] if year < 1942 else [{"model": 0, "cal": 57.0, "pen": 95.0, "v": 850.0}, light]
 	return w

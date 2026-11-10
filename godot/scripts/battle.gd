@@ -3714,7 +3714,9 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					shake = maxf(shake, 8.0)
 			22:  # уничтожен (ev[4] — причина)
 				var why := int(ev[q + 4])
-				var by_k: TankScript = tanks[int(ev[q + 2])] if ev[q + 2] >= 0.0 else null
+				var by_k: TankScript = _by(ev[q + 2])
+				if by_k == no_tank:
+					no_tank.team = 1 - tanks[int(ev[q + 1])].team
 				if tanks[int(ev[q + 1])] == player:
 					player_death = why
 				if why == 1 or why == 3:
