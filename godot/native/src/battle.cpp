@@ -1231,7 +1231,9 @@ METHOD(world_step) {
 			int tg = self->ai[i].tg;
 			t[P_RL] = d.rl;
 			bool soft_tg = (size_t)i < self->ai.size() && self->ai[i].soft_t > self->clock - 1.2f;  // пехота или пушка в прицеле
-			t[P_CAN_FIRE] = ((tg >= 0 && tg < n && self->td[tg].alive) || soft_tg) && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew ? 1.0f : 0.0f;
+			V3 aa_p;
+			bool air_tg = self->ts[(size_t)i].aa != 0.0f && aa_target(self, t, i, aa_p) >= 0;  // ЗСУ: самолёт в досягаемости
+			t[P_CAN_FIRE] = ((tg >= 0 && tg < n && self->td[tg].alive) || soft_tg || air_tg) && mstate(d.mod[MOD_GUN]) > 0 && d.gun_crew ? 1.0f : 0.0f;
 		}
 		// дым подбитого — только у видимых и не слишком далёких
 		float dx = t[P_X] - S.T(w.watch)[P_X], dy = t[P_Y] - S.T(w.watch)[P_Y];

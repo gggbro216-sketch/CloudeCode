@@ -1393,7 +1393,7 @@ METHOD(props_set) {
 }
 
 // Характеристики танков, STATIC чисел на танк (порядок — Battle._phys_init)
-static const int STATIC = 38;
+static const int STATIC = 39;
 METHOD(tanks_static) {
 	SELF;
 	if (!need(a, 1, e)) return;
@@ -1409,7 +1409,7 @@ METHOD(tanks_static) {
 		t.tur_pos0 = { q[19], q[20], q[21] };
 		t.disp = q[22]; t.stab = q[23]; t.aim = q[24]; t.track_z = q[25]; t.track_w = q[26];
 		t.armor0 = q[27]; t.armor1 = q[28]; t.armor2 = q[29]; t.slope = q[30]; t.side_slope = q[31]; t.pen = q[32]; t.pref = q[33];
-		t.hh = q[34]; t.th = q[35]; t.armored = q[36]; t.neutral = q[37];
+		t.hh = q[34]; t.th = q[35]; t.armored = q[36]; t.neutral = q[37]; t.aa = q[38];
 		self->ts.push_back(t);
 	}
 	self->rng ^= (uint32_t)(f.size() * 2654435761u) ^ (uint32_t)(f.empty() ? 1 : f[0] * 1000.0f);
@@ -1470,9 +1470,16 @@ static void aim_tank(const Core::TankStatic &T, float *t, float dt) {
 	float dx = std::sqrt((local.x - gp.x) * (local.x - gp.x) + local.z * local.z);
 	float el = std::atan2(local.y - gp.y, dx);
 	float tf = dx / T.shell_v;
-	el += std::atan2(0.5f * GRAVITY * tf * tf, dx);
+	if (T.aa != 0.0f) {
+		// зенитка: снижение снаряда по наклонной дальности (стрельба почти вертикально тоже верна)
+		float sr = std::sqrt(dx * dx + (local.y - gp.y) * (local.y - gp.y));
+		tf = sr / T.shell_v;
+		el = std::atan2(local.y - gp.y + 0.5f * GRAVITY * tf * tf, dx);
+	} else {
+		el += std::atan2(0.5f * GRAVITY * tf * tf, dx);
+	}
 	t[P_GUN_TARGET] = clampf(el, T.elev0, T.elev1);
-	t[P_GUN_PITCH] = move_toward(t[P_GUN_PITCH], t[P_GUN_TARGET], 0.35f * dt);
+	t[P_GUN_PITCH] = move_toward(t[P_GUN_PITCH], t[P_GUN_TARGET], (T.aa != 0.0f ? 1.2f : 0.35f) * dt);
 }
 
 // Разброс: растёт в движении и при повороте башни, сводится со временем (как Battle._update_disp)
@@ -1491,6 +1498,35 @@ static void update_disp(const Core::TankStatic &T, float *t, float dt) {
 
 // Приведённая толщина брони цели со стороны стрелка (как Battle._armor_toward)
 static float armor_toward(const Core::TankStatic &T, const float *tg, float fx, float fy);
+
+// ЗСУ: самолёт противника в досягаемости и на виду; aim — точка встречи с упреждением (две итерации).
+int aa_target(Core *self, const float *t, int i, V3 &aim) {
+	const Core::TankStatic &T = self->ts[(size_t)i];
+	if (T.aa == 0.0f) return -1;
+	int tm = (int)t[P_TEAM];
+	V3 me = { t[P_X], t[P_GROUND] + T.hh + 3.0f, t[P_Y] };
+	int best = -1;
+	float bd = 1050.0f * 1050.0f;
+	for (size_t k = 0; k < self->planes.size(); k++) {
+		const Core::Plane &p = self->planes[k];
+		if (!p.alive || p.team == tm || p.ground || p.state == 5) continue;
+		float dx = p.p.x - me.x, dy = p.p.y - me.y, dz = p.p.z - me.z;
+		float d2 = dx * dx + dy * dy + dz * dz;
+		if (d2 < bd && dy > 15.0f && self->los(me, p.p)) {
+			bd = d2;
+			best = (int)k;
+		}
+	}
+	if (best < 0) return -1;
+	const Core::Plane &p = self->planes[(size_t)best];
+	V3 a = p.p;
+	for (int it = 0; it < 2; it++) {
+		float d = v3len(v3sub(a, me));
+		a = v3add(p.p, v3mul(p.v, d / std::max(1.0f, T.shell_v)));
+	}
+	aim = a;
+	return best;
+}
 
 // Покадровое управление ботом (как Battle._bot после решений, с _route_vec, _drive_vec, lead_point):
 // куда ехать, наведение, стрелять ли, объезд препятствий, «застрял».
@@ -1574,7 +1610,18 @@ static void bot_control(Core *self, std::vector<float> &P, int n, int i, float d
 			face_off = off;
 		}
 	}
-	if (G) {
+	V3 aa_p;
+	int aa_i = aa_target(self, t, i, aa_p);
+	if (aa_i >= 0) {
+		// ЗСУ: воздух важнее — ведёт самолёт с упреждением и бьёт очередями
+		t[P_AX] = aa_p.x;
+		t[P_AY] = aa_p.y;
+		t[P_AZ] = aa_p.z;
+		aim_tank(T, t, dt);
+		t[P_AIM] = 0.0f;
+		bool aligned = std::fabs(ang_diff(std::atan2(aa_p.z - pos.y, aa_p.x - pos.x), t[P_TUR])) < 0.07f && std::fabs(t[P_GUN_PITCH] - t[P_GUN_TARGET]) < 0.05f;
+		if (t[P_RL] <= 0.0f && aligned && t[P_HOLD] == 0.0f && t[P_CAN_FIRE] != 0.0f) t[P_FIRE] = 1.0f;
+	} else if (G) {
 		const Core::TankStatic &GT = self->ts[tgi];
 		float d = dist2(pos, { G[P_X], G[P_Y] });
 		float tf = d / T.shell_v * 0.9f;

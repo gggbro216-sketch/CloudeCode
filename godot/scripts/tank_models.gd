@@ -518,6 +518,51 @@ const SPECS := {
 		"tur_x": 1.0, "tpoly": ["stug", 1.6, 1.4, 1.3], "tur_h": 0.75, "tur_top": 0.9, "smooth": false,
 		"mant": "cast", "gun_len": 2.7, "gun_r": [0.085, 0.064], "brake": "none", "cupola": [-0.6, -0.6, 0.3, 0.25],
 		"hatch": false, "casemate": true},
+	# ЗСУ: открытые башни-установки; aa_barrels — добавочные стволы [вверх, вбок] от основного, м
+	"flakpz38": {
+		"L": 4.61, "W": 2.14, "tw": 0.29, "th": 0.95, "up_w": 2.1, "camo": "german", "emblem": "germany",
+		"hull": [[-2.3, 0.45], [-2.3, 1.42], [1.4, 1.47], [2.3, 1.1], [2.2, 0.45]],
+		"wheels": [1.3, 0.45, -0.4, -1.25], "wr": 0.39, "wheel": "single",
+		"spr": [2.0, 0.65, 0.3], "idl": [-2.1, 0.6, 0.28], "rollers": [1.2, -1.0],
+		"tur_x": -0.45, "tpoly": ["hex", 0.85, 0.95, 0.95], "tur_h": 0.5, "tur_top": 1.0, "smooth": false,
+		"mant": "box", "gun_len": 2.2, "gun_r": [0.03, 0.025], "brake": "none", "cupola": [], "hatch": false},
+	"wirbelwind": {
+		"L": 5.89, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german", "emblem": "germany",
+		"hull": [[-2.95, 0.5], [-2.95, 1.55], [1.38, 1.6], [1.42, 1.22], [2.42, 1.14], [2.95, 1.0], [2.95, 0.6], [2.7, 0.4], [-2.75, 0.4]],
+		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
+		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
+		"tur_x": 0.0, "tpoly": ["hex", 1.0, 1.0, 1.05], "tur_h": 0.62, "tur_top": 1.0, "smooth": false,
+		"mant": "box", "gun_len": 2.0, "gun_r": [0.03, 0.024], "brake": "none", "cupola": [], "hatch": false,
+		"aa_barrels": [[0.26, 0.0], [0.0, 0.32], [0.26, 0.32]]},
+	"ostwind": {
+		"L": 5.89, "W": 2.88, "tw": 0.4, "th": 0.82, "up_w": 2.88, "camo": "german", "emblem": "germany",
+		"hull": [[-2.95, 0.5], [-2.95, 1.55], [1.38, 1.6], [1.42, 1.22], [2.42, 1.14], [2.95, 1.0], [2.95, 0.6], [2.7, 0.4], [-2.75, 0.4]],
+		"wheels": [1.98, 1.6, 0.84, 0.46, -0.3, -0.68, -1.44, -1.82], "wr": 0.235, "wheel": "double",
+		"spr": [2.56, 0.64, 0.34], "idl": [-2.7, 0.56, 0.3], "rollers": [1.6, 0.4, -0.75, -1.9],
+		"tur_x": 0.0, "tpoly": ["hex", 1.05, 1.05, 1.1], "tur_h": 0.7, "tur_top": 0.95, "smooth": false,
+		"mant": "box", "gun_len": 2.9, "gun_r": [0.045, 0.037], "brake": "none", "cupola": [], "hatch": false},
+	"zsu37": {
+		"L": 5.0, "W": 2.74, "tw": 0.3, "th": 0.8, "up_w": 2.6, "camo": "green", "emblem": "ussr",
+		"hull": [[-2.5, 0.45], [-2.5, 1.3], [1.0, 1.35], [2.5, 0.9], [2.4, 0.45], [-2.35, 0.42]],
+		"wheels": [1.75, 1.05, 0.35, -0.35, -1.05, -1.75], "wr": 0.27, "wheel": "single",
+		"spr": [2.2, 0.62, 0.27], "idl": [-2.25, 0.6, 0.27], "rollers": [1.4, 0.0, -1.4],
+		"tur_x": -0.9, "tpoly": ["hex", 1.0, 1.15, 1.15], "tur_h": 0.85, "tur_top": 1.0, "smooth": false,
+		"mant": "box", "gun_len": 2.7, "gun_r": [0.045, 0.035], "brake": "none", "cupola": [], "hatch": false},
+	"m19": {
+		"L": 5.46, "W": 2.95, "tw": 0.41, "th": 0.88, "up_w": 2.95, "camo": "olive", "emblem": "usa",
+		"hull": [[-2.73, 0.62], [-2.73, 1.5], [0.62, 1.55], [2.73, 0.86], [2.6, 0.5], [-2.5, 0.5]],
+		"wheels": [1.8, 1.0, 0.2, -0.6, -1.4], "wr": 0.32, "wheel": "double",
+		"spr": [2.4, 0.76, 0.33], "idl": [-2.44, 0.7, 0.3], "rollers": [1.25, -0.05, -1.05],
+		"tur_x": -1.2, "tpoly": ["hex", 0.85, 0.95, 1.0], "tur_h": 0.5, "tur_top": 1.0, "smooth": false,
+		"mant": "box", "gun_len": 2.6, "gun_r": [0.05, 0.04], "brake": "none", "cupola": [], "hatch": false,
+		"aa_barrels": [[0.0, 0.38]]},
+	"crusader_aa": {
+		"L": 5.97, "W": 2.64, "tw": 0.3, "th": 0.98, "up_w": 2.6, "camo": "desert", "emblem": "uk",
+		"hull": [[-2.98, 0.55], [-2.98, 1.36], [1.15, 1.42], [2.65, 1.12], [2.98, 0.92], [2.9, 0.52], [2.6, 0.42], [-2.75, 0.45]],
+		"wheels": [2.1, 1.05, 0.0, -1.05, -2.1], "wr": 0.4, "wheel": "double",
+		"spr": [-2.72, 0.72, 0.34], "idl": [2.7, 0.62, 0.32], "rollers": [],
+		"tur_x": 0.2, "tpoly": ["hex", 0.95, 1.05, 1.0], "tur_h": 0.62, "tur_top": 0.92, "smooth": false,
+		"mant": "box", "gun_len": 2.5, "gun_r": [0.05, 0.04], "brake": "none", "cupola": [], "hatch": false, "shelf": false},
 	"luchs": {
 		"L": 4.63, "W": 2.48, "tw": 0.36, "th": 0.9, "up_w": 2.4, "camo": "german44", "emblem": "germany",
 		"hull": [[-2.31, 0.5], [-2.31, 1.5], [1.3, 1.55], [2.0, 1.3], [2.31, 0.9], [2.2, 0.5], [-2.1, 0.45]],
@@ -1128,7 +1173,7 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 	if native_models and core and core.has_method("tank_build"):
 		var res: Array = core.tank_build(_native_spec(key, year, paint_cfg))
 		if float(res[8]) >= 0.0:
-			return _build_native(root, key, shadows, year, paint_cfg, res)
+			return _aa_barrels(_build_native(root, key, shadows, year, paint_cfg, res), key, shadows)
 	var S: Dictionary = SPECS[spec_key(key)]
 	var TT := D.spec(key, year)
 	var emblem: String = paint_cfg.get("emblem", S.emblem)
@@ -1325,14 +1370,33 @@ static func build(root: Node3D, key: String, shadows: bool, year := 1944, paint_
 		_cache[ck] = [_shape_of(hull_mis, 1.0), _shape_of(top_mis, 1.0), _shape_of(gun_mis, 1.0)]
 	var cols: Array = _cache[ck]
 	var back: float = S.tpoly[2]
-	return {"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paints": [paint, paint_t, paint_g],
+	return _aa_barrels({"hull": hull, "tur": tur, "gun": gun, "barrel": tip * U, "paints": [paint, paint_t, paint_g],
 		"tracks": [trk_m], "track_w": tw * U, "track_z": tz * U,
 		"parts": [{"part": "hull", "mat": paint, "node": hull, "shape": cols[0], "node_col": hull},
 			{"part": "top", "mat": paint_t, "node": top, "shape": cols[1], "node_col": top},
 			{"part": "gun", "mat": paint_g, "node": gun, "shape": cols[2], "node_col": gun}],
 		"hh": roof * U, "tur_h": tur_h * U, "tz": hw * U, "tur_f": front * U,
 		"tur_b": back * U, "height": (roof + tur_h + 0.3) * U, "th": th * U,
-		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}
+		"sup": top, "sup_min": Vector3(-back, 0, -hw) * U, "sup_max": Vector3(front, tur_h, hw) * U}, key, shadows)
+
+
+## ЗСУ: добавочные стволы спарки или счетверённой установки — на той же оси, что и основной ствол.
+static func _aa_barrels(res: Dictionary, key: String, shadows: bool) -> Dictionary:
+	var S: Dictionary = SPECS.get(spec_key(key), {})
+	if not S.has("aa_barrels") or not res.has("gun"):
+		return res
+	var gb := Builder.new((res.paints as Array)[2])
+	var glen: float = S.gun_len
+	var gr: Array = S.gun_r
+	var c := _cyl_x(gr[1], gr[0], glen, 10)
+	var hole := _cyl_x(float(gr[1]) * 0.55, float(gr[1]) * 0.55, 0.02, 8)
+	for off: Array in S.aa_barrels:
+		var o := Vector3(0, float(off[0]), -float(off[1]))
+		gb.put(c[0], T3(o + Vector3(glen / 2, 0, 0), c[1]), "paint")
+		gb.put(hole[0], T3(o + Vector3(glen + 0.005, 0, 0), hole[1]), "slit")
+		gb.put(Geo.box(Vector3(0.5, float(gr[1]) * 3.0, float(gr[1]) * 3.0)), T3(o + Vector3(0.2, 0, 0)), "paint", true)
+	gb.g.commit(res.gun, shadows)
+	return res
 
 
 ## Процедурная модель в C++ (SteelCore.tank_build); false — сборка в GDScript (для сверки).

@@ -134,6 +134,7 @@ struct Core {
 		float disp, stab, aim, track_z, track_w;
 		float armor0, armor1, armor2, slope, side_slope, pen, pref;
 		float hh, th, armored;
+		float aa = 0.0f;  // 1 — ЗСУ: скорострельная зенитка, наводится и по самолётам
 		float neutral;  // 1 — разворот на месте вокруг центра (планетарный механизм), 0 — вокруг заторможенной гусеницы
 	};
 	// покадровое управление ботом (Battle._bot без решений): строфа, объезд, «застрял», маршрут
@@ -433,4 +434,5 @@ struct Core {
 	std::vector<V2> nav_path(V2 from, V2 to, bool safe, float r) const;
 };
 
+int aa_target(Core *self, const float *t, int i, V3 &aim);  // ЗСУ: воздушная цель с упреждением
 void register_core(GDExtensionClassLibraryPtr lib);

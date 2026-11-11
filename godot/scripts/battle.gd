@@ -1270,7 +1270,7 @@ func _phys_init() -> void:
 			tk.gun_pos0.x, tk.gun_pos0.y, tk.gun_pos0.z, tk.tur_pos0.x, tk.tur_pos0.y, tk.tur_pos0.z,
 			T.disp, float(T.get("stab", 0.0)), T.aim, tk.track_z, tk.track_w,
 			A[0], A[1], A[2], T.slope, T.side_slope, T.pen, T.pref, tk.hh, tk.th, 1.0 if T.armored else 0.0,
-			1.0 if D.NEUTRAL_STEER.has(tk.type_key) else 0.0])
+			1.0 if D.NEUTRAL_STEER.has(tk.type_key) else 0.0, 1.0 if T.get("aa", false) else 0.0])
 	core.tanks_static(st)
 	var pf := PackedFloat32Array()
 	for pr in props:
@@ -3129,7 +3129,7 @@ func _assign_lanes(team: int) -> void:
 	for tk: TankScript in tanks:
 		if tk.team != team:
 			continue
-		tk.b_cls = "ПТ" if String(tk.T.short) == "САУ" else String(tk.T.short)
+		tk.b_cls = "ПТ" if String(tk.T.short) in ["САУ", "ЗСУ"] else String(tk.T.short)  # ЗСУ держится позади, как ПТ
 		tk.b_off = Vector2(randf_range(-90, 90), randf_range(-50, 50))
 		if tk.is_player:
 			cnt.mid += 1
@@ -4521,7 +4521,7 @@ func _cam_input(dt: float) -> void:
 		var zoom := 0.3 if sniper else 1.0
 		var dv: Vector2 = hud.take_cam_delta()
 		cam_yaw_t = wrapf(cam_yaw_t + dv.x * SENS_X * zoom, -PI, PI)
-		cam_pitch_t = clampf(cam_pitch_t + dv.y * SENS_Y * zoom, -0.3, 0.45)
+		cam_pitch_t = clampf(cam_pitch_t + dv.y * SENS_Y * zoom, -1.35 if player.T.get("aa", false) else -0.3, 0.45)
 		if sniper:
 			# в прицеле нельзя опустить взгляд ниже, чем опускается пушка (с учётом наклона корпуса)
 			var p := player

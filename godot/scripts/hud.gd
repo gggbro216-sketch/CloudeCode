@@ -458,6 +458,11 @@ func _draw_world() -> void:
 		_text(Vector2(s.x, s.y - 6), tk.callsign, 16, col, true, 4)
 		# маркер-треугольник команды
 		Gfx.polygon(cv, PackedVector2Array([s + Vector2(-6, 10), s + Vector2(6, 10), s + Vector2(0, 17)]), col)
+	if battle.fly_id < 0 and battle.player and battle.player.alive:
+		var pl = battle.player
+		var aa: bool = pl.T.get("aa", false)
+		var me := Vector3(pl.pos.x, battle.terra.height(pl.pos.x, pl.pos.y) + 12.0, pl.pos.y)
+		_air_marks(me, float(pl.T.shell_v), -1, aa)
 	for tx in battle.texts:
 		var s = _proj(tx.pos + Vector3(0, (1.3 - float(tx.life)) * 22.0, 0))
 		if s == null:
@@ -1153,10 +1158,20 @@ func _draw_flight_sights() -> void:
 				for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
 					cv.draw_line(bp + v * 18.0, bp + v * 28.0, bc, 2.5, true)
 				_text(bp + Vector2(0, 46), "СБРОС!" if hit else "БОМБЫ %.1f с" % sg[3], 14, bc, true, 3)
-	# самолёты противника: рамка и метка упреждения для пушек
-	var my_v := 1900.0 + air[a + 9] * 0.5
+	_air_marks(me, 1900.0 + air[a + 9] * AIR_V, a, true)
+
+
+const AIR_V := 0.35  # самолёт летит в AIR_V раз медленнее своей «приборной» скорости (как в air.inc)
+
+
+## Самолёты противника: ромб с дальностью; lead — метка упреждения для снаряда со скоростью shot_v.
+func _air_marks(me: Vector3, shot_v: float, skip: int, lead: bool) -> void:
+	var inf = battle.inf
+	if inf == null:
+		return
+	var air: PackedFloat32Array = inf.air
 	for q in range(0, air.size() - 1, 16):
-		if q == a or int(air[q + 6]) == 0 or (int(air[q + 7]) & 3) != 1:
+		if q == skip or int(air[q + 6]) == 0 or (int(air[q + 7]) & 3) != 1 or (int(air[q + 7]) & 16) != 0:
 			continue
 		var pp := Vector3(air[q], air[q + 1], air[q + 2])
 		var d := pp.distance_to(me)
@@ -1166,11 +1181,11 @@ func _draw_flight_sights() -> void:
 		if s == null:
 			continue
 		Gfx.arc(cv, s, 14.0, 0, TAU, 4, col_foe, 2.0)
-		if d < 1300.0:
+		if lead and d < 1300.0:
 			var yaw := air[q + 3]
 			var pit := air[q + 4]
-			var dv := Vector3(cos(yaw) * cos(pit), sin(pit), sin(yaw) * cos(pit)) * air[q + 9] * 0.5
-			var ld = _proj(pp + dv * (d / my_v))
+			var dv := Vector3(cos(yaw) * cos(pit), sin(pit), sin(yaw) * cos(pit)) * air[q + 9] * AIR_V
+			var ld = _proj(pp + dv * (d / shot_v))
 			if ld != null:
 				cv.draw_line(s, ld, Color(col_foe, 0.5), 1.5, true)
 				Gfx.arc(cv, ld, 8.0, 0, TAU, 20, col_foe, 2.0)
