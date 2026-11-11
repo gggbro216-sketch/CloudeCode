@@ -160,8 +160,18 @@ static func part_mesh(grp: Array, i: int, extra := false, uv2_only := false) -> 
 		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
 	elif uv2_only:
 		arrays[Mesh.ARRAY_TEX_UV2] = grp[5 + i * per]
+	if lod_veg and v.size() > 600:
+		# растительность: уровни детализации (meshoptimizer) — вдали Godot рисует упрощённую сетку,
+		# ошибка меньше пикселя на экране (порог mesh_lod_threshold), картинка та же
+		var im := ImporterMesh.new()
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		im.generate_lods(60.0, 60.0, [])
+		return im.get_mesh()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
+
+
+static var lod_veg := false  # part_mesh строит LOD (включает сборка карты для кустов и деревьев)
 
 
 ## Узлы сеток группы из C++ (как Geo.Group.commit): по одной на материал.

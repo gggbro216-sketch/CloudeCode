@@ -560,6 +560,12 @@
 				}
 				if (p.c_bomb) air_bomb(p);
 				air_aa(p);
+				// пехота под пикирующим или стреляющим самолётом прижимается к земле
+				if (!p.ground && (p.firing || (p.pitch < -0.12f && p.p.y - c->height(p.p.x, p.p.z) < 320.0f))) {
+					V3 d = air_dir(p);
+					float ahead = std::min(380.0f, std::max(60.0f, (p.p.y - c->height(p.p.x, p.p.z)) / std::max(0.15f, -d.y)));
+					inf_suppress(p.p.x + d.x * ahead, p.p.z + d.z * ahead, 70.0f, 0.9f * dt, 1 - p.team);
+				}
 			}
 			air_fly(p);
 			float gh = c->height(p.p.x, p.p.z);

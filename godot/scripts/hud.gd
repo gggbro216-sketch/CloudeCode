@@ -2,6 +2,7 @@ extends Control
 ## HUD боя: мультитач-управление, прицел, таблички над танками, миникарта, переговоры по рации,
 ## счёт и режим, а также окна брифинга, паузы, гибели и итогов боя.
 
+const Prof = preload("res://scripts/prof.gd")
 const D = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
 const Gfx = preload("res://scripts/gfx.gd")
@@ -303,6 +304,13 @@ var disp_s := 0.0
 
 
 func _process(delta: float) -> void:
+	var _tp0 := Time.get_ticks_usec() if Prof.on else 0
+	_process_body(delta)
+	if Prof.on:
+		Prof.add("hud._process", _tp0)
+
+
+func _process_body(delta: float) -> void:
 	if battle and battle.gun_point != null:
 		var k := 1.0 - exp(-delta * 22.0)
 		var gp: Vector3 = battle.gun_point

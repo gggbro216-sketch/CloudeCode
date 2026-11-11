@@ -632,11 +632,16 @@
 
 	void inf_step() {
 		if (c->inf.empty()) return;
-		c->inf_t -= dt;
-		bool tick = c->inf_t <= 0.0f;
-		if (tick) c->inf_t = 1.0f;
-		for (int qi = 0; qi < (int)c->isq.size(); qi++) {
-			if (tick) inf_squad_plan(qi);
+		// план отделения — раз в секунду, но у каждого в свой шаг (раньше все сразу: пик в 15 мс раз в секунду)
+		int nsq = (int)c->isq.size();
+		for (int qi = 0; qi < nsq; qi++) {
+			Core::InfSquad &q = c->isq[qi];
+			if (q.plan_t < 0.0f) q.plan_t = (float)qi / (float)std::max(1, nsq);
+			q.plan_t -= dt;
+			if (q.plan_t <= 0.0f) {
+				q.plan_t += 1.0f;
+				inf_squad_plan(qi);
+			}
 			inf_squad_move(qi);
 		}
 		for (int k = 0; k < (int)c->inf.size(); k++) inf_soldier(k);

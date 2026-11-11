@@ -235,6 +235,7 @@ struct Core {
 		bool hold = false;
 		float ax = 0, ay = 0, hx = 0, hy = 1, contact_t = 0, side = 0;
 		float atr_pen = 35, tube_pen = 100, faust_pen = 140, tube_cal = 60;
+		float plan_t = -1.0f;  // до следующего плана; у каждого отделения свой сдвиг — планы не сходятся в один шаг
 		std::vector<V2> path;
 	};
 	std::vector<Soldier> inf;
@@ -289,6 +290,8 @@ struct Core {
 	float order_until = 0.0f;
 	std::vector<float> mg_t;  // по танку: до следующей очереди пулемёта по пехоте
 	float inf_t = 0.0f;
+	std::vector<int> pose_a, pose_from;  // отрисовка пехоты: устойчивая поза бойца и откуда в неё переходит
+	std::vector<float> pose_t;
 	int inf_kills = 0;  // бойцов противника на счету игрока
 	// дымовые завесы: шар, до какого времени снарядов (shell_clock) стоит; закрывают прямую видимость
 	struct Smoke {

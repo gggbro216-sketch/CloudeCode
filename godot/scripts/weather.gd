@@ -3,6 +3,7 @@ extends Node3D
 ## дрожащее марево над раскалённой землёй у горизонта (Эль-Аламейн).
 ## Всё движется в шейдерах — процессор не тратится; снежинок и облаков немного, марево — только на высокой графике.
 
+const Prof = preload("res://scripts/prof.gd")
 const D = preload("res://scripts/data.gd")
 const TexLib = preload("res://scripts/textures.gd")
 
@@ -136,6 +137,13 @@ func setup(weather: String, b, level: int) -> void:
 
 
 func _process(_delta: float) -> void:
+	var _tp0 := Time.get_ticks_usec() if Prof.on else 0
+	_process_body(_delta)
+	if Prof.on:
+		Prof.add("weather._process", _tp0)
+
+
+func _process_body(_delta: float) -> void:
 	if haze and battle and battle.cam:
 		var c: Vector3 = battle.cam.global_position
 		haze.global_position = c

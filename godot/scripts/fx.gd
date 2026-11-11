@@ -10,6 +10,7 @@ extends Node3D
 ## не пишет (кроме одного числа «сейчас» на материал); экземпляры поделены на куски по 512, и
 ## перезаливается только кусок, куда пишут, а пустые куски не рисуются.
 
+const Prof = preload("res://scripts/prof.gd")
 const TexLib = preload("res://scripts/textures.gd")
 const Emitter = preload("res://scripts/emitter.gd")
 
@@ -283,6 +284,13 @@ func _emit_active(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	var _tp0 := Time.get_ticks_usec() if Prof.on else 0
+	_process_body(delta)
+	if Prof.on:
+		Prof.add("fx._process", _tp0)
+
+
+func _process_body(delta: float) -> void:
 	now += delta
 	for i in range(screens.size() - 1, -1, -1):
 		if now > float(screens[i][1]):

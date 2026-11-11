@@ -13,6 +13,7 @@ signal progress(stage: String)  # этап загрузки (для экрана
 signal load_done
 signal bench_done(res: Dictionary)  # замер FPS закончен
 
+const Prof = preload("res://scripts/prof.gd")
 const AirfieldScript = preload("res://scripts/airfield.gd")
 const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
@@ -248,6 +249,8 @@ var prof := {}
 
 
 func _prof(k: String, t0: int) -> void:
+	if Prof.on:
+		Prof.add(k, t0)
 	var e = prof.get(k)
 	if e == null:
 		prof[k] = [Time.get_ticks_usec() - t0, 1]
@@ -4427,6 +4430,13 @@ func _rewards_world() -> Dictionary:
 
 
 func _physics_process(delta: float) -> void:
+	var tphys := Time.get_ticks_usec() if Prof.on else 0
+	_physics_body(delta)
+	if Prof.on:
+		Prof.add("battle._physics", tphys)
+
+
+func _physics_body(delta: float) -> void:
 	if paused or briefing:
 		return
 	var dt := minf(delta, 0.05)
@@ -4468,12 +4478,18 @@ func ammo_cost() -> int:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec() if Prof.on else 0
 	_cam_input(minf(delta, 0.05))
 	_sync(minf(delta, 0.05))
+	if Prof.on:
+		Prof.add("battle._sync", t0)
 	ammo_t -= delta
 	if ammo_t <= 0.0:
 		ammo_t = 0.1
+		var ta := Time.get_ticks_usec() if Prof.on else 0
 		_ammo_poll()
+		if Prof.on:
+			Prof.add("battle._ammo_poll", ta)
 	if bench and not paused:
 		_bench_tick(delta)
 
@@ -4946,9 +4962,15 @@ func _sync(dt: float) -> void:
 	if core_world:
 		# видимость, ход гусениц и звук моторов ставит C++
 		var frac_w := Engine.get_physics_interpolation_fraction() if not (paused or briefing or over) else 0.0
+		var tw := Time.get_ticks_usec() if Prof.on else 0
 		core.world_frame(frac_w, cam.global_position, w.idx if sniper else -1, paused)
+		if Prof.on:
+			Prof.add("core.world_frame", tw)
 		if inf:
+			var ti := Time.get_ticks_usec() if Prof.on else 0
 			inf.frame(frac_w, dt)
+			if Prof.on:
+				Prof.add("inf.frame", ti)
 	else:
 		for tk: TankScript in tanks:
 			tk.visible = (not tk.alive or tk.team == 0 or tk.vis[0]) and not (sniper and tk == w)
@@ -4956,7 +4978,10 @@ func _sync(dt: float) -> void:
 	wreck_check -= dt
 	if wreck_check <= 0.0:
 		wreck_check = 0.5
+		var tr := Time.get_ticks_usec() if Prof.on else 0
 		_wrecks_update()
+		if Prof.on:
+			Prof.add("battle._wrecks", tr)
 	if absf(clock - sky_drift) >= 2.0:
 		# облака сдвигаются раз в 2 с (на глаз — плавно: за 2 с они проходят доли пикселя)
 		sky_drift = clock

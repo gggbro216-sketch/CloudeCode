@@ -67,6 +67,10 @@ var view := PackedFloat32Array()
 var prev := PackedFloat32Array()
 var count := 0
 var kills := 0
+var uof := PackedInt32Array()  # номер модели каждого бойца для inf_pose (−1 — не рисуется в C++)
+var unit_names: Array = []  # модели бойцов по номерам (порядок units)
+var _code_unit := {}  # код бойца → номер модели (−1 — пушка или нет модели)
+var TINT_F := PackedFloat32Array()
 var pose_a := PackedInt32Array()  # текущая «устойчивая» поза бойца и откуда в неё переходит
 var pose_from := PackedInt32Array()
 var pose_t := PackedFloat32Array()
@@ -119,6 +123,10 @@ func setup(b, c, rows: PackedFloat32Array, shadows: bool) -> int:
 			var pu := _load_unit(pn, false)
 			if not pu.is_empty():
 				units[pn] = pu
+	unit_names = units.keys()
+	TINT_F.clear()
+	for tc: Color in TINT:
+		TINT_F.append_array([tc.r, tc.g, tc.b, tc.a])
 	_make_tracers()
 	return count
 
@@ -387,14 +395,28 @@ func frame(frac: float, dt: float) -> void:
 			battle.fx.emit(pp, 2, 2.2, "dark", 5, 20, Vector3.UP, 60, 2, 16.0, false, true, 1.0)
 		if (fl & 4) != 0 and near and randf() < dt * 10.0:
 			battle.fx.emit(pp + fwd * 14.0, 2, 0.06, "fire", 20, 80, fwd, 12, 0, 3.0, true, false, 5)
+	# бойцы: позы и матрицы — одним вызовом C++ (inf_pose), если он есть; пушки и запасной путь — здесь
+	var native: bool = core != null and core.has_method("inf_pose") and not unit_names.is_empty()
+	if native and uof.size() != count:
+		uof.resize(count)
 	for k in count:
 		var q := k * VIEW
 		var fl := int(view[q + 8])
+		if native:
+			uof[k] = -1
 		if (fl & 1) == 0 or (fl & 2) != 0:  # павшие остаются лежать, живых врагов видно только засвеченных
 			var code := int(view[q + 7])
-			var nm := _unit_name(code)
-			if units.has(nm):
-				(units[nm].list as Array).append(k)
+			var ui: int = _code_unit.get(code, -2)
+			if ui == -2:
+				var nm0 := _unit_name(code)
+				ui = unit_names.find(nm0) if units.has(nm0) and int(units[nm0].np) > 1 else -1
+				_code_unit[code] = ui
+			if native and ui >= 0:
+				uof[k] = ui
+			else:
+				var nm := _unit_name(code)
+				if units.has(nm):
+					(units[nm].list as Array).append(k)
 			if code % 8 == 6 and units.has(_crew_name(code)):
 				# расчёт пушки: кто в строю — у орудия, выбывшие лежат рядом
 				var left := int(view[q + 5]) if (fl & 1) != 0 else 0
@@ -403,22 +425,36 @@ func frame(frac: float, dt: float) -> void:
 					var cp: Vector3 = Vector3(view[q], view[q + 1], view[q + 2]) + gb * (CREW_AT[ci] * SCALE)
 					var pose := (P_CROUCH if ci != 2 else P_KNEEL) if ci < left else (P_DEAD_B if ci % 2 == 0 else P_DEAD_F)
 					(units[_crew_name(code)].extra as Array).append([cp, view[q + 3] + (0.0 if ci < left else 1.3 * ci), pose, clampi((code / 8) % 64, 0, TINT.size() - 1)])
+	var pose_buf := PackedFloat32Array()
+	if native:
+		pose_buf = core.inf_pose(view, prev, frac, dt, uof, unit_names.size(), TINT_F)
+	var nb := unit_names.size()
+	var at := nb
 	for nm in units:
 		var u: Dictionary = units[nm]
 		var list: Array = u.list
 		var mm: MultiMesh = u.mm
 		var extra: Array = u.extra
-		var total := list.size() + extra.size()
+		var ui := unit_names.find(nm)
+		var nsol := int(pose_buf[ui]) if native and ui >= 0 and ui < nb and pose_buf.size() > nb else 0
+		var total := nsol + list.size() + extra.size()
 		if mm.instance_count < total:
 			mm.instance_count = total + 8
+		if nsol > 0:
+			# готовый буфер бойцов из C++, остаток — нули (пушки и самолёты ставятся следом)
+			var buf := pose_buf.slice(at, at + nsol * 20)
+			buf.resize(mm.instance_count * 20)
+			mm.buffer = buf
+			at += nsol * 20
 		mm.visible_instance_count = total
 		var single: bool = int(u.np) <= 1
+		var off := nsol
 		for j in extra.size():
 			var e: Array = extra[j]
 			var eb: Basis = e[1] if e[1] is Basis else Basis(Vector3.UP, PI * 0.5 - float(e[1])).scaled(Vector3(SCALE, SCALE, SCALE))
-			mm.set_instance_transform(list.size() + j, Transform3D(eb, e[0]))
-			mm.set_instance_color(list.size() + j, TINT[int(e[3])])
-			mm.set_instance_custom_data(list.size() + j, Color(float(e[2]), float(e[2]), 0.0, 0.0))
+			mm.set_instance_transform(off + list.size() + j, Transform3D(eb, e[0]))
+			mm.set_instance_color(off + list.size() + j, TINT[int(e[3])])
+			mm.set_instance_custom_data(off + list.size() + j, Color(float(e[2]), float(e[2]), 0.0, 0.0))
 		for j in list.size():
 			var k: int = list[j]
 			var q := k * VIEW
@@ -432,9 +468,9 @@ func frame(frac: float, dt: float) -> void:
 				var gb := Basis(Vector3.UP, PI * 0.5 - yaw)
 				if (int(view[q + 8]) & 1) == 0:
 					gb = gb * Basis(Vector3.FORWARD, 0.22)
-				mm.set_instance_transform(j, Transform3D(gb.scaled(Vector3(SCALE, SCALE, SCALE)), Vector3(x, y, z)))
-				mm.set_instance_color(j, GUN_TINT[clampi(code / 512, 0, 2)][clampi((code / 8) % 64, 0, 5)])
-				mm.set_instance_custom_data(j, Color(0.0, 0.0, 0.0, 0.0))
+				mm.set_instance_transform(off + j, Transform3D(gb.scaled(Vector3(SCALE, SCALE, SCALE)), Vector3(x, y, z)))
+				mm.set_instance_color(off + j, GUN_TINT[clampi(code / 512, 0, 2)][clampi((code / 8) % 64, 0, 5)])
+				mm.set_instance_custom_data(off + j, Color(0.0, 0.0, 0.0, 0.0))
 				continue
 			var st := int(view[q + 4])
 			var ph := view[q + 5]
@@ -501,9 +537,9 @@ func frame(frac: float, dt: float) -> void:
 				pose_a[k] = a
 				pose_t[k] = 1.0
 			var basis := Basis(Vector3.UP, PI * 0.5 - yaw).scaled(Vector3(SCALE, SCALE, SCALE))
-			mm.set_instance_transform(j, Transform3D(basis, Vector3(x, y, z)))
-			mm.set_instance_color(j, TINT[clampi((int(view[q + 7]) / 8) % 64, 0, TINT.size() - 1)])
-			mm.set_instance_custom_data(j, Color(float(a), float(b), bl, 0.0))
+			mm.set_instance_transform(off + j, Transform3D(basis, Vector3(x, y, z)))
+			mm.set_instance_color(off + j, TINT[clampi((int(view[q + 7]) / 8) % 64, 0, TINT.size() - 1)])
+			mm.set_instance_custom_data(off + j, Color(float(a), float(b), bl, 0.0))
 	# трассы пуль
 	var n := 0
 	var i := 0

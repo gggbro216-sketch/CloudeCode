@@ -3,6 +3,7 @@ extends Node3D
 ## петли двигателя, гусениц и привода башни у танков, фон поля боя.
 ## Файлы лежат в res://assets/sfx/ и созданы tools/gen_sfx.py; любой можно заменить записью.
 
+const Prof = preload("res://scripts/prof.gd")
 const DIR := "res://assets/sfx/"
 const ONE_SHOTS := ["gun_75", "gun_88", "gun_122", "explosion", "hit_pen", "hit_nopen", "ricochet",
 	"impact_ground", "impact_stone", "reload", "tree", "track_break", "capture", "whiz", "distant",
@@ -79,6 +80,13 @@ func _load(id: String, loop: bool):
 
 
 func _process(delta: float) -> void:
+	var _tp0 := Time.get_ticks_usec() if Prof.on else 0
+	_process_body(delta)
+	if Prof.on:
+		Prof.add("sfx._process", _tp0)
+
+
+func _process_body(delta: float) -> void:
 	crew_clock += delta
 	# далёкая канонада для атмосферы
 	distant_t -= delta

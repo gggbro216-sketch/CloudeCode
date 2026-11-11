@@ -1680,6 +1680,30 @@ static void bot_control(Core *self, std::vector<float> &P, int n, int i, float d
 		aim_tank(T, t, dt);
 		t[P_AIM] = 0.0f;
 	}
+	// воздух: самолёт противника заходит на танк (близко, низко, нос на танк) — уход в сторону от курса атаки
+	// на полном ходу, без остановки на выстрел: по движущейся цели штурмовику попасть труднее
+	{
+		int tm = (int)t[P_TEAM];
+		for (const Core::Plane &p : self->planes) {
+			if (!p.alive || p.team == tm || p.ground || p.state == 5) continue;
+			float dx = pos.x - p.p.x, dz = pos.y - p.p.z;
+			float hd = std::sqrt(dx * dx + dz * dz);
+			float alt = p.p.y - t[P_GROUND];
+			float vl = std::sqrt(p.v.x * p.v.x + p.v.z * p.v.z);
+			if (hd > 650.0f || hd < 1.0f || alt > 420.0f || vl < 1.0f) continue;
+			float toward = (p.v.x * dx + p.v.z * dz) / (vl * hd);
+			if (toward < 0.8f) continue;
+			// только настоящий заход: бот-самолёт пикирует именно на этот танк, самолёт игрока — пикирует близко
+			bool attack = p.player ? (p.pitch < -0.1f && hd < 550.0f) : (p.state == 2 && p.tgt == i && p.dive);
+			if (!attack) continue;
+			// вбок от курса самолёта: туда, куда уже немного смещён танк относительно оси захода
+			float side = (p.v.x * dz - p.v.z * dx) >= 0.0f ? 1.0f : -1.0f;
+			mv = { -p.v.z / vl * side, p.v.x / vl * side };
+			mlen = 1.0f;
+			if (t[P_FIRE] != 0.0f && t[P_LOS] == 0.0f) t[P_FIRE] = 0.0f;
+			break;
+		}
+	}
 	float m = mlen;
 	if (m > 0.1f) {
 		float a = std::atan2(mv.y, mv.x);

@@ -1966,6 +1966,8 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 	# кусты и ели
 	var bmat := _bush_mat()
 	# сетки — по участкам 3×3: невидимые участки не рисуются и не попадают в тени
+	Geo.lod_veg = OS.get_environment("STEEL_NO_LOD") == ""
+	var t_lod := Time.get_ticks_usec()
 	for tg in res[1]:
 		Geo.commit_arrays(parent, tg, [bmat], hq, true)
 	# деревья и заборы: MultiMesh на часть, буфер (поза и оттенок) — из C++
@@ -1999,6 +2001,9 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 					list.append(mm)
 			per_tile.append(list)
 		mms[pk] = per_tile
+	Geo.lod_veg = false
+	if OS.get_environment("STEEL_PROF") != "":
+		printerr("LOD растительности: %.0f мс" % ((Time.get_ticks_usec() - t_lod) / 1000.0))
 	var ys: PackedFloat32Array = res[6]
 	var where: PackedInt32Array = res[10]  # участок × 65536 + номер в его буфере
 	for k in data.props.size():

@@ -6,7 +6,9 @@
 // (эффекты, звуки, надписи, рация) и короткие сводки для интерфейса.
 #include "common.h"
 
+#include <chrono>
 #include <cstdio>
+#include <memory>
 #include <cstdlib>
 
 namespace {
@@ -1051,6 +1053,167 @@ METHOD(world_nodes) {
 }
 
 // Шаг боя: (dt, ввод IN чисел) → [события, вид VIEW×n, игрок DET, наблюдаемый DET, итог OUT + 5×зон]
+// Замер секций шага (только с переменной окружения STEEL_PROF): среднее и максимум, печать — prof_dump.
+static const char *PF_NAME[] = { "засвет", "группы", "танки: решения и ход", "физика", "удары", "авиация", "пехота", "снаряды", "базы", "вывод" };
+static double pf_sum[10], pf_max[10];
+static int pf_n[10];
+static const bool PF_ON = std::getenv("STEEL_PROF") != nullptr;
+struct PfT {
+	int k;
+	std::chrono::steady_clock::time_point t0;
+	explicit PfT(int kk) : k(kk), t0(std::chrono::steady_clock::now()) {}
+	~PfT() {
+		if (!PF_ON) return;
+		double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		pf_sum[k] += ms;
+		pf_max[k] = std::max(pf_max[k], ms);
+		pf_n[k]++;
+	}
+};
+METHOD(prof_dump) {
+	(void)a;
+	(void)r;
+	(void)e;
+	for (int k = 0; k < 10; k++)
+		if (pf_n[k]) std::fprintf(stderr, "ПРОФ C++ %-22s среднее %6.3f мс, макс %6.2f мс, вызовов %d\n", PF_NAME[k], pf_sum[k] / pf_n[k], pf_max[k], pf_n[k]);
+}
+
+
+// Отрисовка пехоты (было Infantry.frame на GDScript, ~0,5 мс за кадр): позы, смешивание и матрицы бойцов —
+// готовые буферы MultiMesh (TRANSFORM_3D + цвет + custom: 20 чисел на бойца), сгруппированные по модели.
+// Аргументы: view, prev (по 9 чисел на бойца), frac, dt, unit_of (номер модели бойца или −1), число моделей,
+// оттенки (по 4 числа). Возврат: [число бойцов каждой модели…, затем буферы моделей подряд].
+METHOD(inf_pose) {
+	SELF;
+	if (!need(a, 7, e)) return;
+	std::vector<float> view = f32(a, 0), prev = f32(a, 1), tint = f32(a, 6);
+	float frac = (float)a.num(2), dt = (float)a.num(3);
+	std::vector<int32_t> uof = i32(a, 4);
+	int nu = (int)a.integer(5);
+	const int VW = 9;
+	enum { P_STAND = 0, P_AIM = 1, P_KNEEL = 2, P_PRONE = 3, P_RUN = 4, P_CRAWL = 12, P_FALL_B = 16, P_DEAD_B = 17, P_FALL_F = 18,
+		P_DEAD_F = 19, P_THROW_A = 20, P_THROW_B = 21, P_CROUCH = 22 };
+	const float SCALE = 8.0f;
+	size_t cnt = std::min(view.size() / VW, uof.size());
+	if (prev.size() < view.size()) prev = view;
+	if (self->pose_a.size() != cnt) {
+		self->pose_a.assign(cnt, P_STAND);
+		self->pose_from.assign(cnt, P_STAND);
+		self->pose_t.assign(cnt, 1.0f);
+	}
+	if (nu <= 0 || nu > 256) {
+		ret_f32(r, nullptr, 0);
+		return;
+	}
+	std::vector<int> counts((size_t)nu, 0);
+	for (size_t k = 0; k < cnt; k++)
+		if (uof[k] >= 0 && uof[k] < nu) counts[(size_t)uof[k]]++;
+	std::vector<size_t> base((size_t)nu, 0);
+	size_t total = 0;
+	for (int u = 0; u < nu; u++) {
+		base[(size_t)u] = (size_t)nu + total * 20;
+		total += (size_t)counts[(size_t)u];
+	}
+	std::vector<float> out((size_t)nu + total * 20, 0.0f);
+	for (int u = 0; u < nu; u++) out[(size_t)u] = (float)counts[(size_t)u];
+	std::vector<size_t> fill((size_t)nu, 0);
+	auto lerp_ang = [](float a0, float a1, float t) {
+		float d = std::fmod(a1 - a0, 2.0f * PI_F);
+		d = std::fmod(2.0f * d, 2.0f * PI_F) - d;
+		return a0 + d * t;
+	};
+	auto smooth = [](float x) { x = clampf(x, 0.0f, 1.0f); return x * x * (3.0f - 2.0f * x); };
+	auto fmodp = [](float x, float m) { float v = std::fmod(x, m); return v < 0.0f ? v + m : v; };
+	int ntint = (int)tint.size() / 4;
+	for (size_t k = 0; k < cnt; k++) {
+		int u = uof[k];
+		if (u < 0 || u >= nu) continue;
+		const float *q = &view[k * VW], *pq = &prev[k * VW];
+		float x = pq[0] + (q[0] - pq[0]) * frac, y = pq[1] + (q[1] - pq[1]) * frac, z = pq[2] + (q[2] - pq[2]) * frac;
+		float yaw = lerp_ang(pq[3], q[3], frac);
+		int st = (int)q[4];
+		float ph = q[5];
+		int pa = P_STAND, pb = P_STAND;
+		float bl = 0.0f;
+		bool cyc = false;
+		switch (st) {
+			case 1: {  // бег
+				float f = fmodp(std::fabs(ph - pq[5]) < 0.5f ? pq[5] + (ph - pq[5]) * frac : ph, 1.0f) * 8.0f;
+				pa = P_RUN + (int)f % 8;
+				pb = P_RUN + ((int)f + 1) % 8;
+				bl = f - std::floor(f);
+				cyc = true;
+				break;
+			}
+			case 5: {  // ползёт
+				float f2 = fmodp(ph, 1.0f) * 4.0f;
+				pa = P_CRAWL + (int)f2 % 4;
+				pb = P_CRAWL + ((int)f2 + 1) % 4;
+				bl = f2 - std::floor(f2);
+				cyc = true;
+				break;
+			}
+			case 6:
+			case 7: {  // падает и лежит (ph — секунд с гибели)
+				int fall = st == 6 ? P_FALL_B : P_FALL_F, dead = st == 6 ? P_DEAD_B : P_DEAD_F;
+				if (ph < 0.22f) {
+					pa = self->pose_a[k];
+					pb = fall;
+					bl = ph / 0.22f;
+				} else {
+					pa = fall;
+					pb = dead;
+					bl = smooth((ph - 0.22f) / 0.4f);
+				}
+				cyc = true;
+				break;
+			}
+			case 8:  // бросок гранаты
+				if (ph < 0.45f) {
+					pa = P_THROW_A;
+					pb = P_THROW_B;
+					bl = clampf((ph - 0.25f) / 0.2f, 0.0f, 1.0f);
+				} else {
+					pa = P_THROW_B;
+					pb = P_STAND;
+					bl = clampf((ph - 0.6f) / 0.4f, 0.0f, 1.0f);
+				}
+				cyc = true;
+				break;
+			case 2: pa = P_AIM; break;
+			case 3: pa = P_KNEEL; break;
+			case 4: pa = P_PRONE; break;
+			case 9: pa = P_CROUCH; break;
+			default: pa = P_STAND; break;
+		}
+		if (!cyc) {
+			// плавный переход между устойчивыми позами
+			if (pa != self->pose_a[k]) {
+				self->pose_from[k] = self->pose_a[k];
+				self->pose_a[k] = pa;
+				self->pose_t[k] = 0.0f;
+			}
+			self->pose_t[k] = std::min(1.0f, self->pose_t[k] + dt * 4.5f);
+			pb = pa;
+			pa = self->pose_from[k];
+			bl = smooth(self->pose_t[k]);
+		} else if (st == 1 || st == 5) {
+			self->pose_a[k] = pa;
+			self->pose_t[k] = 1.0f;
+		}
+		float th = PI_F * 0.5f - yaw, cs = std::cos(th) * SCALE, sn = std::sin(th) * SCALE;
+		float *o = &out[base[(size_t)u] + fill[(size_t)u] * 20];
+		fill[(size_t)u]++;
+		o[0] = cs; o[1] = 0.0f; o[2] = sn; o[3] = x;
+		o[4] = 0.0f; o[5] = SCALE; o[6] = 0.0f; o[7] = y;
+		o[8] = -sn; o[9] = 0.0f; o[10] = cs; o[11] = z;
+		int ti = ntint > 0 ? std::min(std::max(((int)q[7] / 8) % 64, 0), ntint - 1) : 0;
+		for (int c4 = 0; c4 < 4; c4++) o[12 + c4] = ntint > 0 ? tint[(size_t)ti * 4 + c4] : 1.0f;
+		o[16] = (float)pa; o[17] = (float)pb; o[18] = bl; o[19] = 0.0f;
+	}
+	ret_f32(r, out.data(), (int64_t)out.size());
+}
+
 METHOD(world_step) {
 	SELF;
 	if (!need(a, 2, e)) return;
@@ -1080,15 +1243,18 @@ METHOD(world_step) {
 	// засвет — 4 раза в секунду
 	w.spot_t -= dt;
 	if (w.spot_t <= 0.0f) {
+		PfT pf(0);
 		S.spotting();
 		w.spot_t = 0.25f;
 	}
 	w.squad_t -= dt;
 	if (w.squad_t <= 0.0f) {
+		PfT pf(1);
 		self->squads_update(autopilot);
 		w.squad_t = 1.0f;
 	}
 	float lead[4] = { 0, 0, 0, 0 };
+	std::unique_ptr<PfT> pf_tanks(new PfT(2));
 	// танки: таймеры, пожар, ремонт, управление
 	for (int i = 0; i < n; i++) {
 		Core::TankDyn &d = self->td[i];
@@ -1263,8 +1429,12 @@ METHOD(world_step) {
 		if (w.over) t[P_BOT] = 0.0f;
 	}
 	// физика всех танков (боты решают ход и огонь внутри)
+	pf_tanks.reset();
 	std::vector<float> pev, marks;
-	physics_run(self, dt, self->clock, self->snap, pev, marks);
+	{
+		PfT pf(3);
+		physics_run(self, dt, self->clock, self->snap, pev, marks);
+	}
 	for (int i = 0; i < n; i++) {
 		float *t = S.T(i);
 		if (t[P_BOT] != 0.0f) {
@@ -1317,11 +1487,11 @@ METHOD(world_step) {
 		}
 	}
 	// удары, пехота, затем снаряды
-	S.strikes_step();
-	S.air_step();
-	S.inf_step();
-	S.shells();
-	S.zones_update();
+	{ PfT pf(4); S.strikes_step(); }
+	{ PfT pf(5); S.air_step(); }
+	{ PfT pf(6); S.inf_step(); }
+	{ PfT pf(7); S.shells(); }
+	{ PfT pf(8); S.zones_update(); }
 	if (!w.over) {
 		int al = S.alive_count(0), en = S.alive_count(1);
 		if (en == 0) {
@@ -1950,6 +2120,8 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "air_view", air_view },
 		{ "air_spawn", air_spawn },
 		{ "air_aim", air_aim },
+		{ "prof_dump", prof_dump },
+		{ "inf_pose", inf_pose },
 		{ "air_sights", air_sights },
 		{ "air_input", air_input },
 		{ "rules_set", rules_set },
