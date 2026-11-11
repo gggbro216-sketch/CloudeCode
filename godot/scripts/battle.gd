@@ -175,6 +175,18 @@ var range_set := 300.0  # «Реализм»: выставленная даль�
 var bt_att := -1  # «Прорыв»: какая команда атакует (−1 — другой режим)
 var strike_cd := [45.0, 90.0]  # до готовности артудара и штурмовика, с
 const STRIKE_CD := [120.0, 180.0]
+# пилотируемый полёт: номер своего самолёта (−1 — в танке), газ, вылетов осталось, заявки кнопок
+var fly_id := -1
+var fly_seen := false
+var fly_thr := 0.9
+var fly_fire := false
+var fly_bomb := false
+var fly_land := false
+var sorties := 2
+var fly_wait := 0.0  # задержка вылета, с
+var fly_kind := 0
+var air_kills := 0
+var start_air := false
 var strikes_used := 0
 var player_hits_taken := 0
 var nats_of_battle: Array = ["СССР", "Германия"]
@@ -264,6 +276,7 @@ func setup(cfg: Dictionary) -> void:
 	bench = bool(cfg.get("bench", false))
 	mission = cfg.get("mission", {})
 	difficulty = clampi(int(cfg.get("difficulty", 1)), 0, 2)
+	start_air = bool(cfg.get("start_air", false))
 	realism = bool(cfg.get("realism", false))
 	var tsel := String(cfg.get("tod", "random"))
 	if tsel == "random":
@@ -1498,6 +1511,45 @@ func _spawn_decor() -> void:
 	decor_n = total
 	if int(G.get("cinema", 1)) != 0:
 		_spawn_war(rng, level, nats_of_battle)
+	_spawn_airfields()
+
+
+## Аэродромы за базами: полоса, разметка торцов, пара самолётов на стоянке. Рельеф под ними выровнен в C++.
+func _spawn_airfields() -> void:
+	var ws := D.WS
+	var sc: float = InfantryScript.SCALE
+	for tm in 2:
+		var zc := ws + 380.0 if tm == 0 else -380.0
+		var hy: float = terra.height(ws * 0.5, zc)
+		var strip := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(3400.0, 110.0)
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.2, 0.19, 0.17)
+		m.roughness = 0.95
+		pm.material = m
+		strip.mesh = pm
+		strip.position = Vector3(ws * 0.5, hy + 0.5, zc)
+		strip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(strip)
+		for sx in [-1.0, 1.0]:
+			var mark := MeshInstance3D.new()
+			var mm := PlaneMesh.new()
+			mm.size = Vector2(60.0, 70.0)
+			var m2 := StandardMaterial3D.new()
+			m2.albedo_color = Color(0.85, 0.85, 0.8)
+			mm.material = m2
+			mark.mesh = mm
+			mark.position = Vector3(ws * 0.5 + sx * 1600.0, hy + 0.6, zc)
+			mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mark)
+		if inf:
+			var parked: Array = []
+			for k in 2:
+				var px := ws * 0.5 - 200.0 + k * 140.0
+				var pz := zc + (150.0 if tm == 0 else -150.0)
+				parked.append([Transform3D(Basis(Vector3.UP, 0.4 + k * 0.5).scaled(Vector3(sc, sc, sc)), Vector3(px, terra.height(px, pz) + 1.9 * sc, pz)), Color.WHITE])
+			inf.scatter(inf.plane_of[tm], parked, false)
 
 
 ## Война вокруг: дым и огонь над руинами и остовами, столбы дыма на горизонте, гарь воронок, павшие в поле
@@ -3850,6 +3902,13 @@ func _update_world(dt: float) -> void:
 	inp.resize(18)
 	# дальность прицела — в «баллистических» метрах: время полёта как у настоящего снаряда (ед = м × SHELL_SCALE)
 	inp[17] = range_set * D.SHELL_SCALE if realism and not autopilot else 0.0
+	if fly_id >= 0 or fly_wait > 0.0:
+		# в самолёте: танк стоит и не стреляет
+		inp[0] = 0.0
+		inp[1] = 0.0
+		inp[8] = 0.0
+		hud.fire_req = false
+	_fly_step(dt)
 	for k in 2:
 		strike_cd[k] = maxf(0.0, strike_cd[k] - dt)
 	if order_t > 0.0:
@@ -4155,6 +4214,23 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 					4:
 						if int(ev[q + 2]) == 0:
 							hud.add_feed([["Штурмовики уходят на аэродром", tc]])
+					5:
+						if int(ev[q + 6]) == fly_id:
+							hud.alert("САМОЛЁТ ЗАПРАВЛЕН, ВООРУЖЁН И ОТРЕМОНТИРОВАН", Color("9ad07a"))
+							sfx.play2d("reload", -4.0)
+					6:
+						fx.hit_sparks(at2)
+						if int(ev[q + 6]) == fly_id:
+							shake = maxf(shake, 5.0)
+							sfx.play2d("hit_nopen", -6.0)
+							_cry(player, "hit")
+					7:
+						if int(ev[q + 6]) == fly_id:
+							hud.alert("ПОСАДКА. СТОЙТЕ НА ПОЛОСЕ — ИДЁТ ПЕРЕЗАРЯДКА (10 с)", Color(D.AMBER))
+					8:
+						hud.add_feed([["Наши истребители в воздухе" if int(ev[q + 2]) == 0 else "Истребители противника в воздухе!", tc]])
+						if int(ev[q + 2]) == 1 and fly_id >= 0:
+							hud.alert("ИСТРЕБИТЕЛИ ПРОТИВНИКА!", Color("ff6a4a"))
 			35:  # боец погиб
 				if inf:
 					inf.on_dead(ev, q)
@@ -4244,7 +4320,8 @@ func _world_kill(tk: TankScript, by: TankScript, pop: bool) -> void:
 			say("enemy_down")
 	if tk.is_player:
 		sniper = false
-		hud.show_dead(true)
+		if fly_id < 0 and fly_wait <= 0.0:
+			hud.show_dead(true)
 
 
 ## Что видит интерфейс: положение, видимость и прочность всех; подробно — игрок и наблюдаемый;
@@ -4407,6 +4484,22 @@ func _process(delta: float) -> void:
 func _cam_input(dt: float) -> void:
 	if paused or briefing or player == null:
 		return
+	if fly_id >= 0:
+		# в самолёте метка ходит свободно: вверх до 55°, вниз до 60°
+		var dvf: Vector2 = hud.take_cam_delta()
+		if Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A):
+			dvf.x -= 9.0
+		if Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D):
+			dvf.x += 9.0
+		if Input.is_key_pressed(KEY_UP):
+			dvf.y -= 6.0
+		if Input.is_key_pressed(KEY_DOWN):
+			dvf.y += 6.0
+		cam_yaw_t = wrapf(cam_yaw_t + dvf.x * SENS_X, -PI, PI)
+		cam_pitch_t = clampf(cam_pitch_t + dvf.y * SENS_Y, -0.95, 1.05)
+		cam_yaw = cam_yaw_t
+		cam_pitch = cam_pitch_t
+		return
 	if player.alive and not autopilot:
 		if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_LEFT):
 			cam_yaw_t -= 1.6 * dt
@@ -4437,7 +4530,78 @@ func _cam_input(dt: float) -> void:
 
 
 ## Брифинг закрыт — бой начинается, через секунду командир даёт команду по рации.
+## Игрок садится в самолёт: kind 0 — штурмовик (две бомбы и пушки), 1 — истребитель. Вылет через 15 с (сразу —
+## в начале боя). Танк, если цел, остаётся стоять. Вылетов на бой — два.
+func take_off(kind := 0, delay := 15.0) -> void:
+	if not core_world or over or fly_id >= 0 or fly_wait > 0.0 or sorties <= 0 or not core.has_method("air_spawn"):
+		return
+	fly_kind = kind
+	fly_wait = maxf(0.05, delay)
+	hud.add_feed([["Вылет через %d с" % int(delay) if delay >= 1.0 else "На взлёт!", hud.team_color(0)]])
+
+
+func _fly_start() -> void:
+	sorties -= 1
+	fly_seen = false
+	fly_id = int(core.air_spawn(0, fly_kind, 0))
+	fly_thr = 0.0
+	fly_land = false
+	fly_fire = false
+	fly_bomb = false
+	sniper = false
+	cam_yaw = 0.0
+	cam_yaw_t = 0.0
+	cam_pitch = 0.05
+	cam_pitch_t = 0.05
+	hud.show_dead(false)
+	hud.alert("ГАЗ ВВЕРХ — РАЗБЕГ, ЗАТЕМ МЕТКУ ВЫШЕ ГОРИЗОНТА", Color(D.AMBER))
+
+
+## Вернуться в танк (самолёт забирает ИИ и уводит) — если танк цел.
+func fly_leave() -> void:
+	if fly_id < 0:
+		return
+	core.air_input(-1, 0.0, 0.0, 0.0, false, false)
+	fly_id = -1
+	if not player.alive:
+		hud.show_dead(true)
+
+
+## Шаг полёта: метка — куда смотрит камера; газ — левым джойстиком или W/S.
+func _fly_step(dt: float) -> void:
+	if fly_wait > 0.0:
+		fly_wait -= dt
+		if fly_wait <= 0.0:
+			_fly_start()
+	if fly_id < 0 or inf == null:
+		return
+	var a: int = inf.plane_at(fly_id)
+	if a < 0 and not fly_seen:
+		return  # самолёт только что заявлен — появится на следующем шаге
+	fly_seen = true
+	if a < 0 or (int(inf.air[a + 7]) & 2) != 0:
+		# сбит или разбился
+		fly_id = -1
+		hud.alert("САМОЛЁТ ПОТЕРЯН", Color("ff6a4a"))
+		if not player.alive:
+			hud.show_dead(true)
+		return
+	var ty: float = -hud.move.y
+	if Input.is_key_pressed(KEY_W):
+		ty = 1.0
+	if Input.is_key_pressed(KEY_S):
+		ty = -1.0
+	if absf(ty) > 0.2:
+		fly_thr = clampf(fly_thr + ty * 0.7 * dt, 0.0, 1.0)
+	core.air_aim(fly_id, _cam_dir(), fly_thr, fly_fire or hud.fire_held() or Input.is_key_pressed(KEY_SPACE), fly_bomb, fly_land)
+	fly_bomb = false
+	if (int(inf.air[a + 7]) & 16) != 0:
+		fly_land = false
+
+
 func begin() -> void:
+	if start_air and sorties > 0:
+		take_off(0, 0.1)
 	briefing = false
 	radio_start = clock + 1.0
 	_gameplay(true)
@@ -4665,6 +4829,13 @@ func _show_result() -> void:
 	stats.boom = player_death == 2  # взрыв боеукладки (кампания: машина потеряна)
 	stats.merge(rewards())
 	# пехота и пушки на счету игрока; «Реализм» — награды больше
+	if inf and inf.air.size() > 0:
+		air_kills = int(inf.air[inf.air.size() - 1])
+	stats.air_kills = air_kills
+	if air_kills > 0:
+		stats.silver = int(stats.silver) + air_kills * 300
+		stats.xp = int(stats.xp) + air_kills * 40
+		(stats.lines as Array).append(["Сбито самолётов (%d)" % air_kills, air_kills * 40, air_kills * 300])
 	stats.inf_kills = inf_kills
 	if inf_kills > 0:
 		stats.silver = int(stats.silver) + inf_kills * 40
@@ -4756,6 +4927,17 @@ func _sync(dt: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var fov := 74.0 if vs.x < vs.y else 56.0
 	cam.fov = fov / 3.5 if sniper else fov
+	if fly_id >= 0 and inf:
+		# камера за самолётом: смотрит по метке, сидит позади и чуть выше; у земли не проваливается
+		var pa: int = inf.plane_at(fly_id)
+		if pa >= 0:
+			var px: Array = inf.plane_xf(pa, Engine.get_physics_interpolation_fraction())
+			var look := _cam_dir()
+			var back: Vector3 = ((px[1] as Vector3) * 0.45 + look * 0.55).normalized()
+			var eye: Vector3 = (px[0] as Vector3) - back * 125.0 + Vector3(0, 34.0, 0)
+			eye.y = maxf(eye.y, terra.height(eye.x, eye.z) + 4.0)
+			cam.global_transform = Transform3D(Basis.looking_at(look), eye)
+			cam.fov = 62.0
 	if cam_hook.is_valid():
 		cam_hook.call()  # свободная камера (снимки, повтор)
 	if core_world:

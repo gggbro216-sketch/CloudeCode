@@ -10,16 +10,111 @@
 	}
 
 	// модель полёта: крен разворачивает, тангаж меняет высоту и скорость (в пикировании разгон, в наборе потеря)
+	// полоса своей стороны: центр и высота
+	V3 air_field(int tm) const {
+		float zc = tm == 0 ? c->ws + 380.0f : -380.0f;
+		return { c->ws * 0.5f, c->height(c->ws * 0.5f, zc), zc };
+	}
+
 	void air_fly(Core::Plane &p) {
+		if (p.ground) {
+			// на полосе: разбег по газу, отрыв на скорости взлёта; стоя — перезарядка и ремонт
+			V3 f = air_field(p.team);
+			p.pitch = 0.0f;
+			p.roll = 0.0f;
+			p.yaw = std::fabs(ang_diff(p.yaw, 0.0f)) < PI_F * 0.5f ? 0.0f : PI_F;
+			p.speed = clampf(p.speed + (p.c_thr > 0.08f ? p.c_thr * 80.0f - 8.0f : -70.0f) * dt, 0.0f, 420.0f);
+			p.p.x += std::cos(p.yaw) * p.speed * dt;
+			p.p.z = f.z;
+			p.p.y = f.y + 3.5f;
+			p.v = { std::cos(p.yaw) * p.speed, 0.0f, 0.0f };
+			if (p.speed > 235.0f && p.c_thr > 0.3f && (p.c_pitch > 0.1f || std::fabs(p.p.x - f.x) > 1500.0f)) {
+				p.ground = false;
+				p.pitch = 0.14f;
+				p.p.y += 2.5f;
+				p.rearm_t = 0.0f;
+			} else if (std::fabs(p.p.x - f.x) > 1700.0f) {
+				p.speed = 0.0f;  // выкатился за полосу
+			}
+			if (p.speed < 4.0f) {
+				const Core::AirWeapon &w = c->air_w[p.team];
+				int full_b = p.kind == 1 ? 0 : 2, full_r = p.kind == 1 ? 150 : std::min(w.rounds, 70);
+				if (p.bombs < full_b || p.rounds < full_r || p.hp < p.hp0) {
+					p.rearm_t += dt;
+					if (p.rearm_t > 10.0f) {
+						p.bombs = full_b;
+						p.rounds = full_r;
+						p.hp = p.hp0;
+						p.rearm_t = 0.0f;
+						ev.add({ (float)W_AIR, 5.0f, (float)p.team, p.p.x, p.p.y, p.p.z, (float)p.id });
+					}
+				}
+			}
+			return;
+		}
+		bool ftr = p.kind == 1;
 		float roll_t = clampf(p.c_roll, -1.0f, 1.0f) * 1.15f;
-		p.roll = move_toward(p.roll, roll_t, 2.4f * dt);
-		p.yaw = wrapf(p.yaw + std::sin(p.roll) * 1.25f * dt, -PI_F, PI_F);
-		p.pitch = clampf(p.pitch + clampf(p.c_pitch, -1.0f, 1.0f) * 0.85f * dt, -1.05f, 0.9f);
-		float v_t = 250.0f + 230.0f * clampf(p.c_thr, 0.0f, 1.0f);
-		p.speed = clampf(p.speed + ((v_t - p.speed) * 0.45f - std::sin(p.pitch) * 170.0f) * dt, 190.0f, 720.0f);
+		p.roll = move_toward(p.roll, roll_t, (ftr ? 3.2f : 2.4f) * dt);
+		// срыв: на малой скорости рули вянут и нос падает
+		float auth = clampf((p.speed - 150.0f) / 90.0f, 0.15f, 1.0f);
+		p.yaw = wrapf(p.yaw + std::sin(p.roll) * (ftr ? 1.55f : 1.25f) * auth * dt, -PI_F, PI_F);
+		p.pitch = clampf(p.pitch + clampf(p.c_pitch, -1.0f, 1.0f) * (ftr ? 1.05f : 0.85f) * auth * dt, -1.05f, 0.9f);
+		if (p.speed < 175.0f) p.pitch -= (175.0f - p.speed) / 175.0f * 1.1f * dt;
+		// тяга: повреждённый мотор тянет хуже; в вираже скорость теряется, в пикировании растёт
+		float dmg_k = p.hp < p.hp0 * 0.4f ? 0.78f : 1.0f;
+		float v_t = ((ftr ? 300.0f : 250.0f) + 230.0f * clampf(p.c_thr, 0.0f, 1.0f)) * dmg_k;
+		if (p.c_thr < 0.05f) v_t = 150.0f;  // мотор на холостых: самолёт планирует и теряет скорость
+		float drag = std::fabs(std::sin(p.roll)) * 38.0f;
+		p.speed = clampf(p.speed + ((v_t - p.speed) * 0.45f - std::sin(p.pitch) * 170.0f - drag) * dt, 110.0f, 760.0f);
 		V3 d = air_dir(p);
 		p.v = v3mul(d, p.speed);
 		p.p = v3add(p.p, v3mul(p.v, dt));
+	}
+
+	// посадка по автопилоту: выход на глиссаду вдоль полосы, снижение, выравнивание
+	void air_land(Core::Plane &p) {
+		V3 f = air_field(p.team);
+		p.c_fire = false;
+		p.c_bomb = false;
+		if (std::getenv("STEEL_DEBUG_AIR") && ((int)(c->clock * 30.0f) % 15) == 0) {
+			std::fprintf(stderr, "LAND ph=%d dx=%.0f dz=%.0f alt=%.0f gh=%.0f speed=%.0f pitch=%.2f roll=%.2f yaw=%.2f\n", p.land_ph, p.p.x - f.x, p.p.z - f.z, p.p.y - f.y, c->height(p.p.x, p.p.z) - f.y, p.speed, p.pitch, p.roll, p.yaw);
+		}
+		// садиться можно с любого торца: заход с той стороны, где самолёт был, когда включили автопилот
+		if (p.tgt_plane != 1 && p.tgt_plane != -1) p.tgt_plane = p.p.x < f.x ? 1 : -1;
+		float sd = (float)p.tgt_plane, h0 = sd > 0.0f ? 0.0f : PI_F;
+		if (p.land_ph == 0) {
+			// выход в точку начала захода: далеко перед торцом, чтобы успеть встать на ось
+			V3 a0 = { f.x - sd * 2500.0f, f.y + 200.0f, f.z };
+			air_steer(p, a0);
+			p.c_thr = 0.5f;
+			if (std::hypot(p.p.x - a0.x, p.p.z - a0.z) < 300.0f) p.land_ph = 1;
+		} else {
+			float along = sd * (p.p.x - (f.x - sd * 560.0f));  // до торца полосы (отрицательно — ещё не долетел)
+			float lat = f.z - p.p.z;
+			// курс: вдоль полосы с пологим выходом на ось (угол перехвата до 35°)
+			float want_yaw = h0 + sd * clampf(lat / 500.0f, -0.6f, 0.6f);
+			float yerr = ang_diff(want_yaw, p.yaw);
+			p.c_roll = clampf(yerr * 2.0f, -0.9f, 0.9f);
+			bool lined = std::fabs(lat) < 60.0f && std::fabs(ang_diff(h0, p.yaw)) < 0.18f;
+			// высота: по глиссаде, пока стоит на оси; иначе держит 150 и не снижается
+			float want_h = f.y + (lined || along > -250.0f ? 3.0f + std::max(0.0f, std::min(200.0f, -along * 0.15f)) : 150.0f);
+			float dp = clampf((want_h - p.p.y) / 260.0f, -0.28f, 0.3f);
+			if (p.p.y - f.y < 14.0f && along > -200.0f) {
+				dp = -0.035f;  // выравнивание: пологое касание
+				p.c_thr = 0.0f;
+			}
+			p.c_pitch = clampf((dp - p.pitch) * 3.0f, -1.0f, 1.0f);
+			if (!(p.p.y - f.y < 14.0f && along > -200.0f)) p.c_thr = p.speed > 270.0f ? 0.0f : 0.3f;
+			// не попал на ось к торцу — уход на второй круг
+			if (along > -150.0f && along < 600.0f && !lined && p.p.y - f.y > 12.0f) {
+				p.land_ph = 0;
+				p.tgt_plane = 0;
+			}
+			if (along > 2200.0f) {
+				p.land_ph = 0;
+				p.tgt_plane = 0;
+			}
+		}
 	}
 
 	// рули — на точку
@@ -33,7 +128,14 @@
 
 	// очередь из пушек вдоль оси самолёта: настоящие снаряды (по крыше броня тоньше)
 	void air_gun(Core::Plane &p) {
-		const Core::AirWeapon &w = c->air_w[p.team];
+		Core::AirWeapon w = c->air_w[p.team];
+		if (p.kind == 1) {
+			// истребитель: пушки 20 мм, часто и слабо
+			w.cal = 20.0f;
+			w.pen = 20.0f;
+			w.dmg = 14.0f;
+			w.rof = 12.0f;
+		}
 		p.firing = false;
 		p.gun_t -= dt;
 		if (p.rounds <= 0) return;
@@ -51,6 +153,7 @@
 			sh.rico = 0;
 			sh.owner = -1;
 			sh.team = p.team;
+			sh.src_plane = p.id;
 			sh.kind = AM_AP;
 			sh.cal = w.cal;
 			sh.pen = w.pen;
@@ -284,6 +387,8 @@
 			const Core::AirWeapon &w = c->air_w[q.team];
 			for (int j = 0; j < 3; j++) {
 				Core::Plane p;
+				p.id = ++c->air_ids;
+				p.hp0 = w.hp;
 				p.team = q.team;
 				p.flight = flight;
 				p.slot = j;
@@ -310,8 +415,14 @@
 				p.c_roll = 1.0f;
 				p.c_thr = 0.2f;
 				p.roll += 1.6f * dt;
+			} else if (p.player && p.landing && !p.ground) {
+				air_land(p);
 			} else if (!p.player) {
-				air_ai(p, (int)k);
+				if (p.kind == 1) {
+					air_fighter(p);
+				} else {
+					air_ai(p, (int)k);
+				}
 			}
 			if (p.state != AS_CRASH) {
 				if (p.c_fire) {
@@ -325,7 +436,22 @@
 			}
 			air_fly(p);
 			float gh = c->height(p.p.x, p.p.z);
-			if (p.p.y <= gh + 3.0f) {
+			if (p.ground) continue;
+			if (p.p.y <= gh + 3.6f && p.state != AS_CRASH) {
+				// касание: на своей полосе, полого, без крена и не слишком быстро — посадка
+				V3 f = air_field(p.team);
+				bool strip = std::fabs(p.p.x - f.x) < 1700.0f && std::fabs(p.p.z - f.z) < 90.0f;
+				if (strip && p.v.y < -1.0f && p.v.y > -85.0f && p.speed < 380.0f && std::fabs(p.roll) < 0.4f && std::fabs(ang_diff(p.yaw, std::fabs(ang_diff(p.yaw, 0.0f)) < PI_F * 0.5f ? 0.0f : PI_F)) < 0.45f) {
+					p.ground = true;
+					p.landing = false;
+					p.land_ph = 0;
+					p.tgt_plane = -9;
+					p.c_thr = 0.0f;
+					ev.add({ (float)W_AIR, 7.0f, (float)p.team, p.p.x, p.p.y, p.p.z, (float)p.id });
+					continue;
+				}
+			}
+			if (p.p.y <= gh + 3.0f && !(p.v.y >= 0.0f && p.p.y > gh + 1.0f)) {
 				// разбился: взрыв как у бомбы
 				p.alive = false;
 				p.gone = true;
@@ -340,4 +466,119 @@
 			}
 		}
 		c->planes.erase(std::remove_if(c->planes.begin(), c->planes.end(), [](const Core::Plane &p) { return p.gone; }), c->planes.end());
+		air_hits();
+		air_cap();
+	}
+
+	// снаряды по самолётам: любой снаряд противника (танк, ЗСУ, пушка, самолёт), прошедший рядом с корпусом
+	void air_hits() {
+		if (c->planes.empty()) return;
+		for (Core::Shell &s : c->shells) {
+			if (s.dead || s.kind == AM_SMOKE) continue;
+			int st = s.owner >= 0 && s.owner < n() ? team(s.owner) : s.team;
+			V3 seg = v3mul(s.vel, dt);
+			for (Core::Plane &p : c->planes) {
+				if (!p.alive || p.team == st || p.state == AS_CRASH || p.id == s.src_plane) continue;
+				V3 rel = v3sub(p.p, s.pos);
+				if (std::fabs(rel.x) > 900.0f || std::fabs(rel.z) > 900.0f) continue;
+				V3 cl = closest_on(p.p, s.pos, seg);
+				float r = p.ground ? 16.0f : 13.0f;
+				if (v3len(v3sub(cl, p.p)) > r) continue;
+				float dmg = s.cal < 15.0f ? 9.0f : (s.cal < 25.0f ? 19.0f : (s.cal < 45.0f ? 46.0f : 400.0f));
+				p.hp -= dmg * rnd(0.7f, 1.3f);
+				s.dead = true;
+				ev.add({ (float)W_AIR, 6.0f, (float)p.team, cl.x, cl.y, cl.z, (float)p.id });
+				if (p.hp <= 0.0f) {
+					bool by_player = (s.owner >= 0 && s.owner == c->w.player);
+					for (const Core::Plane &o : c->planes) by_player = by_player || (o.id == s.src_plane && o.player);
+					if (by_player && p.team == 1) c->air_kills++;
+					if (p.ground) {
+						p.alive = false;
+						p.gone = true;
+						ev.add({ (float)W_AIR, 1.0f, (float)p.team, p.p.x, p.p.y, p.p.z, (float)p.id });
+					} else {
+						p.state = AS_CRASH;
+						p.player = false;
+						ev.add({ (float)W_AIR, 2.0f, (float)p.team, p.p.x, p.p.y, p.p.z, (float)p.id });
+					}
+				}
+				break;
+			}
+		}
+	}
+
+	// истребитель ИИ: ищет самолёт противника, заходит в хвост с упреждением, бьёт с 70 м; без целей уходит
+	void air_fighter(Core::Plane &p) {
+		float gh = c->height(p.p.x, p.p.z);
+		p.c_fire = false;
+		p.c_bomb = false;
+		p.c_thr = 1.0f;
+		p.t += dt;
+		Core::Plane *tg = nullptr;
+		float bd = 1e9f;
+		for (Core::Plane &o : c->planes) {
+			if (!o.alive || o.team == p.team || o.state == AS_CRASH || o.ground) continue;
+			float d = v3len(v3sub(o.p, p.p));
+			if (d < bd) {
+				bd = d;
+				tg = &o;
+			}
+		}
+		if (p.state == AS_EGRESS || (!tg && p.t > 25.0f) || p.rounds <= 0 || p.hp < p.hp0 * 0.3f) {
+			p.state = AS_EGRESS;
+			air_steer(p, { c->ws * 0.5f, gh + 450.0f, p.team == 0 ? c->ws + 2300.0f : -2300.0f });
+			return;
+		}
+		if (!tg) {
+			// барраж над своей половиной
+			float cz = p.team == 0 ? c->ws * 0.7f : c->ws * 0.3f;
+			float a = std::atan2(p.p.z - cz, p.p.x - c->ws * 0.5f) + 0.5f;
+			air_steer(p, { c->ws * 0.5f + std::cos(a) * 700.0f, c->height(c->ws * 0.5f, cz) + 380.0f, cz + std::sin(a) * 700.0f });
+			p.c_thr = 0.6f;
+			return;
+		}
+		p.t = 0.0f;
+		float lead = bd / (1900.0f + p.speed);
+		V3 aim = v3add(tg->p, v3mul(tg->v, lead));
+		aim.y = std::max(aim.y, c->height(aim.x, aim.z) + 60.0f);
+		air_steer(p, aim);
+		if (bd < 260.0f) p.c_thr = 0.45f;
+		V3 d = air_dir(p), to = v3norm(v3sub(aim, p.p));
+		if (bd < 560.0f && std::acos(clampf(v3dot(d, to), -1.0f, 1.0f)) < 0.055f) p.c_fire = true;
+		if (p.p.y - gh < 75.0f) p.c_pitch = 1.0f;
+	}
+
+	// перехват: авиация противника висит над полем — сторона поднимает пару истребителей
+	void air_cap() {
+		for (int tm = 0; tm < 2; tm++) {
+			c->cap_cd[tm] = std::max(0.0f, c->cap_cd[tm] - dt);
+			int foes = 0, mine = 0;
+			for (const Core::Plane &p : c->planes) {
+				if (!p.alive || p.ground || p.state == AS_CRASH) continue;
+				if (p.team != tm) foes++;
+				if (p.team == tm && p.kind == 1 && !p.player) mine++;
+			}
+			c->cap_t[tm] = foes > 0 ? c->cap_t[tm] + dt : 0.0f;
+			if (c->cap_t[tm] < 16.0f || mine > 0 || c->cap_cd[tm] > 0.0f || c->w.over) continue;
+			c->cap_cd[tm] = 110.0f;
+			c->cap_t[tm] = 0.0f;
+			float zs = tm == 0 ? c->ws + 1500.0f : -1500.0f;
+			for (int j = 0; j < 2; j++) {
+				Core::Plane p;
+				p.id = ++c->air_ids;
+				p.team = tm;
+				p.kind = 1;
+				p.flight = -1000 - p.id;
+				p.slot = j;
+				p.p = { c->ws * 0.5f + (j == 0 ? -150.0f : 150.0f), c->height(c->ws * 0.5f, tm == 0 ? c->ws : 0.0f) + 420.0f, zs + (tm == 0 ? 1.0f : -1.0f) * 300.0f * (float)j };
+				p.yaw = tm == 0 ? -PI_F * 0.5f : PI_F * 0.5f;
+				p.speed = 480.0f;
+				p.hp = p.hp0 = 80.0f;
+				p.bombs = 0;
+				p.rounds = 150;
+				p.state = AS_ORBIT;
+				c->planes.push_back(p);
+			}
+			ev.add({ (float)W_AIR, 8.0f, (float)tm, c->ws * 0.5f, 0.0f, zs });
+		}
 	}

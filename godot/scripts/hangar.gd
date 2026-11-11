@@ -87,6 +87,7 @@ var map_desc: Label
 var qual_btn: Button
 var hangar_sun: DirectionalLight3D
 var diff_btn: Button
+var air_btn: Button
 var tod_btn: Button
 var real_btn: Button
 var hist_btn: Button
@@ -868,6 +869,16 @@ func _build_ui() -> void:
 	tod_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tod_btn.clip_text = true
 	ogrid.add_child(tod_btn)
+	air_btn = Button.new()
+	air_btn.add_theme_font_size_override("font_size", 13)
+	air_btn.custom_minimum_size = Vector2(0, 32)
+	air_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	air_btn.clip_text = true
+	air_btn.pressed.connect(func():
+		main.save.start_air = not bool(main.save.get("start_air", false))
+		main.persist()
+		_refresh())
+	ogrid.add_child(air_btn)
 	go_btn = Button.new()
 	go_btn.text = "В БОЙ"
 	go_btn.custom_minimum_size = Vector2(0, 62)
@@ -1204,6 +1215,7 @@ func _refresh() -> void:
 	hist_btn.text = "Составы: история" if hist else "Составы: любые"
 	diff_btn.text = "Враг: " + ["новички", "обычный", "ветераны"][clampi(int(main.save.get("difficulty", 1)), 0, 2)]
 	tod_btn.text = "Время: " + {"random": "случайное", "day": "день", "dawn": "рассвет", "dusk": "сумерки", "night": "ночь"}.get(String(main.save.get("tod", "random")), "случайное")
+	air_btn.text = "Старт: на самолёте" if bool(main.save.get("start_air", false)) else "Старт: на танке"
 	real_btn.text = "Реализм: вкл ×1,3" if bool(main.save.get("realism", false)) else "Реализм: выкл"
 	var can := _available(key)
 	go_btn.disabled = not can

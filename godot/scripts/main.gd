@@ -604,7 +604,7 @@ func start_battle() -> void:
 	var mods: Dictionary = top_config(tank) if save.owned.has(tank) or not ms else {}
 	b.setup({"mode": bmode, "map": map_key, "hq": save.hq, "gfx": save.gfx.duplicate(), "tank": tank, "history": true if ms else save.history,
 		"xray": save.xray, "difficulty": int(save.get("difficulty", 1)), "realism": bool(save.get("realism", false)) and not ms, "mods": mods, "cons": save.cons.duplicate(), "bench": bench_req, "skills": crew(tank).sk.duplicate(),
-		"mission": mission_req, "bt_att": int(save.get("_bt_att", randi() % 2)), "tod": String(save.get("tod", "random")), "realism_test": save.get("_realism", null)})
+		"mission": mission_req, "bt_att": int(save.get("_bt_att", randi() % 2)), "tod": String(save.get("tod", "random")), "start_air": bool(save.get("start_air", false)) and not ms, "realism_test": save.get("_realism", null)})
 	bench_req = false
 	mission_req = {}
 	b.ended.connect(_on_ended)

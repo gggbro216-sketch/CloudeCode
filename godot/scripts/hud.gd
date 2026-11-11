@@ -173,7 +173,7 @@ func _input(event: InputEvent) -> void:
 			battle.set_paused(true)
 			get_viewport().set_input_as_handled()
 			return
-		if not battle.player.alive:
+		if not battle.player.alive and battle.fly_id < 0:
 			return  # наблюдение: касания достаются кнопке «Ускорить»
 		if p.distance_to(fire_c) < fire_r + 14.0:
 			fire_idx = e.index
@@ -188,7 +188,19 @@ func _input(event: InputEvent) -> void:
 			return
 		for an in abil_c:
 			if p.distance_to(abil_c[an]) < 32.0:
+				if battle.fly_id >= 0:
+					# в самолёте те же кнопки: бомбы, посадка по автопилоту, вернуться в танк
+					match an:
+						"arty":
+							battle.fly_bomb = true
+						"air":
+							battle.fly_land = not battle.fly_land
+						"follow":
+							battle.fly_leave()
+					return
 				match an:
+					"plane":
+						battle.take_off(0, 15.0)
 					"arty":
 						battle.call_strike(0)
 					"air":
@@ -324,7 +336,11 @@ func _process(delta: float) -> void:
 		abil_c["air"] = Vector2(ax, s.y - bt - 36.0 - 84.0)
 		abil_c["arty"] = Vector2(ax - 66.0, s.y - bt - 36.0 - 84.0)
 		var oy := 12.0 + margins.y + 170.0 + 150.0
-		for o in ["follow", "hold", "attack"]:
+		for o in ["follow", "hold", "attack", "plane"]:
+			if o == "plane" and (battle.sorties <= 0 or battle.fly_id >= 0 or battle.fly_wait > 0.0):
+				continue
+			if battle.fly_id >= 0 and (o == "hold" or o == "attack"):
+				continue  # в самолёте слева остаётся одна кнопка — вернуться в танк
 			abil_c[o] = Vector2(14.0 + margins.x + 34.0, oy)
 			oy += 58.0
 		if battle.realism:
@@ -434,6 +450,8 @@ func _draw_world() -> void:
 ## Перекрестие: точка — куда смотрит камера; круг сведения — куда смотрит ствол.
 ## Цвет круга: зелёный — пробьёт, жёлтый — как повезёт, красный — не пробьёт.
 func _draw_crosshair() -> void:
+	if battle.fly_id >= 0:
+		return  # в самолёте свой прицел (_draw_flight)
 	var w = battle.watch
 	var cam: Camera3D = battle.cam
 	var c := size / 2
@@ -937,6 +955,8 @@ func _draw_controls() -> void:
 	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
+	if battle.fly_id >= 0:
+		_draw_flight()
 	_draw_abilities()
 	_draw_ammo()
 
@@ -978,6 +998,49 @@ func _draw_cons(p) -> void:
 			_text(cc + Vector2(0, 46), ["1", "2", "3"][["repair", "medkit", "ext"].find(c)], 11, col_dim, true, 3)
 
 
+## Полёт: приборы, метка носа самолёта, подсказки. Метка прицела — центр экрана (туда доворачивает самолёт).
+func _draw_flight() -> void:
+	var inf = battle.inf
+	if inf == null:
+		return
+	var a: int = inf.plane_at(battle.fly_id)
+	if a < 0:
+		return
+	var air: PackedFloat32Array = inf.air
+	var c := size / 2
+	Gfx.arc(cv, c, 16.0, 0, TAU, 32, Color(1, 1, 1, 0.85), 2.0)
+	Gfx.circle(cv, c, 2.0, Color(1, 1, 1, 0.9))
+	# куда сейчас смотрит нос (туда летят снаряды)
+	var px: Array = inf.plane_xf(a, 1.0)
+	var ns = _proj((px[0] as Vector3) + (px[1] as Vector3) * 700.0)
+	if ns != null:
+		for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+			cv.draw_line(ns + v * 6.0, ns + v * 15.0, col_amber, 2.5, true)
+	var fl := int(air[a + 7])
+	var gh: float = battle.terra.height(air[a], air[a + 2])
+	var kmh := air[a + 9] * 0.9  # скорость в игре сжата, как и расстояния: 440 ед/с ≈ 400 км/ч
+	var alt := (air[a + 1] - gh) / D.UPM
+	var x := 30.0 + margins.x
+	var y := size.y * 0.5 + 40.0
+	var rows := [["СКОРОСТЬ", "%d км/ч" % int(kmh), col_foe if kmh < 190.0 and (fl & 16) == 0 else col_text],
+		["ВЫСОТА", "%d м" % int(alt), col_foe if alt < 12.0 and (fl & 16) == 0 else col_text],
+		["ГАЗ", "%d %%" % int(battle.fly_thr * 100.0), col_text],
+		["БОМБЫ", "%d" % int(air[a + 10]), col_text if air[a + 10] > 0 else col_dim],
+		["СНАРЯДЫ", "%d" % int(air[a + 11]), col_text if air[a + 11] > 0 else col_dim],
+		["ПЛАНЕР", "%d %%" % int(100.0 * air[a + 8] / maxf(1.0, air[a + 14])), col_text if air[a + 8] > air[a + 14] * 0.4 else col_foe]]
+	cv.draw_rect(Rect2(x - 10.0, y - 20.0, 190.0, rows.size() * 24.0 + 12.0), Color(0.04, 0.05, 0.03, 0.55))
+	for r: Array in rows:
+		_text(Vector2(x, y), r[0], 12, col_dim, false, 3)
+		_text(Vector2(x + 96.0, y), r[1], 16, r[2], false, 3)
+		y += 24.0
+	if (fl & 16) != 0:
+		_text(c + Vector2(0, 90), "НА ПОЛОСЕ: ГАЗ ВВЕРХ (ЛЕВЫЙ ПАЛЕЦ) — РАЗБЕГ; СТОЯ — ПЕРЕЗАРЯДКА", 15, col_amber, true, 4)
+	elif kmh < 190.0:
+		_text(c + Vector2(0, 90), "СРЫВ! ГАЗ И НОС ВНИЗ", 18, col_foe, true, 4)
+	elif battle.fly_land:
+		_text(c + Vector2(0, 90), "АВТОПИЛОТ: ЗАХОД НА ПОСАДКУ", 15, col_amber, true, 4)
+
+
 ## Удары (артиллерия, штурмовик), приказы взводу и дальность «Реализма».
 func _draw_abilities() -> void:
 	for an in abil_c:
@@ -1006,17 +1069,28 @@ func _draw_abilities() -> void:
 				Gfx.polygon(cv, PackedVector2Array([cc + Vector2(-9, 8), cc + Vector2(0, -11), cc + Vector2(9, 8), cc + Vector2(0, 3)]), col)
 			"hold":
 				cv.draw_rect(Rect2(cc + Vector2(-9, -9), Vector2(18, 18)), col)
+			"plane":
+				cv.draw_line(cc + Vector2(0, -11), cc + Vector2(0, 10), col, 3.5, true)
+				cv.draw_line(cc + Vector2(-13, -1), cc + Vector2(13, -1), col, 3.5, true)
+				cv.draw_line(cc + Vector2(-5, 9), cc + Vector2(5, 9), col, 2.5, true)
 			"attack":
 				for dx in [-7.0, 5.0]:
 					cv.draw_line(cc + Vector2(dx - 4, -9), cc + Vector2(dx + 5, 0), col, 3.0, true)
 					cv.draw_line(cc + Vector2(dx + 5, 0), cc + Vector2(dx - 4, 9), col, 3.0, true)
-		if strike and cd > 0.0:
+		if strike and battle.fly_id >= 0:
+			_text(cc + Vector2(0, 46), "БОМБЫ" if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
+		elif strike and cd > 0.0:
 			Gfx.arc(cv, cc, rr - 4.0, -PI / 2, -PI / 2 + TAU * (1.0 - cd / float(battle.STRIKE_CD[k])), 40, col_amber, 3.0)
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
+		elif strike and battle.fly_id >= 0:
+			_text(cc + Vector2(0, 46), "БОМБЫ" if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
 		elif strike:
 			_text(cc + Vector2(0, 46), "АРТ" if an == "arty" else "АВИА", 11, col_dim, true, 3)
 		else:
-			_text(cc + Vector2(34, 5), {"follow": "ЗА МНОЙ", "hold": "СТОЯТЬ", "attack": "В АТАКУ"}[an], 12, col_amber if on else col_dim, false, 3)
+			var names := {"follow": "ЗА МНОЙ", "hold": "СТОЯТЬ", "attack": "В АТАКУ", "plane": "САМОЛЁТ ×%d" % battle.sorties}
+			if battle.fly_id >= 0:
+				names["follow"] = "В ТАНК" if battle.player.alive else "ПОКИНУТЬ"
+			_text(cc + Vector2(34, 5), names[an], 12, col_amber if on else col_dim, false, 3)
 	if battle.realism and not range_r.is_empty():
 		var r0: Rect2 = range_r[0][0]
 		var r1: Rect2 = range_r[1][0]
@@ -1131,6 +1205,7 @@ func _build_dead() -> void:
 	var s := UI.label("Наблюдение за союзником", 18, UI.DIM)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	dead_box.add_child(s)
+	dead_box.add_child(_button("В САМОЛЁТ", true, func(): battle.take_off(0, 15.0)))
 	ffwd_btn = _button("УСКОРИТЬ ×4", false, func():
 		battle.toggle_speed()
 		ffwd_btn.text = "ОБЫЧНАЯ СКОРОСТЬ" if battle.speed > 1 else "УСКОРИТЬ ×4")

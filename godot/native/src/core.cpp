@@ -549,6 +549,13 @@ METHOD(terrain_generate) {
 			float dz = std::min(std::fabs(z - 260.0f), std::fabs(z - (ws - 260.0f)));
 			v = lerpd(v, v * 0.25, 1.0 - smoothstep(60.0f, 400.0f, dz));
 		}
+		// аэродромы за базами: ровная полоса вдоль края карты (и подходы к ней — без гор)
+		for (int s = 0; s < 2; s++) {
+			float zc = s == 0 ? ws + 380.0f : -380.0f;
+			float ax = std::max(0.0f, std::fabs(x - ws * 0.5f) - 2700.0f), az = std::max(0.0f, std::fabs(z - zc) - 120.0f);
+			float ad = std::sqrt(ax * ax + az * az);
+			if (ad < 260.0f) v = lerpd(4.0, v, smoothstep(0.0f, 260.0f, ad));
+		}
 		h[i] = (float)v;
 	}
 	auto window = [&](float x0, float y0, float x1, float y1, int w[4]) {

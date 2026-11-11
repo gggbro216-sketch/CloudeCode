@@ -99,7 +99,7 @@ enum WorldEv {
 	W_INF_SHOT,  // вид (роль бойца; 5 — пулемёт танка; 6 — граната), откуда xyz, направление xyz, место трассера (−1 — пуля), скорость или дальность, кто
 	W_INF_DEAD,  // боец, кто (танк или −1), причина (0 пуля, 1 осколки, 2 гусеницы), x, y, z, команда
 	W_STRIKE,  // вид (0 артудар, 1 штурмовик), команда, x, z, через сколько секунд, курс захода x, z
-	W_AIR,  // что (0 звено над сектором, 1 самолёт разбился, 2 сбит — падает, 3 разрыв зенитного снаряда, 4 звено уходит), команда, x, y, z
+	W_AIR,  // что (0 звено над сектором, 1 разбился, 2 сбит — падает, 3 разрыв зенитного снаряда, 4 звено уходит, 5 перезаряжен на аэродроме, 6 попадание в самолёт, 7 сел, 8 истребители вылетели), команда, x, y, z, номер самолёта
 };
 
 enum { IR_RIFLE, IR_SMG, IR_ATR, IR_TUBE, IR_FAUST, IR_CREW, IR_GUN };
@@ -967,6 +967,10 @@ METHOD(world_init) {
 	self->planes.clear();
 	self->air_req.clear();
 	self->air_flights = 0;
+	self->air_ids = 0;
+	self->air_kills = 0;
+	self->cap_t[0] = self->cap_t[1] = 0.0f;
+	self->cap_cd[0] = self->cap_cd[1] = 40.0f;
 	self->strike_ai = false;
 	self->strike_t[0] = 70.0f;
 	self->strike_t[1] = 85.0f;
@@ -1780,10 +1784,11 @@ METHOD(air_setup) {
 // (1 жив, 2 падает, 4 стреляет, 8 управляется игроком), прочность, скорость, бомб, снарядов.
 METHOD(air_view) {
 	SELF;
-	std::vector<float> o(self->planes.size() * 12);
+	const int AV = 16;
+	std::vector<float> o(self->planes.size() * AV + 1);
 	for (size_t k = 0; k < self->planes.size(); k++) {
 		const Core::Plane &p = self->planes[k];
-		float *v = &o[k * 12];
+		float *v = &o[k * AV];
 		v[0] = p.p.x;
 		v[1] = p.p.y;
 		v[2] = p.p.z;
@@ -1791,13 +1796,80 @@ METHOD(air_view) {
 		v[4] = p.pitch;
 		v[5] = p.roll;
 		v[6] = (float)p.team;
-		v[7] = (float)((p.alive ? 1 : 0) | (p.state == 5 ? 2 : 0) | (p.firing ? 4 : 0) | (p.player ? 8 : 0));
+		v[7] = (float)((p.alive ? 1 : 0) | (p.state == 5 ? 2 : 0) | (p.firing ? 4 : 0) | (p.player ? 8 : 0) | (p.ground ? 16 : 0) | (p.landing ? 32 : 0));
 		v[8] = p.hp;
 		v[9] = p.speed;
 		v[10] = (float)p.bombs;
 		v[11] = (float)p.rounds;
+		v[12] = (float)p.id;
+		v[13] = (float)p.kind;
+		v[14] = p.hp0;
+		v[15] = p.c_thr;
 	}
+	o[self->planes.size() * AV] = (float)self->air_kills;
 	ret_f32(r, o.data(), (int64_t)o.size());
+}
+
+// Игрок садится в самолёт: (команда, вид: 0 штурмовик, 1 истребитель; старт: 0 — с полосы, 1 — в воздухе) → номер самолёта
+METHOD(air_spawn) {
+	SELF;
+	if (!need(a, 3, e)) return;
+	int tm = a.integer(0) != 0 ? 1 : 0, kind = a.integer(1) != 0 ? 1 : 0;
+	bool in_air = a.integer(2) != 0;
+	Core::Plane p;
+	p.team = tm;
+	p.kind = kind;
+	p.id = ++self->air_ids;
+	p.flight = -1 - p.id;
+	p.player = true;
+	p.by = self->w.player;
+	const Core::AirWeapon &w = self->air_w[tm];
+	float zc = tm == 0 ? self->ws + 380.0f : -380.0f, cx = self->ws * 0.5f;
+	float hr = self->height(cx, zc);
+	p.yaw = 0.0f;
+	if (in_air) {
+		p.p = { cx - 300.0f, hr + 260.0f, zc };
+		p.speed = 400.0f;
+	} else {
+		p.p = { cx - 520.0f, hr + 3.5f, zc };
+		p.speed = 0.0f;
+		p.ground = true;
+	}
+	p.hp = p.hp0 = kind == 1 ? 80.0f : w.hp;
+	// баланс: штурмовику — две бомбы и слабые пушки на несколько очередей; истребителю — только пушки
+	p.bombs = kind == 1 ? 0 : 2;
+	p.rounds = kind == 1 ? 150 : std::min(w.rounds, 70);
+	p.leave_t = 1e9f;
+	p.state = 1;
+	self->planes.push_back(p);
+	ret_int(r, (int64_t)p.id);
+}
+
+// Управление «меткой»: (номер, направление взгляда xyz, газ 0…1, огонь, сброс, посадка по автопилоту).
+// Самолёт сам доворачивает на метку; номер по id из air_view.
+METHOD(air_aim) {
+	SELF;
+	if (!need(a, 6, e)) return;
+	int id = (int)a.integer(0);
+	V3 d = v3norm(a.v3(1));
+	for (Core::Plane &p : self->planes) {
+		if (p.id != id || !p.alive || p.state == 5) continue;
+		p.player = true;
+		if (a.boolean(5) && !p.landing) {
+			p.land_ph = 0;
+			p.tgt_plane = 0;
+		}
+		p.landing = a.boolean(5);
+		p.c_thr = clampf((float)a.num(2), 0.0f, 1.0f);
+		p.c_fire = a.boolean(3);
+		p.c_bomb = a.boolean(4);
+		if (!p.landing) {
+			float err = ang_diff(std::atan2(d.z, d.x), p.yaw);
+			p.c_roll = clampf(err * 1.7f, -1.0f, 1.0f);
+			float dp = clampf(std::asin(clampf(d.y, -1.0f, 1.0f)), -1.0f, 0.85f);
+			p.c_pitch = clampf((dp - p.pitch) * 2.6f, -1.0f, 1.0f);
+		}
+	}
 }
 
 // Рули самолёта от игрока (задел под пилотируемый полёт): (номер, тангаж −1…1, крен −1…1, газ 0…1, огонь, сброс).
@@ -1850,6 +1922,8 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "inf_view", inf_view },
 		{ "air_setup", air_setup },
 		{ "air_view", air_view },
+		{ "air_spawn", air_spawn },
+		{ "air_aim", air_aim },
 		{ "air_input", air_input },
 		{ "rules_set", rules_set },
 		{ "strike_call", strike_call },

@@ -209,6 +209,7 @@ struct Core {
 		int kind = 0;  // AM_*: основной, подкалиберный, фугасный, кумулятивный, дымовой
 		int owner, rico, slot;
 		int team = -1;  // чей снаряд, если стрелял не танк (owner < 0): пехота, артиллерия, авиация
+		int src_plane = -1;  // номер (id) самолёта, выпустившего снаряд
 		int boom = 0;  // на этом шаге разорвался: 1 — о землю или постройку, 2 — о танк (точка — hit_pos)
 		bool whiz = false, dead = false;
 		// попадание в танк на этом шаге (разбирает shell_hit)
@@ -253,6 +254,10 @@ struct Core {
 		bool c_fire = false, c_bomb = false, player = false, alive = true, gone = false, firing = false, dive = false, ext = false;
 		int team = 0, flight = 0, slot = 0, by = -1, state = 0, tgt = -1, bombs = 2, rounds = 60;
 		float t = 0, think_t = 0, gun_t = 0, bomb_cd = 0, aa_t = 0, leave_t = 0, burst = 0;
+		// пилотируемый полёт: номер, вид (0 штурмовик, 1 истребитель), на земле, перезарядка, посадка по автопилоту
+		int id = 0, kind = 0, tgt_plane = -1, land_ph = 0;
+		bool ground = false, landing = false;
+		float rearm_t = 0, hp0 = 100;
 	};
 	struct AirWeapon {
 		float cal = 23, pen = 25, dmg = 22, rof = 9, hp = 110, bomb_cal = 150;  // пушка, прочность, калибр бомбы
@@ -265,7 +270,8 @@ struct Core {
 	std::vector<Plane> planes;
 	std::vector<AirReq> air_req;
 	AirWeapon air_w[2];
-	int air_flights = 0;
+	int air_flights = 0, air_ids = 0, air_kills = 0;
+	float cap_t[2] = { 0, 0 }, cap_cd[2] = { 0, 0 };  // сколько в небе висит авиация противника; пауза до следующего вылета истребителей
 	bool strike_ai = false;
 	float strike_t[2] = { 70.0f, 85.0f };
 	// сложность: разброс и перезарядка ботов противника

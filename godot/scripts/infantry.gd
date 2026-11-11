@@ -16,6 +16,7 @@ const GUN_TINT := [
 	[Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE]]
 const CREW_AT := [Vector3(-0.85, 0, -1.1), Vector3(0.85, 0, -1.3), Vector3(0.1, 0, -2.6)]  # места расчёта у пушки, м
 const VIEW := 9
+const AIR_N := 16  # чисел на самолёт в air_view
 const SCALE := 8.0  # метры модели → единицы карты (чуть крупнее 7,5, чтобы бойцов было видно)
 # позы в запечённых файлах
 const P_STAND := 0
@@ -141,10 +142,31 @@ func scatter(nm: String, items: Array, shadows: bool) -> int:
 	return items.size()
 
 
+## Самолёт по номеру: смещение в массиве air или −1.
+func plane_at(id: int) -> int:
+	for a in range(0, air.size() - 1, AIR_N):
+		if int(air[a + 12]) == id and (int(air[a + 7]) & 1) != 0:
+			return a
+	return -1
+
+
+## Положение и направление самолёта между шагами логики: [место, вперёд].
+func plane_xf(a: int, frac: float) -> Array:
+	var same := air_prev.size() == air.size() and int(air_prev[a + 12]) == int(air[a + 12])
+	var pp := Vector3(air[a], air[a + 1], air[a + 2])
+	var yaw := air[a + 3]
+	var pitch := air[a + 4]
+	if same:
+		pp = Vector3(lerpf(air_prev[a], air[a], frac), lerpf(air_prev[a + 1], air[a + 1], frac), lerpf(air_prev[a + 2], air[a + 2], frac))
+		yaw = lerp_angle(air_prev[a + 3], air[a + 3], frac)
+		pitch = lerpf(air_prev[a + 4], air[a + 4], frac)
+	return [pp, Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))]
+
+
 ## Самолёты для миникарты: [x, z, команда, курс].
 func air_dots() -> PackedFloat32Array:
 	var o := PackedFloat32Array()
-	for a in range(0, air.size(), 12):
+	for a in range(0, air.size() - 1, AIR_N):
 		if (int(air[a + 7]) & 1) != 0:
 			o.append_array([air[a], air[a + 2], air[a + 6], air[a + 3]])
 	return o
@@ -342,7 +364,7 @@ func frame(frac: float, dt: float) -> void:
 		(units[nm].extra as Array).clear()
 	# самолёты: положение и углы из C++ (между шагами — плавно), дым у сбитых, звук моторов
 	air_clock += dt
-	for a in range(0, air.size(), 12):
+	for a in range(0, air.size() - 1, AIR_N):
 		var fl := int(air[a + 7])
 		if (fl & 1) == 0:
 			continue
@@ -356,7 +378,7 @@ func frame(frac: float, dt: float) -> void:
 		var fwd := Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))
 		var pb := Basis.looking_at(-fwd, Vector3.UP) * Basis(Vector3(0, 0, 1), roll)
 		(units[nm].extra as Array).append([pp, pb.scaled(Vector3(SCALE, SCALE, SCALE)), 0, 0])
-		var id := a / 12
+		var id := int(air[a + 12])
 		var near: bool = pp.distance_squared_to(battle.cam.global_position) < 1800.0 * 1800.0
 		if near and air_clock - float(air_snd.get(id, -99.0)) > 11.0:
 			air_snd[id] = air_clock
