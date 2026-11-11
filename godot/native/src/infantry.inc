@@ -687,7 +687,8 @@
 	bool strike_add(int kind, int team, float x, float z, int by) {
 		if (!std::isfinite(x) || !std::isfinite(z)) return false;
 		if (kind != 0) {
-			// штурмовики: заявка на звено, оно придёт на следующем шаге (не больше двух звеньев стороны в воздухе)
+			// вызов звена штурмовиков убран (4.2): авиация — только собственные вылеты игрока и ботов-лётчиков
+			return false;
 			int up = 0;
 			for (const Core::Plane &p : c->planes) up += (p.alive && p.team == (team != 0 ? 1 : 0)) ? 1 : 0;
 			if (up >= 6 || c->air_req.size() >= 4) return false;
@@ -746,7 +747,7 @@
 			}
 		}
 		if (best < 0) return false;
-		return strike_add(randf() < 0.35f ? 1 : 0, tm, T(best)[P_X] + rnd(-25.0f, 25.0f), T(best)[P_Y] + rnd(-25.0f, 25.0f), -1);
+		return strike_add(0, tm, T(best)[P_X] + rnd(-25.0f, 25.0f), T(best)[P_Y] + rnd(-25.0f, 25.0f), -1);
 	}
 
 	void strikes_step() {

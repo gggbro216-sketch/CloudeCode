@@ -253,6 +253,7 @@ struct Core {
 		float c_pitch = 0, c_roll = 0, c_thr = 1;  // рули: −1…1, газ 0…1
 		bool c_fire = false, c_bomb = false, player = false, alive = true, gone = false, firing = false, dive = false, ext = false;
 		int team = 0, flight = 0, slot = 0, by = -1, state = 0, tgt = -1, bombs = 2, rounds = 60;
+		bool solo = false;  // бот-лётчик (один, сам выбирает сектор)
 		float t = 0, think_t = 0, gun_t = 0, bomb_cd = 0, aa_t = 0, leave_t = 0, burst = 0;
 		// пилотируемый полёт: номер, вид (0 штурмовик, 1 истребитель), на земле, перезарядка, посадка по автопилоту
 		int id = 0, kind = 0, tgt_plane = -1, land_ph = 0;
@@ -274,6 +275,9 @@ struct Core {
 	float cap_t[2] = { 0, 0 }, cap_cd[2] = { 0, 0 };  // сколько в небе висит авиация противника; пауза до следующего вылета истребителей
 	bool strike_ai = false;
 	float strike_t[2] = { 70.0f, 85.0f };
+	float sortie_t[2] = { 60.0f, 75.0f };  // вылеты ботов-лётчиков: пауза до следующей проверки
+	int sortie_left[2] = { 2, 2 };
+	std::vector<char> flew;  // этот бот уже летал
 	// сложность: разброс и перезарядка ботов противника
 	float bot_spread_k = 1.0f, bot_reload_k = 1.15f;
 	// прорыв (mode 3): кто атакует, какой сектор берут сейчас, сколько секунд даёт взятый сектор

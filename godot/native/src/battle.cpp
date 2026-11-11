@@ -972,6 +972,10 @@ METHOD(world_init) {
 	self->cap_t[0] = self->cap_t[1] = 0.0f;
 	self->cap_cd[0] = self->cap_cd[1] = 40.0f;
 	self->strike_ai = false;
+	self->sortie_t[0] = 60.0f;
+	self->sortie_t[1] = 75.0f;
+	self->sortie_left[0] = self->sortie_left[1] = 2;
+	self->flew.clear();
 	self->strike_t[0] = 70.0f;
 	self->strike_t[1] = 85.0f;
 	self->bot_spread_k = 1.0f;

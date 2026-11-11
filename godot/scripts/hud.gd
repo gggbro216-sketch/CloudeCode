@@ -196,7 +196,7 @@ func _input(event: InputEvent) -> void:
 			auto_aim = not auto_aim
 			return
 		for an in abil_c:
-			if p.distance_to(abil_c[an]) < 32.0:
+			if p.distance_to(abil_c[an]) < (52.0 if battle.fly_id >= 0 and an == "arty" else 32.0):
 				if battle.fly_id >= 0:
 					# в самолёте те же кнопки: бомбы, посадка по автопилоту, вернуться в танк
 					match an:
@@ -344,8 +344,8 @@ func _process(delta: float) -> void:
 	if battle and battle.player and battle.core_world:
 		# удары — продолжают ряд снаряжения; приказы — столбик слева под рацией
 		var ax := zoom_c.x - 84.0
-		abil_c["air"] = Vector2(ax, s.y - bt - 36.0 - 84.0)
-		abil_c["arty"] = Vector2(ax - 66.0, s.y - bt - 36.0 - 84.0)
+		# вызов звена штурмовиков убран: авиация — только собственный вылет («САМОЛЁТ»)
+		abil_c["arty"] = Vector2(ax, s.y - bt - 36.0 - 84.0)
 		var oy := 12.0 + margins.y + 170.0 + 150.0
 		for o in ["follow", "hold", "attack", "plane"]:
 			if o == "plane" and (battle.sorties <= 0 or battle.fly_id >= 0 or battle.fly_wait > 0.0):
@@ -358,10 +358,11 @@ func _process(delta: float) -> void:
 			# самолёт: справа — пушки (большая кнопка), бомбы и посадка; слева — «в танк» и ползунок газа
 			ammo_r.clear()
 			cons_c.clear()
-			abil_c["arty"] = Vector2(zoom_c.x - 10.0, zoom_c.y - 42.0)
-			abil_c["air"] = Vector2(zoom_c.x - 10.0, zoom_c.y - 142.0)
+			# пушки — под правым пальцем, бомбы — под левым (рядом с газом), как в War Thunder Mobile
 			var top: float = (abil_c["follow"] as Vector2).y + 62.0 if abil_c.has("follow") else s.y * 0.42
 			thr_rect = Rect2(14.0 + margins.x + 16.0, top, 46.0, maxf(120.0, s.y - bt - 34.0 - top))
+			abil_c["arty"] = Vector2(thr_rect.end.x + 112.0, s.y - bt - 84.0)
+			abil_c["air"] = Vector2(zoom_c.x - 10.0, zoom_c.y - 42.0)
 		if battle.realism:
 			auto_aim = false
 			range_r.append([Rect2(auto_rect.position.x - 4.0, auto_rect.position.y, 56.0, 44.0), -50.0])
@@ -1185,6 +1186,8 @@ func _draw_abilities() -> void:
 		var cd: float = battle.strike_cd[k] if strike else 0.0
 		var on: bool = not strike and battle.order_cur == {"follow": 1, "hold": 2}.get(an, -1)
 		var rr := 30.0 if strike else 26.0
+		if battle.fly_id >= 0 and an == "arty":
+			rr = 44.0
 		Gfx.circle(cv, cc, rr, Color(0.04, 0.05, 0.03, 0.62))
 		Gfx.arc(cv, cc, rr, 0, TAU, 40, col_amber if (on or (strike and cd <= 0.0)) else Color(UI.LINE), 3.0 if on else 2.0)
 		var col := col_text if cd <= 0.0 else col_dim
@@ -1213,12 +1216,12 @@ func _draw_abilities() -> void:
 					cv.draw_line(cc + Vector2(dx - 4, -9), cc + Vector2(dx + 5, 0), col, 3.0, true)
 					cv.draw_line(cc + Vector2(dx + 5, 0), cc + Vector2(dx - 4, 9), col, 3.0, true)
 		if strike and battle.fly_id >= 0:
-			_text(cc + Vector2(0, 46), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
+			_text(cc + Vector2(0, rr + 16.0), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
 		elif strike and cd > 0.0:
 			Gfx.arc(cv, cc, rr - 4.0, -PI / 2, -PI / 2 + TAU * (1.0 - cd / float(battle.STRIKE_CD[k])), 40, col_amber, 3.0)
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
 		elif strike and battle.fly_id >= 0:
-			_text(cc + Vector2(0, 46), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
+			_text(cc + Vector2(0, rr + 16.0), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
 		elif strike:
 			_text(cc + Vector2(0, 46), "АРТ" if an == "arty" else "АВИА", 11, col_dim, true, 3)
 		else:

@@ -1610,6 +1610,8 @@ func _plane_name(nation: String) -> String:
 
 ## Игрок вызывает удар по точке прицела: 0 — артиллерия, 1 — штурмовик.
 func call_strike(kind: int) -> void:
+	if kind != 0:
+		return  # вызова звена больше нет: авиация — только собственный вылет
 	if not core_world or over or not player.alive or strike_cd[kind] > 0.0 or not core.has_method("strike_call"):
 		return
 	# артиллерия бьёт по точке прицела; штурмовики идут в сектор вызвавшего и держатся над его танком
@@ -4232,6 +4234,12 @@ func _world_events(ev: PackedFloat32Array, dt: float) -> void:
 						hud.add_feed([["Наши истребители в воздухе" if int(ev[q + 2]) == 0 else "Истребители противника в воздухе!", tc]])
 						if int(ev[q + 2]) == 1 and fly_id >= 0:
 							hud.alert("ИСТРЕБИТЕЛИ ПРОТИВНИКА!", Color("ff6a4a"))
+					9:
+						# бот, потерявший танк, вылетел на штурмовике
+						hud.add_feed([["Наш лётчик взлетел на штурмовике" if int(ev[q + 2]) == 0 else "Штурмовик противника в воздухе!", tc]])
+						if int(ev[q + 2]) == 1:
+							hud.alert("ВОЗДУХ! ШТУРМОВИК ПРОТИВНИКА", Color("ff6a4a"))
+							sfx.play2d("radio_%d" % (1 + randi() % 3), -6.0)
 			35:  # боец погиб
 				if inf:
 					inf.on_dead(ev, q)
