@@ -32,6 +32,8 @@ var groups: Array = []  # на группу: {mat, chunks: [[MultiMesh, MultiMes
 var now := 0.0  # время частиц (стоит на паузе вместе с узлом)
 var active: Array = []  # включённые излучатели
 var spawned := 0  # сколько частиц родилось (для замеров)
+var core: Object = null  # C++ боя: рождение частиц пачкой (fx_spawn); null — по одной на GDScript
+var native := false
 
 
 const PUFF_SHADER := """
@@ -125,7 +127,7 @@ func _ready() -> void:
 			mm.mesh = q
 			mm.instance_count = CH
 			mm.buffer = dead
-			mm.custom_aabb = AABB(Vector3(-4000, -1000, -4000), Vector3(12000, 6000, 12000))
+			mm.custom_aabb = AABB(Vector3(-5000, -1000, -5000), Vector3(16000, 6000, 16000))  # карты ×1,4 и полёты за край
 			var mmi := MultiMeshInstance3D.new()
 			mmi.multimesh = mm
 			mmi.material_override = m
@@ -136,6 +138,9 @@ func _ready() -> void:
 			add_child(mmi)
 			chunks.append([mm, mmi, -1.0])
 		groups.append({"mat": m, "chunks": chunks, "cur": 0})
+	if core != null and core.has_method("fx_spawn"):
+		core.fx_setup(PackedInt32Array(CHUNKS), CH)
+		native = true
 
 
 ## Палитра цвета по жизни частицы — строка текстуры палитр.
@@ -179,6 +184,30 @@ func _cfg(amount: int, life: float, ramp: String, vmin: float, vmax: float, spre
 		grow, damp, not add]
 
 
+## n частиц вдоль отрезка from → to: пачкой в C++ (один буфер на кусок), иначе по одной.
+func _spawn_n(c: Array, from: Vector3, to: Vector3, b: Basis, n: int) -> void:
+	if not native:
+		for k in n:
+			_spawn(c, from.lerp(to, (k + 1.0) / n), b)
+		return
+	var g: Dictionary = groups[int(c[0])]
+	var res: PackedFloat32Array = core.fx_spawn(PackedFloat32Array([c[0], g.cur, n, from.x, from.y, from.z, to.x, to.y, to.z,
+		b.x.x, b.x.y, b.x.z, b.y.x, b.y.y, b.y.z, b.z.x, b.z.y, b.z.z,
+		c[2], c[3], c[4], c[5], c[6], c[7], c[8], 1.0 if c[9] else 0.0, c[10], 1.0 if c[11] else 0.0, now]))
+	if res.size() < 2:
+		return
+	g.cur = int(res[0])
+	var chunks: Array = g.chunks
+	for q in int(res[1]):
+		var ci := int(res[2 + q * 2])
+		var ch: Array = chunks[ci]
+		(ch[0] as MultiMesh).buffer = core.fx_chunk(int(c[0]), ci)
+		ch[2] = maxf(float(ch[2]), res[3 + q * 2])
+		if not (ch[1] as MultiMeshInstance3D).visible:
+			(ch[1] as MultiMeshInstance3D).visible = true
+	spawned += n
+
+
 ## Родить одну частицу. b — оси излучателя: частицы летят вдоль его «вверх» с разбросом.
 func _spawn(c: Array, at: Vector3, b: Basis) -> void:
 	var g: Dictionary = groups[int(c[0])]
@@ -219,8 +248,7 @@ func emit(at: Vector3, amount: int, life: float, ramp: String, vmin: float, vmax
 		if cam and cam.global_position.distance_to(at) > far:
 			return null
 		var b := _aim(dir)
-		for k in amount:
-			_spawn(c, at, b)
+		_spawn_n(c, at, at, b, amount)
 		return null
 	var e := Emitter.new()
 	e.fx = self
@@ -279,8 +307,7 @@ func _emit_active(delta: float) -> void:
 			continue
 		e.acc -= n
 		var b := gt.basis.orthonormalized()
-		for k in n:
-			_spawn(e.cfg, from.lerp(at, (k + 1.0) / n), b)
+		_spawn_n(e.cfg, from, at, b, n)
 
 
 func _process(delta: float) -> void:
@@ -439,7 +466,8 @@ var screens: Array = []  # [излучатель, до какого времен
 func smoke_screen(at: Vector3, r: float, secs: float) -> void:
 	var c := _cfg(18, 6.0, "screen", 3.0, r * 0.32, 180.0, 1.2, r * 0.75, false, true, 2.5)
 	for k in 14:
-		_spawn(c, at + Vector3(randf_range(-0.4, 0.4) * r, randf_range(-0.2, 0.2) * r, randf_range(-0.4, 0.4) * r), Basis())
+		var sp := at + Vector3(randf_range(-0.4, 0.4) * r, randf_range(-0.2, 0.2) * r, randf_range(-0.4, 0.4) * r)
+		_spawn_n(c, sp, sp, Basis(), 1)  # через тот же путь, что и все: буферы C++ не разойдутся с GDScript
 	var e := emit(at, 18, 6.0, "screen", 3.0, r * 0.32, Vector3.UP, 180.0, 1.2, r * 0.75, false, true, 2.5, false)
 	screens.append([e, now + maxf(1.0, secs - 5.0)])
 

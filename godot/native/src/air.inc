@@ -9,6 +9,17 @@
 		return { std::cos(p.yaw) * std::cos(p.pitch), std::sin(p.pitch), std::sin(p.yaw) * std::cos(p.pitch) };
 	}
 
+	// нос самолёта: траектория (air_dir), поднятая на угол атаки по «верху» самолёта (с учётом крена) — по нему
+	// летят снаряды пушек и рисуется модель
+	static V3 air_nose(const Core::Plane &p) {
+		V3 f = air_dir(p);
+		V3 u0 = { -std::cos(p.yaw) * std::sin(p.pitch), std::cos(p.pitch), -std::sin(p.yaw) * std::sin(p.pitch) };
+		V3 s0 = { -std::sin(p.yaw), 0.0f, std::cos(p.yaw) };
+		V3 up = v3add(v3mul(u0, std::cos(p.roll)), v3mul(s0, std::sin(p.roll)));
+		float a = p.ground ? 0.0f : p.aoa;
+		return v3norm(v3add(v3mul(f, std::cos(a)), v3mul(up, std::sin(a))));
+	}
+
 	// модель полёта: крен разворачивает, тангаж меняет высоту и скорость (в пикировании разгон, в наборе потеря)
 	// полоса своей стороны: центр и высота
 	// масштаб скорости: «скорость» самолёта — в условных единицах приборов (×0,9 = км/ч), а летит он в AIR_V раз
@@ -40,7 +51,7 @@
 			v = nv;
 		}
 		o[0] = b.x; o[1] = c->height(b.x, b.z); o[2] = b.z; o[3] = t;
-		V3 d = air_dir(p), s = v3add(p.p, v3mul(d, 14.0f)), sv = v3mul(d, 1900.0f + p.speed * AIR_V);
+		V3 d = air_nose(p), s = v3add(p.p, v3mul(d, 14.0f)), sv = v3mul(d, 1900.0f + p.speed * AIR_V);
 		o[4] = o[5] = o[6] = o[7] = 0.0f;
 		for (int i = 0; i < 120; i++) {
 			const float h = 0.01f;
@@ -71,6 +82,9 @@
 			if (p.speed > 235.0f && p.c_thr > 0.3f && (p.c_pitch > 0.1f || std::fabs(p.p.x - f.x) > 1500.0f)) {
 				p.ground = false;
 				p.pitch = 0.14f;
+				p.aoa = 0.12f;
+				p.aoa_rate = 0.0f;
+				p.roll_rate = 0.0f;
 				p.p.y += 2.5f;
 				p.rearm_t = 0.0f;
 			} else if (std::fabs(p.p.x - f.x) > 1700.0f) {
@@ -85,6 +99,9 @@
 						p.bombs = full_b;
 						p.rounds = full_r;
 						p.hp = p.hp0;
+						p.eng_k = 1.0f;
+						p.wing_bias = 0.0f;
+						p.tail_k = 1.0f;
 						p.rearm_t = 0.0f;
 						ev.add({ (float)W_AIR, 5.0f, (float)p.team, p.p.x, p.p.y, p.p.z, (float)p.id });
 					}
@@ -92,42 +109,56 @@
 			}
 			return;
 		}
-		// Модель полёта по энергии (единицы «скорости» — приборные, ×0,9 = км/ч; ×0,25 = м/с):
-		//  · доступная перегрузка растёт с квадратом скорости (n = (V/Vсв)², не больше прочности планера);
-		//  · вираж: ω = g·tg(крен)/V — на малой скорости и с малым запасом перегрузки поворот вялый,
-		//    перекренённый без запаса самолёт опускает нос;
-		//  · тяга винта падает со скоростью, сопротивление — квадрат скорости плюс индуктивное от перегрузки;
-		//  · тяготение по траектории: в наборе скорость уходит, в пикировании растёт; ниже Vсв — срыв.
+		// Модель полёта 4.3 — точечная масса в скоростных осях (V, наклон траектории γ = pitch, курс ψ = yaw) и
+		// угол атаки α между носом и скоростью. «Скорость» — приборная (×0,9 = км/ч, ×0,25 = м/с).
+		//  · подъёмная сила L = g·(V/Vсв)²·CL(α)/CLmax, CL линейно до α_кр = 15°, за ним — срыв (подъёмная падает);
+		//  · dV/dt = (тяга − сопротивление)/m − g·sin γ; сопротивление — c0·V² плюс индуктивное c_i·n²/V²;
+		//  · dγ/dt = (L·cos φ − g·cos γ)/V, dψ/dt = L·sin φ /(V·cos γ) — вираж сам по себе съедает высоту и скорость;
+		//  · ручка задаёт угол атаки: «0» — держать траекторию (1g с поправкой на крен, как инструктор War Thunder),
+		//    «+1» — до 0,95 α_кр; α доходит с инерцией (колебательно), при рывке проскакивает за критический — срыв;
+		//  · крен и тангаж разгоняются с инерцией; рули на малой скорости вялые; повреждения мотора, крыла, хвоста.
 		bool ftr = p.kind == 1;
-		const float G = 9.81f, TURN_K = 1.4f;
-		float vms = std::max(20.0f, p.speed * 0.25f);
-		float vs = ftr ? 165.0f : 180.0f;
-		float nmax = ftr ? 6.0f : 4.5f;
-		float n_av = std::min(nmax, (p.speed / vs) * (p.speed / vs));
-		float stall = clampf((vs * 0.97f - p.speed) / (vs * 0.35f), 0.0f, 1.0f);
-		float rr = (ftr ? 2.0f : 1.4f) * clampf((p.speed - 110.0f) / 220.0f, 0.25f, 1.0f) * (1.0f - 0.6f * stall);
-		p.roll = move_toward(p.roll, clampf(p.c_roll, -1.0f, 1.0f) * 1.2f, rr * dt);
-		if (stall > 0.0f) p.roll += randn() * stall * 0.8f * dt;  // срыв: самолёт покачивает
-		float cr = std::max(0.25f, std::fabs(std::cos(p.roll)));
-		float n_turn = 1.0f / cr;
-		float n_t = std::min(n_turn, std::max(1.0f, n_av));
-		float w_turn = G * std::sqrt(std::max(0.0f, n_t * n_t - 1.0f)) / vms * TURN_K;
-		p.yaw = wrapf(p.yaw + (p.roll >= 0.0f ? 1.0f : -1.0f) * w_turn * std::cos(p.pitch) * dt, -PI_F, PI_F);
-		// тангаж: темп ограничен запасом перегрузки сверх нужной на вираж
-		float pc = clampf(p.c_pitch, -1.0f, 1.0f) * (1.0f - 0.7f * stall);
-		float q_max = std::min(0.95f, G * std::max(0.6f, n_av - n_t + 0.6f) / vms * TURN_K);
-		p.pitch += pc * q_max * cr * dt;
-		if (n_turn > n_av + 0.05f) p.pitch -= G * std::min(2.0f, n_turn - std::max(n_av, 0.0f)) / vms * 0.6f * dt;
-		if (stall > 0.0f) p.pitch -= stall * 1.3f * dt;
-		p.pitch = clampf(p.pitch, -1.15f, 0.95f);
-		// скорость
-		float dmg_k = p.hp < p.hp0 * 0.4f ? 0.75f : 1.0f;
+		const float G = 9.81f, KT = 1.5f;  // KT — сжатие времени манёвра (поле маленькое)
+		const float A_CRIT = 0.26f;
+		float V = std::max(12.0f, p.speed * 0.25f);
+		float Vs = (ftr ? 165.0f : 180.0f) * 0.25f;
+		float q = (V / Vs) * (V / Vs);
+		// крен: цель — доля от 69°, скорость крена разгоняется (инерция), на малой скорости вялая
+		float rr_max = (ftr ? 2.2f : 1.5f) * clampf(V / 70.0f, 0.3f, 1.0f) * p.tail_k;
+		float rate_des = clampf((clampf(p.c_roll, -1.0f, 1.0f) * 1.2f - p.roll) * 3.0f, -rr_max, rr_max) + p.wing_bias;
+		p.roll_rate += (rate_des - p.roll_rate) * std::min(1.0f, 5.0f * dt);
+		p.roll = clampf(p.roll + p.roll_rate * dt, -1.45f, 1.45f);
+		float cphi = std::cos(p.roll), sphi = std::sin(p.roll);
+		// угол атаки: «держать траекторию» + ручка
+		float a_need = clampf(A_CRIT * std::cos(p.pitch) / (q * std::max(0.3f, cphi)), -0.1f, A_CRIT * 1.2f);
+		float pc = clampf(p.c_pitch, -1.0f, 1.0f);
+		float a_cmd = pc >= 0.0f ? a_need + pc * std::max(0.0f, A_CRIT * 0.95f - a_need) : a_need + pc * (a_need + 0.12f);
+		a_cmd = std::min(a_cmd, A_CRIT * (p.player ? 1.0f : 0.93f));
+		float w = 6.5f * clampf(V / 55.0f, 0.35f, 1.3f) * p.tail_k, zeta = 0.5f;
+		p.aoa_rate += ((a_cmd - p.aoa) * w * w - 2.0f * zeta * w * p.aoa_rate) * dt;
+		p.aoa = clampf(p.aoa + p.aoa_rate * dt, -0.2f, 0.6f);
+		float cl;
+		p.stalled = p.aoa > A_CRIT;
+		if (!p.stalled) {
+			cl = p.aoa / A_CRIT;
+		} else {
+			cl = std::max(0.45f, 1.0f - 2.0f * (p.aoa - A_CRIT) / A_CRIT);
+			p.roll_rate += randn() * 2.5f * dt;  // срыв: самолёт сваливается на крыло
+			p.aoa_rate -= 1.2f * dt;           // и опускает нос
+		}
+		float L = G * q * cl;
+		float n = L / G;
+		// тяга и сопротивление
+		float dmg_k = (p.hp < p.hp0 * 0.4f ? 0.8f : 1.0f) * p.eng_k;
 		float te = clampf(p.c_thr, 0.0f, 1.0f) * dmg_k - 0.1f;  // на холостых винт тормозит
-		float thrust = (ftr ? 30.0f : 26.0f) * te * (1.35f - p.speed / 650.0f);
-		float drag = (ftr ? 4.2e-5f : 7.1e-5f) * p.speed * p.speed;
-		float n_eff = std::max(n_t, 1.0f + std::fabs(pc) * std::max(0.0f, n_av - 1.0f) * 0.5f);
-		float ind = 6.0f * (n_eff - 1.0f);
-		p.speed = clampf(p.speed + (thrust - drag - ind - 39.0f * std::sin(p.pitch)) * dt, 60.0f, 800.0f);
+		float thrust = (ftr ? 7.0f : 6.0f) * te * (1.3f - V / (ftr ? 150.0f : 130.0f));
+		float c0 = ftr ? 1.14e-4f : 1.61e-4f;
+		float drag = c0 * V * V + 1400.0f * n * n / (V * V) + (p.stalled ? 2.5f : 0.0f);
+		float cg = std::cos(p.pitch);
+		V += (thrust - drag - G * std::sin(p.pitch)) * KT * dt;
+		p.pitch = clampf(p.pitch + (L * cphi - G * cg) / V * KT * dt, -1.45f, 1.45f);
+		p.yaw = wrapf(p.yaw + L * sphi / (V * std::max(0.2f, cg)) * KT * dt, -PI_F, PI_F);
+		p.speed = clampf(V * 4.0f, 60.0f, 800.0f);
 		V3 d = air_dir(p);
 		p.v = v3mul(d, p.speed * AIR_V);
 		p.p = v3add(p.p, v3mul(p.v, dt));
@@ -205,7 +236,7 @@
 		while (p.gun_t <= 0.0f && p.rounds > 0) {
 			p.gun_t += 1.0f / w.rof;
 			p.rounds--;
-			V3 d = air_dir(p);
+			V3 d = air_nose(p);
 			float sx = randn() * 0.006f, sy = randn() * 0.006f;
 			V3 dir = v3norm({ d.x + sx, d.y + sy, d.z - sx });
 			Core::Shell sh;
@@ -266,7 +297,7 @@
 		for (int i = 0; i < n(); i++) {
 			if (!c->td[i].alive || team(i) == p.team) continue;
 			float dh = std::hypot(T(i)[P_X] - p.hold.x, T(i)[P_Y] - p.hold.z);
-			if (dh > (p.solo ? 2200.0f : 780.0f)) continue;
+			if (dh > (p.solo ? 3080.0f : 780.0f)) continue;
 			bool seen = T(i)[p.team == 0 ? P_VIS0 : P_VIS1] != 0.0f;
 			if (!seen) {
 				V3 tp = top(i);
@@ -378,7 +409,7 @@
 				// пикирование: с бомбами целится чуть выше цели (бомба недолетает до линии прицела), без бомб — точно в цель
 				air_steer(p, bombing ? V3{ tp.x, tp.y + 0.1f * hd + 8.0f, tp.z } : tp);
 				p.c_thr = 0.25f;
-				V3 d = air_dir(p), to = v3norm(v3sub(tp, p.p));
+				V3 d = air_nose(p), to = v3norm(v3sub(tp, p.p));
 				float off = std::acos(clampf(v3dot(d, to), -1.0f, 1.0f));
 				if (off < (bombing ? 0.16f : 0.07f) && hd < 640.0f && hd > 110.0f && p.burst < 1.8f) {
 					p.c_fire = true;
@@ -621,6 +652,15 @@
 				float dmg = s.cal < 15.0f ? 9.0f : (s.cal < 25.0f ? 19.0f : (s.cal < 45.0f ? 46.0f : 400.0f));
 				p.hp -= dmg * rnd(0.7f, 1.3f);
 				s.dead = true;
+				// куда пришлось: мотор — тяга слабеет, крыло — тянет в крен, хвост — руль вялый
+				float z = randf();
+				if (z < 0.25f) {
+					p.eng_k = std::max(0.45f, p.eng_k - (s.cal >= 30.0f ? 0.25f : 0.1f));
+				} else if (z < 0.55f) {
+					p.wing_bias = clampf(p.wing_bias + (randf() < 0.5f ? -1.0f : 1.0f) * (s.cal >= 30.0f ? 0.18f : 0.07f), -0.45f, 0.45f);
+				} else if (z < 0.7f) {
+					p.tail_k = std::max(0.5f, p.tail_k - (s.cal >= 30.0f ? 0.2f : 0.08f));
+				}
 				ev.add({ (float)W_AIR, 6.0f, (float)p.team, cl.x, cl.y, cl.z, (float)p.id });
 				if (p.hp <= 0.0f) {
 					bool by_player = (s.owner >= 0 && s.owner == c->w.player);
@@ -677,7 +717,7 @@
 		aim.y = std::max(aim.y, c->height(aim.x, aim.z) + 60.0f);
 		air_steer(p, aim);
 		if (bd < 260.0f) p.c_thr = 0.45f;
-		V3 d = air_dir(p), to = v3norm(v3sub(aim, p.p));
+		V3 d = air_nose(p), to = v3norm(v3sub(aim, p.p));
 		if (bd < 560.0f && std::acos(clampf(v3dot(d, to), -1.0f, 1.0f)) < 0.055f) p.c_fire = true;
 		if (p.p.y - gh < 75.0f) p.c_pitch = 1.0f;
 	}

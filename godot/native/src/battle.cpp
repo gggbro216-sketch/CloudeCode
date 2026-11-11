@@ -590,7 +590,8 @@ struct Step {
 			k[11] = cen.x;
 			k[12] = cen.y;
 			k[13] = cen.z;
-			k[14] = d.spot * d.spot_k;
+			// реализм: «обзора» нет — виден с любого расстояния при прямой видимости (куст и роща прячут, как и прежде)
+			k[14] = c->realism ? 1e5f : d.spot * d.spot_k;
 			k[15] = (c->in_bush(T(i)[P_X], T(i)[P_Y]) || c->trees_near(T(i)[P_X], T(i)[P_Y], 26.0f) >= 2) ? 1.0f : 0.0f;
 		}
 		std::vector<int32_t> res = spot_run(c, f, 110.0f, c->clock);
@@ -1212,6 +1213,106 @@ METHOD(inf_pose) {
 		o[16] = (float)pa; o[17] = (float)pb; o[18] = bl; o[19] = 0.0f;
 	}
 	ret_f32(r, out.data(), (int64_t)out.size());
+}
+
+
+// Частицы эффектов (было Fx._spawn на GDScript — по два вызова движка на частицу): C++ держит копии
+// буферов MultiMesh (кусок по CH частиц, 16 чисел: TRANSFORM_3D + custom) и рождает частицы пачкой.
+// fx_setup(куски на группу PackedInt32Array, CH) — пустые буферы; fx_spawn(PackedFloat32Array
+// [группа, cur, n, откуда xyz, куда xyz, оси 9 (столбцы), жизнь, палитра, vmin, vmax, разброс, тяжесть,
+// размер, grow, damp, вращение, now]) → [новый cur, кусков, (кусок, до какого времени живы)…];
+// fx_chunk(группа, кусок) → буфер куска для MultiMesh.buffer.
+METHOD(fx_setup) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	std::vector<int32_t> per = i32(a, 0);
+	int ch = (int)a.integer(1);
+	self->fx_ch = std::max(1, std::min(ch, 4096));
+	self->fx_buf.clear();
+	self->fx_per.assign(per.begin(), per.end());
+	for (size_t g = 0; g < per.size(); g++) {
+		for (int c = 0; c < per[g]; c++) {
+			std::vector<float> b((size_t)self->fx_ch * 16, 0.0f);
+			for (int i = 0; i < self->fx_ch; i++) {
+				b[(size_t)i * 16 + 1] = -1e6f;  // родилась «давно»
+				b[(size_t)i * 16 + 5] = 1.0f;
+			}
+			self->fx_buf.push_back(std::move(b));
+		}
+	}
+}
+
+METHOD(fx_spawn) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	std::vector<float> f = f32(a, 0);
+	if (f.size() < 29 || self->fx_per.empty()) {
+		ret_f32(r, nullptr, 0);
+		return;
+	}
+	int g = (int)f[0];
+	if (g < 0 || g >= (int)self->fx_per.size()) {
+		ret_f32(r, nullptr, 0);
+		return;
+	}
+	int base = 0;
+	for (int k = 0; k < g; k++) base += self->fx_per[(size_t)k];
+	int nch = self->fx_per[(size_t)g], CH = self->fx_ch, total = nch * CH;
+	int cur = ((int)f[1] % total + total) % total, n = std::max(0, std::min((int)f[2], 512));
+	V3 from = { f[3], f[4], f[5] }, to = { f[6], f[7], f[8] };
+	V3 bx = { f[9], f[10], f[11] }, by = { f[12], f[13], f[14] }, bz = { f[15], f[16], f[17] };
+	float life0 = f[18], ramp = f[19], vmin = f[20], vmax = f[21], spread = f[22], grav = f[23], size = f[24], grow = f[25], damp = f[26];
+	bool rot = f[27] != 0.0f;
+	float now = f[28];
+	std::vector<float> end_t((size_t)nch, -1.0f);
+	for (int k = 0; k < n; k++) {
+		float t = (float)(k + 1) / (float)n;
+		V3 at = v3add(from, v3mul(v3sub(to, from), t));
+		// разброс как у ParticleProcessMaterial: два угла, каждый равномерно в ±spread (гуще у оси)
+		float a1 = (self->randf() * 2.0f - 1.0f) * spread, a2 = (self->randf() * 2.0f - 1.0f) * spread;
+		float yz = std::cos(a2);
+		yz = yz / std::max(0.0001f, std::sqrt(std::fabs(yz)));
+		V3 lv = { -std::sin(a2), std::cos(a1) * yz, std::sin(a1) * yz };
+		V3 dir = v3norm(v3add(v3add(v3mul(bx, lv.x), v3mul(by, lv.y)), v3mul(bz, lv.z)));
+		V3 v = v3mul(dir, vmin + (vmax - vmin) * self->randf());
+		float life = life0 * (1.0f - 0.4f * self->randf());
+		int ci = cur / CH, ii = cur % CH;
+		cur = (cur + 1) % total;
+		float *o = &self->fx_buf[(size_t)(base + ci)][(size_t)ii * 16];
+		// Basis(x = v, y = (now, жизнь, размер), z = (тяжесть, damp, grow)) — столбцы; в буфере — строки
+		o[0] = v.x; o[1] = now; o[2] = grav; o[3] = at.x;
+		o[4] = v.y; o[5] = life; o[6] = damp; o[7] = at.y;
+		o[8] = v.z; o[9] = size; o[10] = grow; o[11] = at.z;
+		o[12] = ramp;
+		o[13] = rot ? self->randf() * 2.0f * PI_F : 0.0f;
+		o[14] = rot ? (self->randf() * 50.0f - 25.0f) * PI_F / 180.0f : 0.0f;
+		o[15] = 0.7f + 0.5f * self->randf();
+		end_t[(size_t)ci] = std::max(end_t[(size_t)ci], now + life);
+	}
+	std::vector<float> out;
+	out.push_back((float)cur);
+	out.push_back(0.0f);
+	for (int c = 0; c < nch; c++) {
+		if (end_t[(size_t)c] < 0.0f) continue;
+		out.push_back((float)c);
+		out.push_back(end_t[(size_t)c]);
+		out[1] += 1.0f;
+	}
+	ret_f32(r, out.data(), (int64_t)out.size());
+}
+
+METHOD(fx_chunk) {
+	SELF;
+	if (!need(a, 2, e)) return;
+	int g = (int)a.integer(0), c = (int)a.integer(1);
+	if (g < 0 || g >= (int)self->fx_per.size() || c < 0 || c >= self->fx_per[(size_t)g]) {
+		ret_f32(r, nullptr, 0);
+		return;
+	}
+	int base = 0;
+	for (int k = 0; k < g; k++) base += self->fx_per[(size_t)k];
+	const std::vector<float> &b = self->fx_buf[(size_t)(base + c)];
+	ret_f32(r, b.data(), (int64_t)b.size());
 }
 
 METHOD(world_step) {
@@ -1892,6 +1993,7 @@ METHOD(rules_set) {
 	self->bt_att = (int)f[3];
 	self->bt_cur = 0;
 	self->bt_bonus = f[4];
+	self->realism = f.size() > 5 && f[5] != 0.0f;
 }
 
 // Удар по точке: (вид: 0 артиллерия, 1 штурмовик; команда; x; z; кто вызвал — танк или −1) → принят ли
@@ -1968,11 +2070,13 @@ METHOD(air_view) {
 		v[0] = p.p.x;
 		v[1] = p.p.y;
 		v[2] = p.p.z;
-		v[3] = p.yaw;
-		v[4] = p.pitch;
+		V3 nose = Step::air_nose(p);  // модель рисуется по носу (траектория + угол атаки)
+		v[3] = std::atan2(nose.z, nose.x);
+		v[4] = std::asin(clampf(nose.y, -1.0f, 1.0f));
 		v[5] = p.roll;
 		v[6] = (float)p.team;
-		v[7] = (float)((p.alive ? 1 : 0) | (p.state == 5 ? 2 : 0) | (p.firing ? 4 : 0) | (p.player ? 8 : 0) | (p.ground ? 16 : 0) | (p.landing ? 32 : 0));
+		v[7] = (float)((p.alive ? 1 : 0) | (p.state == 5 ? 2 : 0) | (p.firing ? 4 : 0) | (p.player ? 8 : 0) | (p.ground ? 16 : 0) | (p.landing ? 32 : 0) |
+			(p.stalled ? 64 : 0) | (p.eng_k < 0.99f ? 128 : 0));
 		v[8] = p.hp;
 		v[9] = p.speed;
 		v[10] = (float)p.bombs;
@@ -2122,6 +2226,9 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "air_aim", air_aim },
 		{ "prof_dump", prof_dump },
 		{ "inf_pose", inf_pose },
+		{ "fx_setup", fx_setup },
+		{ "fx_spawn", fx_spawn },
+		{ "fx_chunk", fx_chunk },
 		{ "air_sights", air_sights },
 		{ "air_input", air_input },
 		{ "rules_set", rules_set },

@@ -771,8 +771,8 @@ func _draw_minimap() -> void:
 	var cone := PackedVector2Array([wp, wp + Vector2.from_angle(yaw - 0.5) * 42.0, wp + Vector2.from_angle(yaw + 0.5) * 42.0])
 	Gfx.polygon(cv, cone, Color(1, 1, 1, 0.16))
 	for tk in battle.tanks:
-		if not tk.alive or (tk.team == 1 and not tk.vis[0]):
-			continue
+		if not tk.alive or (tk.team == 1 and (not tk.vis[0] or battle.realism)):
+			continue  # в реализме на миникарте только свои
 		var c := team_color(tk.team)
 		var tp: Vector2 = o + tk.pos * k
 		if tk.is_player:
@@ -784,12 +784,16 @@ func _draw_minimap() -> void:
 		# самолёты — стрелками по курсу
 		var ad: PackedFloat32Array = battle.inf.air_dots()
 		for q in range(0, ad.size(), 4):
+			if battle.realism and int(ad[q + 2]) != 0:
+				continue
 			var ap := o + Vector2(clampf(ad[q], 0.0, D.WS), clampf(ad[q + 1], 0.0, D.WS)) * k
 			var fw := Vector2.from_angle(ad[q + 3])
 			var sd := fw.orthogonal()
 			Gfx.polygon(cv, PackedVector2Array([ap + fw * 7.0, ap - fw * 4.0 + sd * 4.5, ap - fw * 4.0 - sd * 4.5]), team_color(int(ad[q + 2])).lightened(0.25))
 		var dots: PackedFloat32Array = battle.inf.dots()
 		for q in range(0, dots.size(), 3):
+			if battle.realism and int(dots[q + 2]) != 0:
+				continue
 			var dp := o + Vector2(dots[q], dots[q + 1]) * k
 			cv.draw_rect(Rect2(dp.x - 1.5, dp.y - 1.5, 3.0, 3.0), team_color(int(dots[q + 2])))
 	# рамка четырьмя заливными прямоугольниками: draw_rect(…, false, w) заводит новый буфер и VAO на каждый вызов
@@ -1114,8 +1118,10 @@ func _draw_flight() -> void:
 	var c := size / 2
 	if (fl & 16) != 0:
 		_text(c + Vector2(0, 110), "НА ПОЛОСЕ: СТОЯ — ПЕРЕЗАРЯДКА 10 с; ГАЗ ВВЕРХ — РАЗБЕГ, МЕТКУ ВЫШЕ ГОРИЗОНТА — ВЗЛЁТ", 15, col_amber, true, 4)
-	elif kmh < 190.0:
-		_text(c + Vector2(0, 110), "СРЫВ! ГАЗ И НОС ВНИЗ", 18, col_foe, true, 4)
+	elif (fl & 64) != 0 or kmh < 175.0:
+		_text(c + Vector2(0, 110), "СРЫВ! ОТДАТЬ РУЧКУ: НОС ВНИЗ, ГАЗ", 18, col_foe, true, 4)
+	elif (fl & 128) != 0:
+		_text(c + Vector2(0, 110), "МОТОР ПОВРЕЖДЁН — ТЯГА СЛАБЕЕТ", 15, col_foe, true, 4)
 	elif battle.fly_land:
 		_text(c + Vector2(0, 110), "АВТОПИЛОТ: ЗАХОД НА ПОСАДКУ", 15, col_amber, true, 4)
 	elif int(air[a + 10]) <= 0 and rounds <= 0:
@@ -1175,8 +1181,8 @@ const AIR_V := 0.35  # самолёт летит в AIR_V раз медленн�
 ## Самолёты противника: ромб с дальностью; lead — метка упреждения для снаряда со скоростью shot_v.
 func _air_marks(me: Vector3, shot_v: float, skip: int, lead: bool) -> void:
 	var inf = battle.inf
-	if inf == null:
-		return
+	if inf == null or battle.realism:
+		return  # в реализме меток нет — самолёт ищут глазами
 	var air: PackedFloat32Array = inf.air
 	for q in range(0, air.size() - 1, 16):
 		if q == skip or int(air[q + 6]) == 0 or (int(air[q + 7]) & 3) != 1 or (int(air[q + 7]) & 16) != 0:

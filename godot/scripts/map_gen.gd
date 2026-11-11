@@ -5,6 +5,7 @@ extends RefCounted
 ## Логика боя работает на плоскости: точка карты (x, y) — это (x, высота рельефа, y) в 3D.
 ## Неподвижные объекты сливаются в одну сетку на материал; деревья и заборы — разрушаемые.
 
+const Prof = preload("res://scripts/prof.gd")
 const D = preload("res://scripts/data.gd")
 const Geo = preload("res://scripts/geo.gd")
 const TexLib = preload("res://scripts/textures.gd")
@@ -1841,7 +1842,10 @@ static func build(parent: Node3D, data: Dictionary, map_key: String, zones: Arra
 				parent.add_child(mmi)
 	# трава, качающаяся на ветру: участки с отсечением по дальности
 	if hq or not winter:
+		var t_g := Time.get_ticks_usec()
 		_grass(parent, data, terra, rng, map_key, hq)
+		if Prof.on:
+			Prof.add("load: трава", t_g)
 
 	# зоны захвата на ровных площадках: кольцо, диск и флаг; флагшток — в общей сетке
 	for z in zones:
@@ -1990,6 +1994,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 					mm.transform_format = MultiMesh.TRANSFORM_3D
 					mm.use_colors = true
 					mm.mesh = Geo.part_mesh(kg[j], 0)
+					Geo.lod_bind(mm)
 					mm.instance_count = count
 					mm.buffer = buf
 					var mmi := MultiMeshInstance3D.new()
@@ -2002,6 +2007,7 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 			per_tile.append(list)
 		mms[pk] = per_tile
 	Geo.lod_veg = false
+	Geo.lod_run()
 	if OS.get_environment("STEEL_PROF") != "":
 		printerr("LOD растительности: %.0f мс" % ((Time.get_ticks_usec() - t_lod) / 1000.0))
 	var ys: PackedFloat32Array = res[6]
@@ -2040,7 +2046,10 @@ static func _build_native(parent: Node3D, body: StaticBody3D, data: Dictionary, 
 	if hq or not winter:
 		rng.seed = seed
 		rng.state = res[9]
+		var t_g := Time.get_ticks_usec()
 		_grass(parent, data, terra, rng, map_key, hq)
+		if Prof.on:
+			Prof.add("load: трава", t_g)
 	_zone_nodes(parent, zones, terra)
 	var mats: Array = [M.plaster, M.brick, M.roof, M.concrete, M.concrete_d, M.wood, M.steel, M.rust, M.charred, M.sand,
 		M.rubble, M.rock, M.snow, M.canvas, M.olive, M.pole, M.earth, M.leaves, M.hay, M.adobe, M.crate, wall_mats[0], wall_mats[1]]

@@ -391,6 +391,8 @@ func frame(frac: float, dt: float) -> void:
 		if near and air_clock - float(air_snd.get(id, -99.0)) > 11.0:
 			air_snd[id] = air_clock
 			battle.sfx.play3d("plane", pp, 4.0)
+		if (fl & 128) != 0 and (fl & 2) == 0 and near and randf() < dt * 6.0:
+			battle.fx.emit(pp, 1, 1.4, "dark", 4, 14, Vector3.UP, 40, 1, 10.0, false, true, 0.8)  # дым из мотора
 		if (fl & 2) != 0 and near and randf() < dt * 14.0:
 			battle.fx.emit(pp, 2, 2.2, "dark", 5, 20, Vector3.UP, 60, 2, 16.0, false, true, 1.0)
 		if (fl & 4) != 0 and near and randf() < dt * 10.0:

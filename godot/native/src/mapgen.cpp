@@ -1361,7 +1361,7 @@ METHOD(map_generate) {
 	std::vector<float> zf = f32(a, 2);
 	for (size_t k = 0; k + 2 < zf.size(); k += 3) g.zones.push_back({ { zf[k], zf[k + 1] }, (double)zf[k + 2] });
 	// плотность по площади (у «Курской дуги» — свои числа)
-	g.K = map == 9 ? 1.0 : (WS * WS) / (2860.0 * 2860.0);
+	g.K = map == 9 ? (WS * WS) / (4300.0 * 4300.0) : (WS * WS) / (2860.0 * 2860.0);  // «Курская дуга» строилась под 4300
 	switch (map) {
 		case 1: g.alamein(); break;
 		case 2: g.stalingrad(); break;

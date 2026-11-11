@@ -160,15 +160,38 @@ static func part_mesh(grp: Array, i: int, extra := false, uv2_only := false) -> 
 		arrays[Mesh.ARRAY_TEX_UV2] = grp[6 + i * per]
 	elif uv2_only:
 		arrays[Mesh.ARRAY_TEX_UV2] = grp[5 + i * per]
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if lod_veg and v.size() > 600:
 		# растительность: уровни детализации (meshoptimizer) — вдали Godot рисует упрощённую сетку,
-		# ошибка меньше пикселя на экране (порог mesh_lod_threshold), картинка та же
+		# ошибка меньше пикселя на экране (порог mesh_lod_threshold), картинка та же. Считаются потом
+		# все разом на всех ядрах (lod_run); пока — сетка без LOD
 		var im := ImporterMesh.new()
 		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		im.generate_lods(60.0, 60.0, [])
-		return im.get_mesh()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		lod_jobs.append([im, null])
 	return mesh
+
+
+static var lod_jobs: Array = []  # [ImporterMesh, кому отдать сетку (MeshInstance3D или MultiMesh)]
+
+
+## Последней заявке на LOD — кому отдать готовую сетку.
+static func lod_bind(target: Object) -> void:
+	if not lod_jobs.is_empty() and lod_jobs[-1][1] == null:
+		lod_jobs[-1][1] = target
+
+
+## LOD всех заявок — параллельно в пуле потоков (на телефоне 8 ядер), затем сетки — владельцам.
+static func lod_run() -> void:
+	var jobs := lod_jobs
+	lod_jobs = []
+	if jobs.is_empty():
+		return
+	var gid := WorkerThreadPool.add_group_task(func(i: int): (jobs[i][0] as ImporterMesh).generate_lods(60.0, 60.0, []), jobs.size(), -1, true, "LOD растительности")
+	WorkerThreadPool.wait_for_group_task_completion(gid)
+	for jb: Array in jobs:
+		var t: Object = jb[1]
+		if t != null:
+			t.set("mesh", (jb[0] as ImporterMesh).get_mesh())
 
 
 static var lod_veg := false  # part_mesh строит LOD (включает сборка карты для кустов и деревьев)
@@ -181,6 +204,7 @@ static func commit_arrays(parent: Node3D, grp: Array, mats: Array, shadows: bool
 	for i in ids.size():
 		var mi := MeshInstance3D.new()
 		mi.mesh = part_mesh(grp, i, extra, uv2_only)
+		lod_bind(mi)
 		mi.material_override = mats[ids[i]]
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(mi)

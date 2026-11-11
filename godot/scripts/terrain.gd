@@ -6,13 +6,14 @@ const D = preload("res://scripts/data.gd")
 
 const ORIGIN := -700.0  # рельеф шире игровой зоны: по краям поднимаются горы
 static var SIZE := 4260.0  # D.WS + 2 × 700 (у большой карты больше — set_ws)
-const N := 213  # шаг сетки — 20 единиц (у большой карты — 26)
+static var N := 213  # клеток по стороне: шаг ~20 единиц, у больших карт — ~30 (set_ws)
 static var CELL := 4260.0 / 213.0
 
 
 ## Размер рельефа под сторону карты ws.
 static func set_ws(ws: float) -> void:
 	SIZE = ws + 1400.0
+	N = clampi(int(SIZE / 30.0), 213, 320)  # карта ×1,4: сетка ×1,36, а не ×1,96
 	CELL = SIZE / N
 
 var h := PackedFloat32Array()

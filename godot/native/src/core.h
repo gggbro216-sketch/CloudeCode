@@ -261,6 +261,10 @@ struct Core {
 		int id = 0, kind = 0, tgt_plane = -1, land_ph = 0;
 		bool ground = false, landing = false;
 		float rearm_t = 0, hp0 = 100;
+		// модель полёта 4.3: угол атаки и его скорость, скорость крена; повреждения по месту
+		float aoa = 0.05f, aoa_rate = 0, roll_rate = 0;
+		float eng_k = 1.0f, wing_bias = 0.0f, tail_k = 1.0f;  // мотор (доля тяги), крыло (постоянный крен), хвост (вялость руля)
+		bool stalled = false;
 	};
 	struct AirWeapon {
 		float cal = 23, pen = 25, dmg = 22, rof = 9, hp = 110, bomb_cal = 150;  // пушка, прочность, калибр бомбы
@@ -277,6 +281,7 @@ struct Core {
 	float cap_t[2] = { 0, 0 }, cap_cd[2] = { 0, 0 };  // сколько в небе висит авиация противника; пауза до следующего вылета истребителей
 	bool strike_ai = false;
 	float strike_t[2] = { 70.0f, 85.0f };
+	bool realism = false;  // реалистичный режим: без предела обзора
 	float sortie_t[2] = { 60.0f, 75.0f };  // вылеты ботов-лётчиков: пауза до следующей проверки
 	int sortie_left[2] = { 2, 2 };
 	std::vector<char> flew;  // этот бот уже летал
@@ -292,6 +297,9 @@ struct Core {
 	float inf_t = 0.0f;
 	std::vector<int> pose_a, pose_from;  // отрисовка пехоты: устойчивая поза бойца и откуда в неё переходит
 	std::vector<float> pose_t;
+	std::vector<std::vector<float>> fx_buf;  // частицы эффектов: копии буферов MultiMesh по кускам
+	std::vector<int> fx_per;
+	int fx_ch = 512;
 	int inf_kills = 0;  // бойцов противника на счету игрока
 	// дымовые завесы: шар, до какого времени снарядов (shell_clock) стоит; закрывают прямую видимость
 	struct Smoke {

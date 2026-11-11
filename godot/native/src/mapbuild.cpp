@@ -114,7 +114,7 @@ inline void put_xf(float *B, const M3 &b, V3 o) {
 }
 
 // Участки карты для отсечения: 3×3 на квадрат [-400, WS + 400]
-const int TILES = 4;  // куски геометрии для отсечения: карта выросла — кусков 4×4, размер куска почти прежний
+const int TILES = 5;  // куски геометрии для отсечения: карта выросла — кусков 4×4, размер куска почти прежний
 inline int tile_of(double x, double z) {
 	double span = (WS_D + 800.0) / TILES;
 	int ix = (int)std::floor((x + 400.0) / span), iz = (int)std::floor((z + 400.0) / span);

@@ -302,7 +302,9 @@ func setup(cfg: Dictionary) -> void:
 		bt_att = int(cfg.get("bt_att", randi() % 2))
 		time_limit = 300.0
 	if mission.is_empty() and D.WS > 3500.0:
-		time_limit *= 1.5  # большая карта: дольше ехать
+		time_limit *= 1.5 * 1.3  # большая карта (×1,4 с 4.3): дольше ехать
+	elif D.WS > 3500.0:
+		time_limit *= 1.3  # миссия кампании на карте ×1,4
 	side = D.TYPES[player_type].side
 
 
@@ -431,6 +433,7 @@ func _ready() -> void:
 	bush_mat = built.bush_mat
 	_make_env()
 	fx = FxScript.new()
+	fx.core = core
 	fx.amount_k = [0.4, 0.7, 1.0][clampi(int(G.get("particles", 2)), 0, 2)]
 	fx.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF  # вспышки и дым ставятся на месте
 	add_child(fx)
@@ -459,7 +462,7 @@ func _ready() -> void:
 	# камеру двигаем каждый кадр сами, по сглаженному положению танка
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	cam.near = 0.5
-	cam.far = 4000.0
+	cam.far = 5600.0
 	add_child(cam)
 	cam.current = true
 	weather = WeatherScript.new()
@@ -635,8 +638,8 @@ func _make_env() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color(M.fog)
-	env.fog_depth_begin = M.fog_near * float(G.get("view", 1.0))
-	env.fog_depth_end = M.fog_far * float(G.get("view", 1.0))
+	env.fog_depth_begin = M.fog_near * 1.4 * float(G.get("view", 1.0))
+	env.fog_depth_end = M.fog_far * 1.4 * float(G.get("view", 1.0))  # карты ×1,4
 	env.fog_sky_affect = 0.35
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -736,9 +739,9 @@ func _spawn() -> void:
 	var theirs := D.pool(map_key, D.foe_side(side), history, tier)
 	var hc: Dictionary = D.MAPS[map_key].get("handicap", {})
 	var wk: Array = mission.get("weight", [1.0, 1.0])
-	D.TEAM_CAP = 10 if D.WS > 3500.0 else D.TEAM_MAX
+	D.TEAM_CAP = 12 if D.WS > 3500.0 else D.TEAM_MAX
 	if D.WS > 3500.0:
-		wk = [float(wk[0]) * 1.5, float(wk[1]) * 1.5]  # большая карта: машин в полтора раза больше
+		wk = [float(wk[0]) * 1.8, float(wk[1]) * 1.8]  # большая карта: машин до 12 на сторону
 	if bt_att >= 0:
 		wk = [float(wk[0]) * 1.7, wk[1]] if bt_att == 0 else [wk[0], float(wk[1]) * 1.7]  # атакующих больше, они идут тремя волнами
 	teams = D.match_teams(mine, theirs, player_type, rng, year, tier, float(hc.get(side, 1.0)) * float(wk[0]),
@@ -796,7 +799,10 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 	rng.randomize()
 	var top: Dictionary = player_mods if is_player else D.random_mods(key, rng)
 	var skills: Dictionary = player_skills if is_player else D.bot_skills(D.tier(key), rng)
+	var t_su := Time.get_ticks_usec()
 	tk.setup(key, team, p, nm, is_player, int(G.get("shadows", 2)) > 0, year, D.paint(key, map_key, history), top, skills)
+	_prof("load: танк.setup", t_su)
+	t_su = Time.get_ticks_usec()
 	tk.sync_node()
 	tk.reset_physics_interpolation()  # появился на месте, а не приехал из начала координат
 	for c in (player_cons if is_player else D.CONSUMABLES.keys()):
@@ -813,6 +819,7 @@ func _add_tank(key: String, team: int, p: Vector2, nm: String, is_player: bool) 
 		_:
 			tk.dust_fx = fx.trail("light" if map_key == "normandy" else "dust")
 			tk.mud_fx = fx.trail("mud")
+	_prof("load: танк.пыль и дым", t_su)
 	tanks.append(tk)
 	var engine := "engine_" + String(tk.T.engine)
 	loops[tk] = [sfx.attach_loop(tk, engine, 26.0 if is_player else 20.0, -2.0 if is_player else -6.0),
@@ -1378,8 +1385,10 @@ func _world_init() -> void:
 	core_world = true
 	if core.has_method("rules_set"):
 		var dk: Array = [[1.6, 1.4], [1.0, 1.15], [0.8, 1.0]][difficulty]
-		core.rules_set(PackedFloat32Array([dk[0], dk[1], 1.0 if not bench else 0.0, float(bt_att), 90.0]))
+		core.rules_set(PackedFloat32Array([dk[0], dk[1], 1.0 if not bench else 0.0, float(bt_att), 90.0, 1.0 if realism else 0.0]))
+	var t_inf := Time.get_ticks_usec()
 	_spawn_infantry()
+	_prof("load: пехота и окружение", t_inf)
 
 
 ## Пехота: по отделению на направление каждой стороне (состав — по нации и году карты).
@@ -1396,7 +1405,7 @@ func _spawn_infantry() -> void:
 	var rows := InfantryScript.compose(nats, year, [_lane_x("hill"), _lane_x("mid"), _lane_x("town")], D.WS, amount if not bench else 0)
 	if D.WS > 3500.0 and amount > 1 and not bench:
 		# большая карта: второй эшелон пехоты на каждом направлении
-		var l2 := [_lane_x("hill") + 190.0, _lane_x("mid") - 190.0, _lane_x("town") + 190.0]
+		var l2 := [_lane_x("hill") + 266.0, _lane_x("mid") - 266.0, _lane_x("town") + 266.0]  # эшелон шире: карта ×1,4
 		var extra := InfantryScript.compose(nats, year, l2, D.WS, 1)
 		for q in range(0, extra.size(), 16):
 			if extra[q + 15] == 0.0:
@@ -1416,7 +1425,9 @@ func _spawn_infantry() -> void:
 	inf.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(inf)
 	inf.plane_of = [_plane_name(nats[0]), _plane_name(nats[1])]
+	var t_is := Time.get_ticks_usec()
 	inf.setup(self, core, rows, int(G.get("shadows", 2)) > 1)
+	_prof("load: пехота (модели)", t_is)
 	if core.has_method("air_setup"):
 		var aw := PackedFloat32Array()
 		for nt in nats:
@@ -1514,9 +1525,13 @@ func _spawn_decor() -> void:
 	for nm in lists:
 		total += inf.scatter(nm, lists[nm], int(G.get("shadows", 2)) > 2 and nm != "decor_foliage_5")
 	decor_n = total
+	var t_w := Time.get_ticks_usec()
 	if int(G.get("cinema", 1)) != 0:
 		_spawn_war(rng, level, nats_of_battle)
+	_prof("load: война вокруг", t_w)
+	t_w = Time.get_ticks_usec()
 	_spawn_airfields()
+	_prof("load: аэродромы", t_w)
 
 
 ## Аэродромы за базами: полоса, разметка торцов, пара самолётов на стоянке. Рельеф под ними выровнен в C++.

@@ -49,7 +49,7 @@ static inline float turn_toward(float cur, float target, float step) {
 	return std::fabs(d) <= step ? target : cur + signf(d) * step;
 }
 
-static const float RANGE = 1100.0f;  // D.RANGE
+static const float RANGE = 1540.0f;  // D.RANGE (карты ×1,4)
 
 static inline V2 from_angle(float a) { return { std::cos(a), std::sin(a) }; }
 static inline float dist2(V2 a, V2 b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
