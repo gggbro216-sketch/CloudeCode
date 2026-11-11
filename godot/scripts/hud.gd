@@ -37,6 +37,8 @@ var fire_r := 76.0
 var auto_rect := Rect2()
 var pause_c := Vector2.ZERO
 var zoom_c := Vector2.ZERO
+var thr_rect := Rect2()  # самолёт: ползунок газа слева, как в War Thunder Mobile
+var thr_idx := -1
 var cons_c := {}  # снаряжение → центр кнопки
 var ammo_r: Array = []  # кнопки снарядов: [прямоугольник, номер в боекомплекте]
 
@@ -139,6 +141,7 @@ func fire_held() -> bool:
 
 func reset_input() -> void:
 	move_idx = -1
+	thr_idx = -1
 	aim_idx = -1
 	fire_idx = -1
 	move = Vector2.ZERO
@@ -158,6 +161,8 @@ func _input(event: InputEvent) -> void:
 			if e.index == move_idx:
 				move_idx = -1
 				move = Vector2.ZERO
+			elif e.index == thr_idx:
+				thr_idx = -1
 			elif e.index == aim_idx:
 				aim_idx = -1
 				dragging = false
@@ -179,11 +184,15 @@ func _input(event: InputEvent) -> void:
 			fire_idx = e.index
 			fire_req = true
 			return
+		if battle.fly_id >= 0 and thr_rect.grow(34.0).has_point(p):
+			thr_idx = e.index
+			_thr_set(p.y)
+			return
 		for rr: Array in range_r:
 			if (rr[0] as Rect2).grow(6.0).has_point(p):
 				battle.range_set = clampf(battle.range_set + float(rr[1]), 50.0, 600.0)
 				return
-		if auto_rect.grow(10.0).has_point(p) and not battle.realism:
+		if auto_rect.grow(10.0).has_point(p) and not battle.realism and battle.fly_id < 0:
 			auto_aim = not auto_aim
 			return
 		for an in abil_c:
@@ -212,7 +221,7 @@ func _input(event: InputEvent) -> void:
 					"attack":
 						battle.give_order(3)
 				return
-		if p.distance_to(zoom_c) < 50.0:
+		if p.distance_to(zoom_c) < 50.0 and battle.fly_id < 0:
 			battle.toggle_sniper()
 			return
 		for c in cons_c:
@@ -270,7 +279,9 @@ func _input(event: InputEvent) -> void:
 			battle.toggle_sniper()
 	elif event is InputEventScreenDrag:
 		var e := event as InputEventScreenDrag
-		if e.index == move_idx:
+		if e.index == thr_idx:
+			_thr_set(e.position.y)
+		elif e.index == move_idx:
 			move_p = e.position
 			var d := move_p - move_o
 			if d.length() > SR:
@@ -343,6 +354,14 @@ func _process(delta: float) -> void:
 				continue  # в самолёте слева остаётся одна кнопка — вернуться в танк
 			abil_c[o] = Vector2(14.0 + margins.x + 34.0, oy)
 			oy += 58.0
+		if battle.fly_id >= 0:
+			# самолёт: справа — пушки (большая кнопка), бомбы и посадка; слева — «в танк» и ползунок газа
+			ammo_r.clear()
+			cons_c.clear()
+			abil_c["arty"] = Vector2(zoom_c.x - 10.0, zoom_c.y - 42.0)
+			abil_c["air"] = Vector2(zoom_c.x - 10.0, zoom_c.y - 142.0)
+			var top: float = (abil_c["follow"] as Vector2).y + 62.0 if abil_c.has("follow") else s.y * 0.42
+			thr_rect = Rect2(14.0 + margins.x + 16.0, top, 46.0, maxf(120.0, s.y - bt - 34.0 - top))
 		if battle.realism:
 			auto_aim = false
 			range_r.append([Rect2(auto_rect.position.x - 4.0, auto_rect.position.y, 56.0, 44.0), -50.0])
@@ -429,7 +448,7 @@ func _draw_world() -> void:
 			continue
 		if tk.team == 1 and (not tk.vis[0] or battle.realism):
 			continue
-		if tk.pos.distance_to(w.pos) > 1100.0:
+		if tk.pos.distance_to(_eye_xz()) > (2400.0 if battle.fly_id >= 0 else 1100.0):
 			continue
 		var s = _proj(tk.get_global_transform_interpolated().origin + Vector3(0, tk.height + 10.0, 0))
 		if s == null:
@@ -451,7 +470,8 @@ func _draw_world() -> void:
 ## Цвет круга: зелёный — пробьёт, жёлтый — как повезёт, красный — не пробьёт.
 func _draw_crosshair() -> void:
 	if battle.fly_id >= 0:
-		return  # в самолёте свой прицел (_draw_flight)
+		_draw_flight_sights()  # в самолёте свои прицелы, каждый кадр
+		return
 	var w = battle.watch
 	var cam: Camera3D = battle.cam
 	var c := size / 2
@@ -788,6 +808,10 @@ func _draw_radio() -> void:
 
 func _draw_hp() -> void:
 	var p = battle.player
+	if battle.fly_id >= 0:
+		_draw_flight()
+		_draw_abilities()
+		return
 	var cx := size.x / 2
 	var y := size.y - 14.0 - margins.w - 52.0
 	_text(Vector2(cx, y), String(p.T.name).to_upper(), 14, col_dim, true, 3)
@@ -925,6 +949,9 @@ func _draw_controls() -> void:
 	var p = battle.player
 	if not p.alive:
 		return
+	if battle.fly_id >= 0:
+		_draw_throttle()
+		return
 	# джойстик движения
 	if move_idx != -1:
 		Gfx.circle(cv, move_o, SR, Color(1, 1, 1, 0.08))
@@ -955,8 +982,6 @@ func _draw_controls() -> void:
 	cv.draw_line(zoom_c + Vector2(6, 4), zoom_c + Vector2(14, 12), zc, 3.0, true)
 	_text(zoom_c + Vector2(0, 30), "ПРИЦЕЛ", 11, zc, true, 0)
 	_draw_cons(p)
-	if battle.fly_id >= 0:
-		_draw_flight()
 	_draw_abilities()
 	_draw_ammo()
 
@@ -999,46 +1024,156 @@ func _draw_cons(p) -> void:
 
 
 ## Полёт: приборы, метка носа самолёта, подсказки. Метка прицела — центр экрана (туда доворачивает самолёт).
-func _draw_flight() -> void:
+func _fly_air() -> int:
 	var inf = battle.inf
-	if inf == null:
+	if inf == null or battle.fly_id < 0:
+		return -1
+	return inf.plane_at(battle.fly_id)
+
+
+func _fly_bombs() -> int:
+	var a := _fly_air()
+	return int(battle.inf.air[a + 10]) if a >= 0 else 0
+
+
+## Точка, от которой считаются метки на земле: самолёт в полёте, иначе свой танк.
+func _eye_xz() -> Vector2:
+	var a := _fly_air()
+	if a >= 0:
+		return Vector2(battle.inf.air[a], battle.inf.air[a + 2])
+	return battle.watch.pos
+
+
+func _thr_set(y: float) -> void:
+	if thr_rect.size.y <= 0.0:
 		return
-	var a: int = inf.plane_at(battle.fly_id)
+	battle.fly_thr = clampf(1.0 - (y - thr_rect.position.y) / thr_rect.size.y, 0.0, 1.0)
+
+
+## Ползунок газа (как в War Thunder Mobile): тянуть вверх-вниз, отпущенный остаётся на месте.
+func _draw_throttle() -> void:
+	var r := thr_rect
+	if r.size.y <= 0.0:
+		return
+	var thr: float = battle.fly_thr
+	cv.draw_rect(r, Color(0.04, 0.05, 0.03, 0.55))
+	var fh := r.size.y * thr
+	cv.draw_rect(Rect2(r.position.x, r.end.y - fh, r.size.x, fh), Color(0.94, 0.72, 0.23, 0.35 if thr_idx == -1 else 0.55))
+	for k: float in [0.0, 0.5, 1.0]:
+		var ty: float = r.end.y - r.size.y * k
+		cv.draw_line(Vector2(r.end.x, ty), Vector2(r.end.x + 8.0, ty), col_dim, 2.0)
+	var hy := r.end.y - fh
+	cv.draw_rect(Rect2(r.position.x - 6.0, hy - 5.0, r.size.x + 12.0, 10.0), col_amber)
+	_text(Vector2(r.get_center().x, r.position.y - 12.0), "ГАЗ", 13, col_dim, true, 3)
+	_text(Vector2(r.end.x + 14.0, hy + 6.0), "%d%%" % int(thr * 100.0), 16, col_text, false, 3)
+
+
+## Самолёт (медленный слой): кнопка пушек, приборы, подсказки.
+func _draw_flight() -> void:
+	var a := _fly_air()
 	if a < 0:
 		return
+	var air: PackedFloat32Array = battle.inf.air
+	var fl := int(air[a + 7])
+	var rounds := int(air[a + 11])
+	var on := rounds > 0
+	Gfx.circle(cv, fire_c, fire_r, Color(0.94, 0.72, 0.23, 0.28))
+	Gfx.circle(cv, fire_c, fire_r - 10, col_amber if on else Color("6c5a2a"))
+	_text(fire_c + Vector2(0, 2), "ПУШКИ", 22, Color("1b1405") if on else col_text, true, 0)
+	_text(fire_c + Vector2(0, 26), str(rounds), 16, Color("1b1405") if on else col_text, true, 0)
+	# приборы — строкой под счётом: скорость, высота, планер
+	var gh: float = battle.terra.height(air[a], air[a + 2])
+	var kmh := air[a + 9] * 0.9  # приборная скорость (летит самолёт вдвое медленнее — масштаб карты)
+	var alt := (air[a + 1] - gh) / D.UPM
+	var hp := 100.0 * air[a + 8] / maxf(1.0, air[a + 14])
+	var cx := size.x * 0.5
+	var y := 14.0 + margins.y + 64.0
+	var cells := [["СКОР.", "%d км/ч" % int(kmh), col_foe if kmh < 190.0 and (fl & 16) == 0 else col_text],
+		["ВЫС.", "%d м" % int(alt), col_foe if alt < 12.0 and (fl & 16) == 0 else col_text],
+		["ПЛАНЕР", "%d%%" % int(hp), col_text if hp > 40.0 else col_foe]]
+	cv.draw_rect(Rect2(cx - 225.0, y - 20.0, 450.0, 30.0), Color(0.04, 0.05, 0.03, 0.55))
+	var x := cx - 150.0
+	for cl: Array in cells:
+		_text(Vector2(x - 40.0, y), cl[0], 12, col_dim, true, 3)
+		_text(Vector2(x + 25.0, y), cl[1], 17, cl[2], true, 3)
+		x += 150.0
+	var c := size / 2
+	if (fl & 16) != 0:
+		_text(c + Vector2(0, 110), "НА ПОЛОСЕ: СТОЯ — ПЕРЕЗАРЯДКА 10 с; ГАЗ ВВЕРХ — РАЗБЕГ, МЕТКУ ВЫШЕ ГОРИЗОНТА — ВЗЛЁТ", 15, col_amber, true, 4)
+	elif kmh < 190.0:
+		_text(c + Vector2(0, 110), "СРЫВ! ГАЗ И НОС ВНИЗ", 18, col_foe, true, 4)
+	elif battle.fly_land:
+		_text(c + Vector2(0, 110), "АВТОПИЛОТ: ЗАХОД НА ПОСАДКУ", 15, col_amber, true, 4)
+	elif int(air[a + 10]) <= 0 and rounds <= 0:
+		_text(c + Vector2(0, 110), "БОЕЗАПАС ПУСТ — САДИТЕСЬ НА СВОЙ АЭРОДРОМ («ПОСАДКА»)", 15, col_amber, true, 4)
+
+
+## Прицелы самолёта (каждый кадр): метка курса, нос, точка попадания пушек, метка падения бомб, упреждение по самолётам.
+func _draw_flight_sights() -> void:
+	var a := _fly_air()
+	if a < 0:
+		return
+	var inf = battle.inf
 	var air: PackedFloat32Array = inf.air
 	var c := size / 2
+	# метка курса — куда ведёт палец; самолёт доворачивает на неё
 	Gfx.arc(cv, c, 16.0, 0, TAU, 32, Color(1, 1, 1, 0.85), 2.0)
 	Gfx.circle(cv, c, 2.0, Color(1, 1, 1, 0.9))
-	# куда сейчас смотрит нос (туда летят снаряды)
-	var px: Array = inf.plane_xf(a, 1.0)
-	var ns = _proj((px[0] as Vector3) + (px[1] as Vector3) * 700.0)
+	var px: Array = inf.plane_xf(a, Engine.get_physics_interpolation_fraction())
+	var me: Vector3 = px[0]
+	var ns = _proj(me + (px[1] as Vector3) * 700.0)
 	if ns != null:
 		for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
 			cv.draw_line(ns + v * 6.0, ns + v * 15.0, col_amber, 2.5, true)
 	var fl := int(air[a + 7])
-	var gh: float = battle.terra.height(air[a], air[a + 2])
-	var kmh := air[a + 9] * 0.9  # скорость в игре сжата, как и расстояния: 440 ед/с ≈ 400 км/ч
-	var alt := (air[a + 1] - gh) / D.UPM
-	var x := 30.0 + margins.x
-	var y := size.y * 0.5 + 40.0
-	var rows := [["СКОРОСТЬ", "%d км/ч" % int(kmh), col_foe if kmh < 190.0 and (fl & 16) == 0 else col_text],
-		["ВЫСОТА", "%d м" % int(alt), col_foe if alt < 12.0 and (fl & 16) == 0 else col_text],
-		["ГАЗ", "%d %%" % int(battle.fly_thr * 100.0), col_text],
-		["БОМБЫ", "%d" % int(air[a + 10]), col_text if air[a + 10] > 0 else col_dim],
-		["СНАРЯДЫ", "%d" % int(air[a + 11]), col_text if air[a + 11] > 0 else col_dim],
-		["ПЛАНЕР", "%d %%" % int(100.0 * air[a + 8] / maxf(1.0, air[a + 14])), col_text if air[a + 8] > air[a + 14] * 0.4 else col_foe]]
-	cv.draw_rect(Rect2(x - 10.0, y - 20.0, 190.0, rows.size() * 24.0 + 12.0), Color(0.04, 0.05, 0.03, 0.55))
-	for r: Array in rows:
-		_text(Vector2(x, y), r[0], 12, col_dim, false, 3)
-		_text(Vector2(x + 96.0, y), r[1], 16, r[2], false, 3)
-		y += 24.0
-	if (fl & 16) != 0:
-		_text(c + Vector2(0, 90), "НА ПОЛОСЕ: ГАЗ ВВЕРХ (ЛЕВЫЙ ПАЛЕЦ) — РАЗБЕГ; СТОЯ — ПЕРЕЗАРЯДКА", 15, col_amber, true, 4)
-	elif kmh < 190.0:
-		_text(c + Vector2(0, 90), "СРЫВ! ГАЗ И НОС ВНИЗ", 18, col_foe, true, 4)
-	elif battle.fly_land:
-		_text(c + Vector2(0, 90), "АВТОПИЛОТ: ЗАХОД НА ПОСАДКУ", 15, col_amber, true, 4)
+	var sg: PackedFloat32Array = battle.fly_sight
+	if sg.size() == 8 and (fl & 16) == 0:
+		# пушки: где очередь встретит землю (до 1,4 км)
+		if sg[7] > 0.0 and sg[7] < 1400.0 and int(air[a + 11]) > 0:
+			var gp = _proj(Vector3(sg[4], sg[5] + 1.0, sg[6]))
+			if gp != null:
+				Gfx.arc(cv, gp, 11.0, 0, TAU, 24, Color("9ad07a"), 2.0)
+				Gfx.circle(cv, gp, 2.5, Color("9ad07a"))
+				_text(gp + Vector2(16, 5), "%d м" % int(sg[7] / D.UPM), 12, Color("9ad07a"), false, 3)
+		# бомбы: точка падения с линией сброса от самолёта (CCIP)
+		if int(air[a + 10]) > 0:
+			var bp = _proj(Vector3(sg[0], sg[1] + 1.0, sg[2]))
+			var pl = _proj(me + Vector3(0, -6.0, 0))
+			if bp != null:
+				var hit := false
+				for tk in battle.tanks:
+					if tk.alive and tk.team == 1 and tk.vis[0] and Vector2(tk.pos.x - sg[0], tk.pos.y - sg[2]).length() < 26.0:
+						hit = true
+						break
+				var bc := Color("ff6a4a") if hit else Color(1, 1, 1, 0.9)
+				if pl != null:
+					cv.draw_dashed_line(pl, bp, Color(bc, 0.55), 2.0, 10.0)
+				Gfx.arc(cv, bp, 18.0, 0, TAU, 32, bc, 2.5)
+				for v: Vector2 in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+					cv.draw_line(bp + v * 18.0, bp + v * 28.0, bc, 2.5, true)
+				_text(bp + Vector2(0, 46), "СБРОС!" if hit else "БОМБЫ %.1f с" % sg[3], 14, bc, true, 3)
+	# самолёты противника: рамка и метка упреждения для пушек
+	var my_v := 1900.0 + air[a + 9] * 0.5
+	for q in range(0, air.size() - 1, 16):
+		if q == a or int(air[q + 6]) == 0 or (int(air[q + 7]) & 3) != 1:
+			continue
+		var pp := Vector3(air[q], air[q + 1], air[q + 2])
+		var d := pp.distance_to(me)
+		if d > 2000.0:
+			continue
+		var s = _proj(pp)
+		if s == null:
+			continue
+		Gfx.arc(cv, s, 14.0, 0, TAU, 4, col_foe, 2.0)
+		if d < 1300.0:
+			var yaw := air[q + 3]
+			var pit := air[q + 4]
+			var dv := Vector3(cos(yaw) * cos(pit), sin(pit), sin(yaw) * cos(pit)) * air[q + 9] * 0.5
+			var ld = _proj(pp + dv * (d / my_v))
+			if ld != null:
+				cv.draw_line(s, ld, Color(col_foe, 0.5), 1.5, true)
+				Gfx.arc(cv, ld, 8.0, 0, TAU, 20, col_foe, 2.0)
+		_text(s + Vector2(0, -20), "%d м" % int(d / D.UPM), 12, col_foe, true, 3)
 
 
 ## Удары (артиллерия, штурмовик), приказы взводу и дальность «Реализма».
@@ -1078,12 +1213,12 @@ func _draw_abilities() -> void:
 					cv.draw_line(cc + Vector2(dx - 4, -9), cc + Vector2(dx + 5, 0), col, 3.0, true)
 					cv.draw_line(cc + Vector2(dx + 5, 0), cc + Vector2(dx - 4, 9), col, 3.0, true)
 		if strike and battle.fly_id >= 0:
-			_text(cc + Vector2(0, 46), "БОМБЫ" if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
+			_text(cc + Vector2(0, 46), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
 		elif strike and cd > 0.0:
 			Gfx.arc(cv, cc, rr - 4.0, -PI / 2, -PI / 2 + TAU * (1.0 - cd / float(battle.STRIKE_CD[k])), 40, col_amber, 3.0)
 			_text(cc + Vector2(0, 46), "%d" % ceili(cd), 13, col_dim, true, 3)
 		elif strike and battle.fly_id >= 0:
-			_text(cc + Vector2(0, 46), "БОМБЫ" if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
+			_text(cc + Vector2(0, 46), ("БОМБЫ ×%d" % _fly_bombs()) if an == "arty" else ("ПОСАДКА: ВКЛ" if battle.fly_land else "ПОСАДКА"), 11, col_amber if (an == "air" and battle.fly_land) else col_dim, true, 3)
 		elif strike:
 			_text(cc + Vector2(0, 46), "АРТ" if an == "arty" else "АВИА", 11, col_dim, true, 3)
 		else:

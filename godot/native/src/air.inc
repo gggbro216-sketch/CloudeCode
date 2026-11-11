@@ -11,9 +11,49 @@
 
 	// модель полёта: крен разворачивает, тангаж меняет высоту и скорость (в пикировании разгон, в наборе потеря)
 	// полоса своей стороны: центр и высота
+	// масштаб скорости: «скорость» самолёта — в условных единицах приборов (×0,9 = км/ч), а летит он в AIR_V раз
+	// медленнее — иначе на карте в 4–6 км самолёт пересекал поле за 9 с (как в War Thunder: заход ~20 с)
+	static constexpr float AIR_V = 0.5f;
+
 	V3 air_field(int tm) const {
 		float zc = tm == 0 ? c->ws + 380.0f : -380.0f;
 		return { c->ws * 0.5f, c->height(c->ws * 0.5f, zc), zc };
+	}
+
+	// Прицелы игрока (как в War Thunder): точка падения бомбы (полёт с тяготением до земли) и точка встречи
+	// очереди с землёй. Возвращает [бомба x,y,z, время падения, пушки x,y,z, дальность пушек (0 — нет встречи)].
+	void air_sights(const Core::Plane &p, float *o) const {
+		V3 b = { p.p.x, p.p.y - 4.0f, p.p.z }, v = p.v;
+		float t = 0.0f;
+		for (int i = 0; i < 600; i++) {
+			const float h = 0.04f;
+			V3 nv = { v.x, v.y - GRAVITY * h, v.z };
+			V3 nb = v3add(b, v3mul(v3add(v, nv), 0.5f * h));
+			t += h;
+			float g = c->height(nb.x, nb.z);
+			if (nb.y <= g) {
+				float k = (b.y - c->height(b.x, b.z)) / std::max(0.001f, b.y - c->height(b.x, b.z) - (nb.y - g));
+				b = v3add(b, v3mul(v3sub(nb, b), clampf(k, 0.0f, 1.0f)));
+				break;
+			}
+			b = nb;
+			v = nv;
+		}
+		o[0] = b.x; o[1] = c->height(b.x, b.z); o[2] = b.z; o[3] = t;
+		V3 d = air_dir(p), s = v3add(p.p, v3mul(d, 14.0f)), sv = v3mul(d, 1900.0f + p.speed * AIR_V);
+		o[4] = o[5] = o[6] = o[7] = 0.0f;
+		for (int i = 0; i < 120; i++) {
+			const float h = 0.01f;
+			V3 nv = { sv.x, sv.y - GRAVITY * h, sv.z };
+			V3 ns = v3add(s, v3mul(v3add(sv, nv), 0.5f * h));
+			if (ns.y <= c->height(ns.x, ns.z)) {
+				o[4] = ns.x; o[5] = c->height(ns.x, ns.z); o[6] = ns.z;
+				o[7] = std::max(1.0f, v3len(v3sub(ns, p.p)));
+				break;
+			}
+			s = ns;
+			sv = nv;
+		}
 	}
 
 	void air_fly(Core::Plane &p) {
@@ -24,10 +64,10 @@
 			p.roll = 0.0f;
 			p.yaw = std::fabs(ang_diff(p.yaw, 0.0f)) < PI_F * 0.5f ? 0.0f : PI_F;
 			p.speed = clampf(p.speed + (p.c_thr > 0.08f ? p.c_thr * 80.0f - 8.0f : -70.0f) * dt, 0.0f, 420.0f);
-			p.p.x += std::cos(p.yaw) * p.speed * dt;
+			p.p.x += std::cos(p.yaw) * p.speed * AIR_V * dt;
 			p.p.z = f.z;
 			p.p.y = f.y + 3.5f;
-			p.v = { std::cos(p.yaw) * p.speed, 0.0f, 0.0f };
+			p.v = { std::cos(p.yaw) * p.speed * AIR_V, 0.0f, 0.0f };
 			if (p.speed > 235.0f && p.c_thr > 0.3f && (p.c_pitch > 0.1f || std::fabs(p.p.x - f.x) > 1500.0f)) {
 				p.ground = false;
 				p.pitch = 0.14f;
@@ -54,11 +94,11 @@
 		}
 		bool ftr = p.kind == 1;
 		float roll_t = clampf(p.c_roll, -1.0f, 1.0f) * 1.15f;
-		p.roll = move_toward(p.roll, roll_t, (ftr ? 3.2f : 2.4f) * dt);
+		p.roll = move_toward(p.roll, roll_t, (ftr ? 2.2f : 1.6f) * dt);
 		// срыв: на малой скорости рули вянут и нос падает
 		float auth = clampf((p.speed - 150.0f) / 90.0f, 0.15f, 1.0f);
-		p.yaw = wrapf(p.yaw + std::sin(p.roll) * (ftr ? 1.55f : 1.25f) * auth * dt, -PI_F, PI_F);
-		p.pitch = clampf(p.pitch + clampf(p.c_pitch, -1.0f, 1.0f) * (ftr ? 1.05f : 0.85f) * auth * dt, -1.05f, 0.9f);
+		p.yaw = wrapf(p.yaw + std::sin(p.roll) * (ftr ? 0.95f : 0.72f) * auth * dt, -PI_F, PI_F);
+		p.pitch = clampf(p.pitch + clampf(p.c_pitch, -1.0f, 1.0f) * (ftr ? 0.75f : 0.6f) * auth * dt, -1.05f, 0.9f);
 		if (p.speed < 175.0f) p.pitch -= (175.0f - p.speed) / 175.0f * 1.1f * dt;
 		// тяга: повреждённый мотор тянет хуже; в вираже скорость теряется, в пикировании растёт
 		float dmg_k = p.hp < p.hp0 * 0.4f ? 0.78f : 1.0f;
@@ -67,7 +107,7 @@
 		float drag = std::fabs(std::sin(p.roll)) * 38.0f;
 		p.speed = clampf(p.speed + ((v_t - p.speed) * 0.45f - std::sin(p.pitch) * 170.0f - drag) * dt, 110.0f, 760.0f);
 		V3 d = air_dir(p);
-		p.v = v3mul(d, p.speed);
+		p.v = v3mul(d, p.speed * AIR_V);
 		p.p = v3add(p.p, v3mul(p.v, dt));
 	}
 
@@ -148,7 +188,7 @@
 			V3 dir = v3norm({ d.x + sx, d.y + sy, d.z - sx });
 			Core::Shell sh;
 			sh.pos = v3add(p.p, v3mul(d, 14.0f));
-			sh.vel = v3mul(dir, 1900.0f + p.speed);
+			sh.vel = v3mul(dir, 1900.0f + p.speed * AIR_V);
 			sh.dist = 0.0f;
 			sh.rico = 0;
 			sh.owner = -1;
@@ -278,7 +318,7 @@
 				}
 				V3 tp = center(p.tgt);
 				float hd = std::hypot(tp.x - p.p.x, tp.z - p.p.z);
-				float lead = hd / std::max(p.speed, 1.0f);
+				float lead = hd / std::max(p.speed * AIR_V, 1.0f);
 				tp.x += T(p.tgt)[P_VX] * lead;
 				tp.z += T(p.tgt)[P_VY] * lead;
 				hd = std::hypot(tp.x - p.p.x, tp.z - p.p.z);
@@ -467,7 +507,7 @@
 		}
 		c->planes.erase(std::remove_if(c->planes.begin(), c->planes.end(), [](const Core::Plane &p) { return p.gone; }), c->planes.end());
 		air_hits();
-		air_cap();
+		// истребители-перехватчики ИИ отключены (лишние): air_cap() не вызывается
 	}
 
 	// снаряды по самолётам: любой снаряд противника (танк, ЗСУ, пушка, самолёт), прошедший рядом с корпусом
@@ -538,7 +578,7 @@
 			return;
 		}
 		p.t = 0.0f;
-		float lead = bd / (1900.0f + p.speed);
+		float lead = bd / (1900.0f + p.speed * AIR_V);
 		V3 aim = v3add(tg->p, v3mul(tg->v, lead));
 		aim.y = std::max(aim.y, c->height(aim.x, aim.z) + 60.0f);
 		air_steer(p, aim);

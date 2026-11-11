@@ -1828,8 +1828,11 @@ METHOD(air_spawn) {
 	float hr = self->height(cx, zc);
 	p.yaw = 0.0f;
 	if (in_air) {
-		p.p = { cx - 300.0f, hr + 260.0f, zc };
-		p.speed = 400.0f;
+		// как в наземных боях War Thunder: появление в воздухе за своей базой, курсом на поле боя
+		p.p = { cx + (float)((p.id * 37) % 300 - 150), hr + 430.0f, zc };
+		p.yaw = tm == 0 ? -PI_F * 0.5f : PI_F * 0.5f;
+		p.speed = 330.0f;
+		p.pitch = -0.05f;
 	} else {
 		p.p = { cx - 520.0f, hr + 3.5f, zc };
 		p.speed = 0.0f;
@@ -1843,6 +1846,23 @@ METHOD(air_spawn) {
 	p.state = 1;
 	self->planes.push_back(p);
 	ret_int(r, (int64_t)p.id);
+}
+
+// Прицелы самолёта игрока: (id) → [бомба x,y,z,t, пушки x,y,z,дальность]; пусто, если самолёта нет.
+METHOD(air_sights) {
+	SELF;
+	if (!need(a, 1, e)) return;
+	int id = (int)a.integer(0);
+	float o[8] = { 0 };
+	int n = 0;
+	for (const Core::Plane &p : self->planes) {
+		if (p.id != id || !p.alive) continue;
+		Step st{ self, 0.0f };
+		st.air_sights(p, o);
+		n = 8;
+		break;
+	}
+	ret_f32(r, o, n);
 }
 
 // Управление «меткой»: (номер, направление взгляда xyz, газ 0…1, огонь, сброс, посадка по автопилоту).
@@ -1924,6 +1944,7 @@ void register_battle(GDExtensionClassLibraryPtr lib, const char *cls) {
 		{ "air_view", air_view },
 		{ "air_spawn", air_spawn },
 		{ "air_aim", air_aim },
+		{ "air_sights", air_sights },
 		{ "air_input", air_input },
 		{ "rules_set", rules_set },
 		{ "strike_call", strike_call },

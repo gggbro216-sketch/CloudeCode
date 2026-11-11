@@ -185,6 +185,7 @@ var fly_land := false
 var sorties := 2
 var fly_wait := 0.0  # задержка вылета, с
 var fly_kind := 0
+var fly_sight := PackedFloat32Array()  # прицелы: [бомба x,y,z,t, пушки x,y,z,дальность]
 var air_kills := 0
 var start_air := false
 var strikes_used := 0
@@ -4543,18 +4544,21 @@ func take_off(kind := 0, delay := 15.0) -> void:
 func _fly_start() -> void:
 	sorties -= 1
 	fly_seen = false
-	fly_id = int(core.air_spawn(0, fly_kind, 0))
-	fly_thr = 0.0
+	# как в наземных боях War Thunder: самолёт появляется в воздухе за своей базой; аэродром — для перезарядки
+	fly_id = int(core.air_spawn(0, fly_kind, 1))
+	fly_thr = 0.75
+	fly_sight = PackedFloat32Array()
 	fly_land = false
 	fly_fire = false
 	fly_bomb = false
 	sniper = false
-	cam_yaw = 0.0
-	cam_yaw_t = 0.0
-	cam_pitch = 0.05
-	cam_pitch_t = 0.05
+	cam_yaw = -PI / 2
+	cam_yaw_t = -PI / 2
+	cam_pitch = 0.12
+	cam_pitch_t = 0.12
+	hud.reset_input()
 	hud.show_dead(false)
-	hud.alert("ГАЗ ВВЕРХ — РАЗБЕГ, ЗАТЕМ МЕТКУ ВЫШЕ ГОРИЗОНТА", Color(D.AMBER))
+	hud.alert("ПРАВЫЙ ПАЛЕЦ — КУРС, ПОЛЗУНОК СЛЕВА — ГАЗ", Color(D.AMBER))
 
 
 ## Вернуться в танк (самолёт забирает ИИ и уводит) — если танк цел.
@@ -4586,7 +4590,7 @@ func _fly_step(dt: float) -> void:
 		if not player.alive:
 			hud.show_dead(true)
 		return
-	var ty: float = -hud.move.y
+	var ty := 0.0  # газ — ползунком слева (hud), с клавиатуры — W/S
 	if Input.is_key_pressed(KEY_W):
 		ty = 1.0
 	if Input.is_key_pressed(KEY_S):
@@ -4595,6 +4599,7 @@ func _fly_step(dt: float) -> void:
 		fly_thr = clampf(fly_thr + ty * 0.7 * dt, 0.0, 1.0)
 	core.air_aim(fly_id, _cam_dir(), fly_thr, fly_fire or hud.fire_held() or Input.is_key_pressed(KEY_SPACE), fly_bomb, fly_land)
 	fly_bomb = false
+	fly_sight = core.air_sights(fly_id)
 	if (int(inf.air[a + 7]) & 16) != 0:
 		fly_land = false
 
