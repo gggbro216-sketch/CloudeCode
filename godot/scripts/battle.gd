@@ -13,6 +13,7 @@ signal progress(stage: String)  # этап загрузки (для экрана
 signal load_done
 signal bench_done(res: Dictionary)  # замер FPS закончен
 
+const AirfieldScript = preload("res://scripts/airfield.gd")
 const D = preload("res://scripts/data.gd")
 const MapGen = preload("res://scripts/map_gen.gd")
 const Terrain = preload("res://scripts/terrain.gd")
@@ -1519,38 +1520,27 @@ func _spawn_decor() -> void:
 func _spawn_airfields() -> void:
 	var ws := D.WS
 	var sc: float = InfantryScript.SCALE
+	var all := {}
 	for tm in 2:
+		var items: Dictionary = AirfieldScript.build(self, terra, ws, tm, sc)
 		var zc := ws + 380.0 if tm == 0 else -380.0
-		var hy: float = terra.height(ws * 0.5, zc)
-		var strip := MeshInstance3D.new()
-		var pm := PlaneMesh.new()
-		pm.size = Vector2(3400.0, 110.0)
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.2, 0.19, 0.17)
-		m.roughness = 0.95
-		pm.material = m
-		strip.mesh = pm
-		strip.position = Vector3(ws * 0.5, hy + 0.5, zc)
-		strip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(strip)
-		for sx in [-1.0, 1.0]:
-			var mark := MeshInstance3D.new()
-			var mm := PlaneMesh.new()
-			mm.size = Vector2(60.0, 70.0)
-			var m2 := StandardMaterial3D.new()
-			m2.albedo_color = Color(0.85, 0.85, 0.8)
-			mm.material = m2
-			mark.mesh = mm
-			mark.position = Vector3(ws * 0.5 + sx * 1600.0, hy + 0.6, zc)
-			mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			add_child(mark)
-		if inf:
-			var parked: Array = []
-			for k in 2:
-				var px := ws * 0.5 - 200.0 + k * 140.0
-				var pz := zc + (150.0 if tm == 0 else -150.0)
-				parked.append([Transform3D(Basis(Vector3.UP, 0.4 + k * 0.5).scaled(Vector3(sc, sc, sc)), Vector3(px, terra.height(px, pz) + 1.9 * sc, pz)), Color.WHITE])
-			inf.scatter(inf.plane_of[tm], parked, false)
+		var out := 1.0 if tm == 0 else -1.0
+		# самолёты на перроне
+		var parked: Array = []
+		for k in 3:
+			var px := ws * 0.5 - 520.0 + k * 170.0
+			var pz := zc + out * 215.0
+			parked.append([Transform3D(Basis(Vector3.UP, (PI * 0.5 if out > 0 else -PI * 0.5) + 0.25 * (k - 1)).scaled(Vector3(sc, sc, sc)),
+				Vector3(px, terra.height(px, pz) + 1.9 * sc, pz)), Color.WHITE])
+		items[inf.plane_of[tm] if inf else "_"] = parked
+		for nm in items:
+			if not all.has(nm):
+				all[nm] = []
+			(all[nm] as Array).append_array(items[nm])
+	if inf:
+		for nm in all:
+			if nm != "_":
+				inf.scatter(nm, all[nm], false)
 
 
 ## Война вокруг: дым и огонь над руинами и остовами, столбы дыма на горизонте, гарь воронок, павшие в поле

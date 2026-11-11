@@ -25,13 +25,14 @@ PROPS = {
                "atlas": 64, "color": (84, 90, 58), "credit": "37mm AT Gun M3 — Ronald_Reagan (CC BY 4.0)"},
     "gun_flak88": {"src": "g_flak", "len": 6.7, "fwd": (1, 0, 0), "up": (0, 1, 0), "tris": 2600, "atlas": 256,
                    "credit": "8.8 cm Flak 18 — Liminal Bifrost (CC BY 4.0)"},
-    "plane_ju87": {"src": "p_ju87", "len": 11.1, "fwd": (0, 0, 1), "up": (0, 1, 0), "tris": 2200, "atlas": 64, "center": True, "paint": (74, 84, 66),
-                   "credit": "Junkers Ju 87 Stuka — Arthur C. Galuppo (CC BY 4.0)"},
-    "plane_p47": {"src": "p_p47", "len": 11.0, "fwd": (0, 0, -1), "up": (0, 1, 0), "tris": 2200, "atlas": 256, "center": True,
-                  "pick": lambda c, e: not (e[1] < 2.0 and e[0] > 1000.0),
-                  "credit": "P-47 Thunderbolt — Yo Boy (CC BY 4.0)"},
-    "plane_il2": {"src": "p_il2h", "len": 11.6, "fwd": (-1, 0, 0), "up": (0, 1, 0), "tris": 2200, "atlas": 256, "center": True,
-                  "credit": "Ilyushin Il-2 — helijah (CC BY 4.0)"},
+    # самолёты (4.2): серия manilov.ap — детальнее прежних; 8000 треугольников и атлас 1024, их видно вблизи
+    "plane_ju87": {"src": "p2_ju87", "len": 11.1, "fwd": "auto", "up": (0, 1, 0), "tris": 8000, "atlas": 1024, "center": True,
+                   "pick": lambda c, e: max(e) < 20.0,
+                   "credit": "Ju87 — manilov.ap (CC BY 4.0)"},
+    "plane_p47": {"src": "p2_p47", "len": 11.0, "fwd": "auto", "up": (0, 1, 0), "tris": 8000, "atlas": 1024, "center": True,
+                  "credit": "P47 — manilov.ap (CC BY 4.0)"},
+    "plane_il2": {"src": "p2_il2", "len": 11.6, "fwd": "auto", "flip": True, "up": (0, 1, 0), "tris": 8000, "atlas": 1024, "center": True,
+                  "credit": "Il2 — manilov.ap (CC BY 4.0)"},
 }
 
 
@@ -113,6 +114,19 @@ def bake_pack(pname, cfg, src, preview):
     return len(groups[:16])
 
 
+def auto_fwd(V):
+    """Самолёт, повёрнутый в исходнике как угодно вокруг вертикали: ось фюзеляжа — вторая по величине
+    горизонтальная главная ось (первая — размах крыла), нос — в сторону, противоположную килю (самые высокие точки)."""
+    H = V[:, [0, 2]] - V[:, [0, 2]].mean(0)
+    w, vec = np.linalg.eigh(H.T @ H / len(H))
+    b = vec[:, 0]  # меньшая из двух горизонтальных — вдоль фюзеляжа
+    top = V[:, 1] > np.percentile(V[:, 1], 98)
+    side = float((H[top] @ b).mean())
+    if side > 0:
+        b = -b
+    return U.unit(np.array([b[0], 0.0, b[1]]))
+
+
 def bake(name, cfg, src, preview):
     path = os.path.join(src, cfg["src"], "model.glb")
     if not os.path.exists(path):
@@ -132,7 +146,12 @@ def bake(name, cfg, src, preview):
     S = cfg.get("atlas", 256)
     atlas = Image.new("RGB", (S, S), (70, 70, 62))
     V, UV = U.atlas_place(parts, atlas, (0, 0, S, S), 1, 1)
-    f = U.unit(np.asarray(cfg["fwd"], np.float64))
+    if cfg["fwd"] == "auto":
+        f = auto_fwd(V)
+        if cfg.get("flip"):
+            f = -f  # высокий фонарь кабины (Ил-2) сбивает примету «киль — самое высокое»
+    else:
+        f = U.unit(np.asarray(cfg["fwd"], np.float64))
     u = U.unit(np.asarray(cfg["up"], np.float64))
     r = np.cross(u, f)
     L = np.stack([V @ r, V @ u, V @ f], axis=1)
