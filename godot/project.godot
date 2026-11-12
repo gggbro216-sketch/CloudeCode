@@ -11,13 +11,13 @@ config_version=5
 [application]
 
 config/name="Стальной Штурм"
-config/version="4.3"
+config/version="4.3.1"
 config/description="Командный 3D-бой танков 5 на 5 для телефона"
 run/main_scene="res://main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.07, 0.08, 0.06, 1)
-config/icon="res://icon.svg"
+config/icon="res://icons/main_192.png"
 
 [autoload]
 
